@@ -151,7 +151,7 @@ async function normalizePathConfig(raw, index = 0) {
     );
 
     const inputPath = cleanString(
-        raw.inputPath || raw.sourcePath || raw.filePath || raw.fileInputPath || raw.targetInputPath
+        raw.inputPath || raw.sourcePath || raw.filePath || raw.fileInputPath || raw.targetInputPath || raw.logPath
     );
     const outputPath = cleanString(
         raw.outputPath ||
@@ -163,6 +163,7 @@ async function normalizePathConfig(raw, index = 0) {
     );
     const scriptPath = cleanString(raw.scriptPath || raw.scriptDisplayPath || raw.scriptDirectoryPath);
     const backupPath = cleanString(raw.backupPath || raw.backupDirectoryPath);
+    const logPath = cleanString(raw.logPath || raw.logDirectoryPath);
 
     return {
         serverKey: buildServerKey(targetServer),
@@ -171,6 +172,7 @@ async function normalizePathConfig(raw, index = 0) {
         outputPath: outputPath || null,
         scriptPath,
         backupPath: backupPath || null,
+        logPath 
     };
 }
 
@@ -207,6 +209,7 @@ function toStoredPathConfig(pathConfig) {
         outputPath: pathConfig.outputPath,
         scriptPath: pathConfig.scriptPath,
         backupPath: pathConfig.backupPath,
+        logPath: pathConfig.logPath,
     };
 }
 
@@ -614,6 +617,7 @@ class PipelineConfigController {
   *   outputPath     {string} - (optional) new output path
   *   scriptPath     {string} - (optional) new script path
   *   backupPath     {string} - (optional) new backup path
+  *   logPath        {string} - (optional) new log path
   */
     static updateServerPath = asyncHandler(async (req, res) => {
         const payload = req.body || {};
@@ -674,6 +678,7 @@ class PipelineConfigController {
             outputPath: cleanString(payload.outputPath) || existingEntry.outputPath || null,
             scriptPath: cleanString(payload.scriptPath) || existingEntry.scriptPath || '',
             backupPath: cleanString(payload.backupPath) || existingEntry.backupPath || null,
+            logPath: cleanString(payload.logPath) || existingEntry.logPath || null,
         };
 
         // ─── Step 6: Rebuild the serverPaths map for this version ─────────────────
