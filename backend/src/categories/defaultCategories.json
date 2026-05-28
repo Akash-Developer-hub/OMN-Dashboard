@@ -1,0 +1,279 @@
+[
+  {
+    "category": "bank",
+    "label": "Bank",
+    "primaryTag": {
+      "key": "amenity",
+      "value": "bank"
+    },
+    "fields": [
+      {
+        "label": "Operator",
+        "field": "operator",
+        "type": "text",
+        "osmTag": "operator",
+        "required": false
+      },
+      {
+        "label": "ATM Available",
+        "field": "atm",
+        "type": "boolean",
+        "osmTag": "atm",
+        "required": false
+      },
+      {
+        "label": "Cash Deposit Available",
+        "field": "cashDeposit",
+        "type": "boolean",
+        "osmTag": "cash_deposit",
+        "required": false
+      },
+      {
+        "label": "Locker Facility",
+        "field": "lockerFacility",
+        "type": "boolean",
+        "osmTag": "locker_facility",
+        "required": false
+      },
+      {
+        "label": "Loan Available",
+        "field": "loanAvailable",
+        "type": "boolean",
+        "osmTag": "loan_available",
+        "required": false
+      }
+    ]
+  },
+  {
+    "category": "cafe",
+    "label": "Cafe",
+    "primaryTag": {
+      "key": "amenity",
+      "value": "cafe"
+    },
+    "fields": [
+      {
+        "label": "Cuisine",
+        "field": "cuisine",
+        "type": "text",
+        "osmTag": "cuisine",
+        "required": false
+      },
+      {
+        "label": "Internet Access",
+        "field": "internetAccess",
+        "type": "boolean",
+        "osmTag": "internet_access",
+        "required": false
+      },
+      {
+        "label": "Outdoor Seating",
+        "field": "outdoorSeating",
+        "type": "boolean",
+        "osmTag": "outdoor_seating",
+        "required": false
+      },
+      {
+        "label": "Takeaway",
+        "field": "takeaway",
+        "type": "boolean",
+        "osmTag": "takeaway",
+        "required": false
+      },
+      {
+        "label": "Drive Through",
+        "field": "driveThrough",
+        "type": "boolean",
+        "osmTag": "drive_through",
+        "required": false
+      }
+    ]
+  },
+  {
+    "category": "hospital",
+    "label": "Hospital",
+    "primaryTag": {
+      "key": "amenity",
+      "value": "hospital"
+    },
+    "fields": [
+      {
+        "label": "Emergency Services",
+        "field": "emergency",
+        "type": "boolean",
+        "osmTag": "emergency",
+        "required": false
+      },
+      {
+        "label": "Number of Beds",
+        "field": "beds",
+        "type": "number",
+        "osmTag": "beds",
+        "required": false
+      },
+      {
+        "label": "Speciality",
+        "field": "speciality",
+        "type": "text",
+        "osmTag": "healthcare:speciality",
+        "required": false
+      },
+      {
+        "label": "Operator",
+        "field": "operator",
+        "type": "text",
+        "osmTag": "operator",
+        "required": false
+      },
+      {
+        "label": "Wheelchair Access",
+        "field": "wheelchair",
+        "type": "boolean",
+        "osmTag": "wheelchair",
+        "required": false
+      }
+    ]
+  },
+  {
+    "category": "hotel",
+    "label": "Hotel",
+    "primaryTag": {
+      "key": "tourism",
+      "value": "hotel"
+    },
+    "fields": [
+      {
+        "label": "Star Rating",
+        "field": "stars",
+        "type": "number",
+        "osmTag": "stars",
+        "required": false
+      },
+      {
+        "label": "Number of Rooms",
+        "field": "rooms",
+        "type": "number",
+        "osmTag": "rooms",
+        "required": false
+      },
+      {
+        "label": "Swimming Pool",
+        "field": "pool",
+        "type": "boolean",
+        "osmTag": "swimming_pool",
+        "required": false
+      },
+      {
+        "label": "Internet Access",
+        "field": "wifi",
+        "type": "boolean",
+        "osmTag": "internet_access",
+        "required": false
+      },
+      {
+        "label": "Wheelchair Access",
+        "field": "wheelchair",
+        "type": "boolean",
+        "osmTag": "wheelchair",
+        "required": false
+      },
+      {
+        "label": "Operator",
+        "field": "operator",
+        "type": "text",
+        "osmTag": "operator",
+        "required": false
+      }
+    ]
+  },
+  {
+    "category": "pharmacy",
+    "label": "Pharmacy",
+    "primaryTag": {
+      "key": "amenity",
+      "value": "pharmacy"
+    },
+    "fields": [
+      {
+        "label": "Dispensing",
+        "field": "dispensing",
+        "type": "boolean",
+        "osmTag": "dispensing",
+        "required": false
+      },
+      {
+        "label": "Open 24 Hours",
+        "field": "open24Hours",
+        "type": "boolean",
+        "osmTag": "opening_hours:signed",
+        "required": false
+      },
+      {
+        "label": "Operator",
+        "field": "operator",
+        "type": "text",
+        "osmTag": "operator",
+        "required": false
+      },
+      {
+        "label": "Wheelchair Access",
+        "field": "wheelchair",
+        "type": "boolean",
+        "osmTag": "wheelchair",
+        "required": false
+      }
+    ]
+  },
+  {
+    "category": "restaurant",
+    "label": "Restaurant",
+    "primaryTag": {
+      "key": "amenity",
+      "value": "restaurant"
+    },
+    "fields": [
+      {
+        "label": "Cuisine",
+        "field": "cuisine",
+        "type": "text",
+        "osmTag": "cuisine",
+        "required": false
+      },
+      {
+        "label": "Outdoor Seating",
+        "field": "outdoorSeating",
+        "type": "boolean",
+        "osmTag": "outdoor_seating",
+        "required": false
+      },
+      {
+        "label": "Takeaway",
+        "field": "takeaway",
+        "type": "boolean",
+        "osmTag": "takeaway",
+        "required": false
+      },
+      {
+        "label": "Delivery",
+        "field": "delivery",
+        "type": "boolean",
+        "osmTag": "delivery",
+        "required": false
+      },
+      {
+        "label": "Reservations",
+        "field": "reservation",
+        "type": "boolean",
+        "osmTag": "reservation",
+        "required": false
+      },
+      {
+        "label": "Operator",
+        "field": "operator",
+        "type": "text",
+        "osmTag": "operator",
+        "required": false
+      }
+    ]
+  }
+]

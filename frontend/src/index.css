@@ -1,0 +1,360 @@
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Inter:wght@300;400;500;600;700;800&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Road closure marker ping animation */
+@keyframes ping {
+  75%, 100% { transform: scale(2); opacity: 0; }
+}
+
+/* Prevent MapLibre marker drift during zoom */
+.maplibregl-marker {
+  will-change: transform;
+}
+.maplibregl-marker > div {
+  position: relative;
+}
+
+/* Leaflet tooltip override for road closure markers */
+.leaflet-rc-tooltip {
+  background: hsl(220 18% 10%) !important;
+  border: 1px solid hsl(220 18% 18%) !important;
+  border-radius: 12px !important;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.5) !important;
+  padding: 0 !important;
+  color: hsl(210 20% 92%) !important;
+  font-family: inherit !important;
+}
+.leaflet-rc-tooltip.leaflet-tooltip-top::before {
+  border-top-color: hsl(220 18% 18%) !important;
+}
+
+/* ── Road Closure Leaflet Popup ──────────────────────────────────── */
+.rc-leaflet-popup .leaflet-popup-content-wrapper {
+  border-radius: 12px;
+  padding: 0;
+  overflow: hidden;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18), 0 2px 6px rgba(0, 0, 0, 0.10);
+  border: none;
+}
+.rc-leaflet-popup .leaflet-popup-content {
+  margin: 0;
+  width: auto !important;
+}
+.rc-leaflet-popup .leaflet-popup-tip-container {
+  margin-top: -1px;
+}
+
+.rc-maplibre-popup .maplibregl-popup-content {
+  border-radius: 12px;
+  padding: 0;
+  overflow: visible;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18), 0 2px 6px rgba(0, 0, 0, 0.10);
+  border: none;
+  margin: 0;
+}
+
+.rc-maplibre-popup .maplibregl-popup-close-button {
+  color: #6b7280;
+  font-size: 18px;
+  line-height: 1;
+  padding: 4px 8px;
+  z-index: 1;
+}
+
+.rc-maplibre-popup .maplibregl-popup-close-button:hover {
+  background: transparent;
+  color: #111827;
+}
+
+.leaflet-rc-tooltip.maplibregl-popup .maplibregl-popup-content {
+  background: hsl(220 18% 10%) !important;
+  border: 1px solid hsl(220 18% 18%) !important;
+  border-radius: 12px !important;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.5) !important;
+  padding: 0 !important;
+  color: hsl(210 20% 92%) !important;
+  font-family: inherit !important;
+}
+
+.leaflet-rc-tooltip.maplibregl-popup .maplibregl-popup-tip {
+  border-top-color: hsl(220 18% 18%) !important;
+}
+.rc-popup {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  padding: 14px 16px 12px;
+  min-width: 220px;
+}
+.rc-popup__header {
+  margin-bottom: 8px;
+}
+.rc-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.3px;
+  padding: 3px 10px;
+  border-radius: 20px;
+  text-transform: uppercase;
+}
+.rc-badge--full {
+  background: #fde8e8;
+  color: #b91c1c;
+  border: 1px solid #fca5a5;
+}
+.rc-badge--partial {
+  background: #fef3c7;
+  color: #92400e;
+  border: 1px solid #fcd34d;
+}
+.rc-popup__title {
+  font-size: 13px;
+  font-weight: 600;
+  color: #111827;
+  line-height: 1.4;
+  margin-bottom: 6px;
+}
+.rc-popup__desc {
+  font-size: 12px;
+  color: #4b5563;
+  line-height: 1.5;
+  margin-bottom: 8px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid #f3f4f6;
+}
+.rc-popup__meta {
+  font-size: 11px;
+  color: #9ca3af;
+}
+.rc-popup__meta strong {
+  color: #6b7280;
+  font-weight: 600;
+}
+
+@layer base {
+  :root,
+  .dark {
+    --background: 220 20% 7%;
+    --foreground: 210 20% 92%;
+
+    --card: 220 18% 10%;
+    --card-foreground: 210 20% 92%;
+
+    --popover: 220 18% 12%;
+    --popover-foreground: 210 20% 92%;
+
+    --primary: 174 72% 46%;
+    --primary-foreground: 220 20% 7%;
+
+    --secondary: 220 16% 16%;
+    --secondary-foreground: 210 20% 80%;
+
+    --muted: 220 14% 14%;
+    --muted-foreground: 215 12% 50%;
+
+    --accent: 174 72% 46%;
+    --accent-foreground: 220 20% 7%;
+
+    --destructive: 0 72% 55%;
+    --destructive-foreground: 210 40% 98%;
+
+    --border: 220 14% 18%;
+    --input: 220 14% 18%;
+    --ring: 174 72% 46%;
+
+    --radius: 0.5rem;
+
+    --sidebar-background: 220 20% 8%;
+    --sidebar-foreground: 210 20% 75%;
+    --sidebar-primary: 174 72% 46%;
+    --sidebar-primary-foreground: 220 20% 7%;
+    --sidebar-accent: 220 16% 14%;
+    --sidebar-accent-foreground: 210 20% 92%;
+    --sidebar-border: 220 14% 15%;
+    --sidebar-ring: 174 72% 46%;
+
+    --warning: 38 92% 50%;
+    --warning-foreground: 220 20% 7%;
+    --success: 152 69% 42%;
+    --success-foreground: 220 20% 7%;
+    --info: 210 92% 58%;
+    --info-foreground: 220 20% 7%;
+
+    --surface-elevated: 220 16% 12%;
+    --glow-primary: 174 72% 46%;
+  }
+
+  .light {
+    --background: 214 32% 96%;
+    --foreground: 220 30% 10%;
+
+    --card: 0 0% 100%;
+    --card-foreground: 220 30% 10%;
+
+    --popover: 0 0% 100%;
+    --popover-foreground: 220 30% 10%;
+
+    --primary: 174 72% 32%;
+    --primary-foreground: 0 0% 100%;
+
+    --secondary: 214 24% 90%;
+    --secondary-foreground: 220 30% 15%;
+
+    --muted: 214 24% 91%;
+    --muted-foreground: 220 16% 38%;
+
+    --accent: 174 72% 32%;
+    --accent-foreground: 0 0% 100%;
+
+    --destructive: 0 72% 48%;
+    --destructive-foreground: 0 0% 100%;
+
+    --border: 214 20% 82%;
+    --input: 214 20% 82%;
+    --ring: 174 72% 32%;
+
+    --radius: 0.5rem;
+
+    --sidebar-background: 0 0% 100%;
+    --sidebar-foreground: 220 28% 20%;
+    --sidebar-primary: 174 72% 32%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 214 32% 92%;
+    --sidebar-accent-foreground: 220 28% 16%;
+    --sidebar-border: 214 20% 84%;
+    --sidebar-ring: 174 72% 32%;
+
+    --warning: 38 92% 42%;
+    --warning-foreground: 0 0% 100%;
+    --success: 152 69% 32%;
+    --success-foreground: 0 0% 100%;
+    --info: 210 92% 44%;
+    --info-foreground: 0 0% 100%;
+
+    --surface-elevated: 0 0% 100%;
+    --glow-primary: 174 72% 32%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+    scrollbar-width: thin;
+    scrollbar-color: hsl(var(--muted-foreground) / 0.3) transparent;
+  }
+
+  body {
+    @apply bg-background text-foreground font-sans antialiased;
+    font-family: 'Inter', sans-serif;
+  }
+
+  code, .font-mono {
+    font-family: 'JetBrains Mono', monospace;
+  }
+
+  /* Custom Scrollbar for Webkit */
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    background: hsl(var(--muted-foreground) / 0.3);
+    border-radius: 10px;
+    border: 3px solid transparent;
+    background-clip: content-box;
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    background: hsl(var(--primary) / 0.6);
+    border: 2px solid transparent;
+    background-clip: content-box;
+  }
+}
+
+@layer utilities {
+  @keyframes row-approved {
+    0%   { background-color: hsl(152 69% 42% / 0.35); }
+    100% { background-color: transparent; }
+  }
+  .animate-row-approved {
+    animation: row-approved 2.5s ease-out forwards;
+  }
+
+  .glow-primary {
+    box-shadow: 0 0 20px -5px hsl(var(--glow-primary) / 0.3);
+  }
+
+  .gradient-border {
+    border: 1px solid transparent;
+    background-clip: padding-box;
+    position: relative;
+  }
+
+  .gradient-border::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    padding: 1px;
+    background: linear-gradient(135deg, hsl(var(--primary) / 0.4), hsl(var(--primary) / 0.1));
+    -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+    mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+    -webkit-mask-composite: xor;
+    mask-composite: exclude;
+    pointer-events: none;
+  }
+
+  /* Smooth theme transition */
+  html {
+    transition: background-color 0.25s ease, color 0.25s ease;
+  }
+
+  /* Light mode background gradient */
+  .light body {
+    background: linear-gradient(135deg, hsl(214 32% 96%) 0%, hsl(200 30% 94%) 100%);
+    min-height: 100vh;
+  }
+
+  /* Light mode card polish */
+  .light .bg-card {
+    background: #ffffff;
+    box-shadow: 0 1px 4px 0 hsl(220 20% 60% / 0.10), 0 0.5px 1px 0 hsl(220 20% 60% / 0.08);
+  }
+
+  /* Light mode topbar */
+  .light header.bg-card {
+    background: rgba(255,255,255,0.85);
+    backdrop-filter: blur(12px);
+    box-shadow: 0 1px 0 0 hsl(214 20% 82%);
+  }
+
+  /* Light mode table rows */
+  .light tr:hover td {
+    background-color: hsl(174 72% 32% / 0.05);
+  }
+
+  /* Dark mode card subtle glow */
+  .dark .bg-card {
+    box-shadow: 0 1px 3px 0 hsl(220 20% 4% / 0.4);
+  }
+
+  /* Hide scrollbar for Chrome, Safari and Opera */
+  .no-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+
+  /* Hide scrollbar for IE, Edge and Firefox */
+  .no-scrollbar {
+    -ms-overflow-style: none;  /* IE and Edge */
+    scrollbar-width: none;  /* Firefox */
+  }
+}

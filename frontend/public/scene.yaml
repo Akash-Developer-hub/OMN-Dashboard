@@ -1,0 +1,4146 @@
+styles:
+  building_transparent:
+      base: polygons
+      blend: translucent
+      lighting: false
+      material:
+          ambient: [0.78, 0.76, 0.70]
+          diffuse: [0.92, 0.90, 0.84]
+          specular: [0.08, 0.08, 0.06]
+          shininess: 4.0
+      shaders:
+          blocks:
+            color: |
+              // If the normal is pointing up (Z axis), it's a roof. Make it opaque.
+              if (worldNormal().z > 0.9) {
+                  color.a = 1.0; 
+              }
+  pedestrian_zebra:
+      base: polygons
+      texcoords: true
+      blend: translucent
+      shaders:
+        uniforms:
+          u_stripe_color: [1.0, 1.0, 1.0, 0.7]
+          u_stripe_scale: 14.0
+          u_stripe_width: 0.55
+        blocks:
+          color: |
+            float t = fract(v_texcoord.x * u_stripe_scale);
+            float band = 1.0 - step(u_stripe_width, t);
+            color = vec4(u_stripe_color.rgb, u_stripe_color.a * band);
+  building_solid_roof:
+    base: polygons
+    lighting: false
+    blend: translucent
+    material:
+      ambient: [0.78, 0.76, 0.70]
+      diffuse: [0.92, 0.90, 0.84]
+      specular: [0.08, 0.08, 0.06]
+      shininess: 4.0
+    shaders:
+      blocks:
+        color: |
+          // If the normal is pointing up (Z axis), it's a roof. Make it opaque.
+          if (worldNormal().z > 0.9) {
+              color.a = 1.0; 
+          }
+  navicon:
+    base: points
+    blend: overlay
+    blend_order: 9
+    order: 495
+  locationicon:
+    base: points
+    blend: overlay
+    blend_order: 8
+  marker:
+    base: points
+    blend: overlay
+    blend_order: 8
+  nemarker:
+    base: points
+    blend: overlay
+    blend_order: 8
+  dbgmarker:
+    base: points
+    blend: overlay
+    blend_order: 101
+  heightglowline:
+    base: lines
+  heightglow:
+    base: polygons
+    lighting: vertex
+    shaders:
+      blocks:
+        color: color.rgb += vec3(worldPosition().z / 800.);
+  buildingVertexShaded:
+    base: polygons
+    lighting: vertex
+    blend: opaque
+    shaders:
+      uniforms:
+        u_globalDirectionalLight: [.0, .0, 1.0]
+      blocks:
+        color: float normdot = dot(worldNormal(), u_globalDirectionalLight ); if (normdot
+          < 0.0) { normdot = 0.0;} ; normdot = sqrt(normdot*normdot); float xcomp
+          = dot(worldNormal(), vec3(1.0, 0.0, 0.0) ); float ycomp = dot(worldNormal(),
+          vec3(0.0, 1.0, 0.0) ); color.rgb = color.rgb*(normdot) + (0.1*xcomp + 0.1*ycomp
+          + 0.7)*color.rgb; color.a = 1.0;
+  buildingVertexShadedWithTransparency:
+    base: polygons
+    lighting: vertex
+    blend: translucent
+    shaders:
+      uniforms:
+        u_globalDirectionalLight: [0.0, 0.0, 1.0]
+        u_transparencyParams: [0.05, 0.5, 1000.0, 0.0]
+      blocks:
+        color: |-
+          float normdot = dot(worldNormal(), u_globalDirectionalLight);
+          if (normdot < 0.0) { normdot = 0.0; }
+          normdot = sqrt(normdot * normdot);
+          float xcomp = dot(worldNormal(), vec3(1.0, 0.0, 0.0));
+          float ycomp = dot(worldNormal(), vec3(0.0, 1.0, 0.0));
+          color.rgb = color.rgb * normdot + (0.1 * xcomp + 0.1 * ycomp + 0.7) * color.rgb;
+          // Get the camera position from the inverse of the view matrix
+          mat4 invView = u_inverseView;
+          vec3 cameraPosition = vec3(invView[3]);          
+          // Map the distance to a transparency value using the parameters from u_transparencyParams
+          float transparency = mix(u_transparencyParams.x, u_transparencyParams.y, clamp(cameraPosition.z / u_transparencyParams.z, u_transparencyParams.w, 1.0));
+          color.a = transparency;
+  routearrowstyle:
+    base: polygons
+    lighting: vertex
+    blend: overlay
+    blend_order: 98
+    shaders:
+      blocks:
+        color: float normdot = dot(worldNormal(), vec3(0.0,0.0,1.0) ); normdot = sqrt(normdot*normdot);
+          color.rgb = 2.0*color.rgb*normdot ;
+  navigation_icon:
+    base: points
+    texture: navcircle
+    blend: overlay
+    blend_order: 100
+    flat: true
+  navigation_icon_offroute:
+    base: points
+    texture: navcircle_offroute
+    blend: overlay
+    blend_order: 100
+    flat: true
+  navigation_icon_nosignal:
+    base: points
+    texture: navcircle_nosignal
+    blend: overlay
+    blend_order: 100
+    flat: true
+  navigation_icon_lowsignal:
+    base: points
+    texture: navcircle_lowsignal
+    blend: overlay
+    blend_order: 100
+    flat: true
+  navigation_icon_erraticsignal:
+    base: points
+    texture: navcircle_erraticsignal
+    blend: overlay
+    blend_order: 100
+    flat: true
+  bearing_icon:
+    base: points
+    texture: bearingMarker
+    blend: overlay
+    blend_order: 101
+    flat: true
+  nerotatablemarker:
+    base: points
+    texture: marker
+    blend: overlay
+    blend_order: 101
+    flat: true
+  elevation_raster:
+    base: raster
+    raster: custom
+    shaders:
+      uniforms:
+        range0: [3.0, 0.0, 0.0, 1.0]
+        range1: [10.0, 1.0, 0.0, 0.0]
+        range2: [20.0, 0.0, 1.0, 0.0]
+        range3: [40.0, 0.0, 0.0, 1.0]
+        range4: [50.0, 1.0, 0.0, 1.0]
+        range5: [80.0, 0.0, 1.0, 1.0]
+        defaultColor: [0.0, 0.0, 0.0, 0.0]
+        blendRange: false
+        setAlpha: 1.0
+      blocks:
+        global: |
+          float unpack(vec4 h) {
+            vec3 adjustedHeight = vec3(h.r * 255.,h.g*255.,h.b);
+            return ((adjustedHeight.r * 256. + adjustedHeight.g + (adjustedHeight.b / 256.))) - 32768.;
+          }
+        color: |
+          float height = unpack(sampleRaster(0));
+          float hillShadeAmount = sampleRaster(0).a;
+          float contourLinesInMeters = .1;
+          float blendFrac = 1.0;
+          vec3 col2 = defaultColor.yzw;
+          color.rgb = defaultColor.yzw;
+
+          if( height <= range0.x ) {
+            color.rgb = range0.yzw;
+            blendFrac = 1.0;
+            col2 = range0.yzw;            
+          }
+          if((height >= range0.x) && (height < range1.x) ) {
+            color.rgb = range0.yzw;
+            blendFrac = (height - range0.x)/(range1.x - range0.x);
+            col2 = range1.yzw;            
+          }
+          if((height >= range1.x) && (height < range2.x) ) {
+            color.rgb = range1.yzw;
+            blendFrac = (height - range1.x)/(range2.x - range1.x);
+            col2 = range2.yzw;            
+          }
+          if((height >= range2.x) && (height < range3.x) ) {
+            color.rgb = range2.yzw;
+            blendFrac = (height - range2.x)/(range3.x - range2.x);
+            col2 = range3.yzw;            
+          }
+          if((height >= range3.x) && (height < range4.x) ) {
+            color.rgb = range3.yzw;
+            blendFrac = (height - range3.x)/(range4.x - range3.x);
+            col2 = range4.yzw;            
+          }
+          if((height >= range4.x) && (height < range5.x) ) {
+            color.rgb = range4.yzw;
+            blendFrac = (height - range4.x)/(range5.x - range4.x);
+            col2 = range5.yzw;          
+          }
+          if(height >= range5.x && range5.x > 0.0) {
+            color.rgb = range5.yzw;
+            blendFrac = 1.0;
+            col2 = range5.yzw;
+          }
+
+
+          if(blendRange == true) {
+            color.rgb = color.rgb * (1.0 - blendFrac) + col2 *(blendFrac);
+          }          
+          /* //contour lines commented out
+          vec3 f  = fract ( vec3(height,height,height) * contourLinesInMeters) ;
+          vec3 df = fwidth( vec3(height,height,height) * contourLinesInMeters);
+          float gwidth = 1.0;
+          vec3 step1 = smoothstep(-df *2.0, df * 2.0, f);
+          //vec3 step2 = smoothstep(df * 2.0, df * 3.0, f);
+          //vec3 step3 = smoothstep(df * 1.0, df * 16.0, f);
+          float step = step1.x;//*step2.x;// *step3.x;
+          if( !(step == 0.0 || step == 1.0) && df.x > 0.0 ) {
+            color.rgba = vec4(1.0, 1.0, 1.0, setAlpha);            
+          }
+          else {
+            color.rgb = color.rgb * vec3(hillShadeAmount + 0.5);
+            color.a = setAlpha;
+          }*/
+          color.rgb = color.rgb * vec3(hillShadeAmount + 0.5);
+          color.a = setAlpha;
+
+  rail-dash:
+    base: lines
+    texcoords: true
+    shaders:
+      defines:
+        DASH_SIZE: .9
+        DASH_SCALE: .6
+      blocks:
+        filter: |
+          if (step(DASH_SIZE, fract(v_texcoord.y * DASH_SCALE)) == 0.)
+          {
+          discard;
+          }
+  lines-road:
+    base: lines
+  lines-case:
+    base: lines
+  lines-dash:
+    base: lines
+    texcoords: true
+    blend: overlay
+    shaders:
+      defines:
+        DASH_SIZE: .5
+        DASH_SCALE: .3
+      blocks:
+        filter: |
+          if (step(DASH_SIZE, fract(v_texcoord.y * DASH_SCALE)) == 0.)
+          {
+          discard;
+          }
+  lines-cycle:
+    base: lines
+    texcoords: true
+    blend: overlay
+    shaders:
+      defines:
+        DASH_SIZE: .5
+        DASH_SCALE: .6
+      blocks:
+        filter: |
+          if (step(DASH_SIZE, fract(v_texcoord.y * DASH_SCALE)) == 0.)
+          {
+          discard;
+          }
+  icons:
+    base: points
+    texture: textures #TODO madan : now this is a hack...even though we are not using this. Removing this line, causing icons to not render. Added custom code to use class name for POIs to find texture in c++
+    interactive: false
+    buffer: [1px, 1px] #creates extra collision space     
+    filtering: nearest
+    density: 2
+  lines-blended:
+    base: lines
+    blend: inlay
+  polys-blended:
+    base: polygons
+    blend: inlay
+  areaPolygons:
+    base: polygons
+    blend: overlay
+  lineHighlighted:
+    base: lines
+    blend: overlay
+    color: [0.000, 0.000, 0.000, 1.00]
+    width: [[9, 1.5px], [11, 2.0px], [12, 2.5px], [13, 3.0px], [15, 5px]]
+    join: round
+    cap: round
+  ux-route-line-dirarrow-overlay:
+    base: lines
+    #blend_order: 1        
+    #blend : overlay        
+    texture: route_line_dirarrow
+    texcoords: true
+    tParams: true
+    shaders:
+      sysuniforms: #new thing added to directly update system uniforms from yaml
+        u_texture_repeat_skip_count: 6.0
+      blocks:
+        global: |
+          uniform float u_t_param;
+        color: |
+          // This function modifies the color based on the 't' value
+          // Assuming v_color is the vertex color attribute and you pass 't' as a uniform          
+          if (v_t < u_t_param) {
+            // Before the 't' point - grey with 50% transparency
+            color = vec4(0.5, 0.5, 0.5, 0.1);
+          } else {
+            // After the 't' point - maintain the original color fully opaque
+            color = vec4(color.rgb, 1.0);
+          }
+  ux-route-line-overlay:
+    base: lines
+    #blend: opaque
+    texcoords: true
+    tParams: true
+    shaders:
+      blocks:
+        global: |
+          uniform float u_t_param;
+        color: |
+          // This function modifies the color based on the 't' value
+          // Assuming v_color is the vertex color attribute and you pass 't' as a uniform                    
+          if (v_t < u_t_param) {
+            // Before the 't' point - grey with 15% transparency
+            color = vec4(0.5, 0.5, 0.5, 0.30);
+          } else {
+            // After the 't' point - maintain the original color fully opaque
+            color = vec4(color.rgb, 1.0);
+          }       
+  ux-route-line-overlay-unselected:
+    base: lines
+    blend: opaque
+  ux-tracking-line-overlay:
+    base: lines
+    cap: round
+    join: round
+    blend: opaque
+  ux-walk-line-overlay:
+    base: lines
+    texcoords: true
+    blend: overlay
+    shaders:
+      defines:
+        DASH_SIZE: .4
+        DASH_SCALE: .3
+      blocks:
+        filter: |
+          if (step(DASH_SIZE, fract(v_texcoord.y * DASH_SCALE)) == 0.)
+          {
+          discard;
+          }
+  ux-walk-line-border-overlay:
+    base: lines
+    blend: overlay
+    texcoords: true
+    shaders:
+      defines:
+        BORDER_WIDTH: .1
+      blocks:
+        filter: |
+          if (v_texcoord.x > BORDER_WIDTH && v_texcoord.x < 1.0-BORDER_WIDTH)
+          {
+          discard;
+          }
+  ux-transit-line-overlay:
+    base: lines
+  poi3d:
+    base: points
+    texture: pois
+    interactive: true
+  buildings-base:
+    base: polygons
+    blend: translucent
+    shaders:
+      uniforms:
+        u_highlightColor: [1.0, 1.0, 0.0, 0.8]  # Red highlight with 80% alpha
+      blocks:
+        color: |
+          if (int(v_osm_id) == 1) {
+              // Blend the highlight color with the base color
+              color.rgb = mix(color.rgb, u_highlightColor.rgb, u_highlightColor.a);
+              // Apply highlight alpha blending
+              color.a = mix(color.a, u_highlightColor.a, u_highlightColor.a * 0.5);
+          }
+  buildings-animated:
+    base: polygons
+    blend: translucent
+    shaders:
+      attributes:
+        base_h: {type: float}
+      uniforms:
+        u_extrude_duration: 1.0
+        u_globalDirectionalLight: [0.0, 0.0, 1.0]
+        u_transparencyParams: [0.05, 0.5, 1000.0, 0.0]
+        u_highlightColor: [1.0, 1.0, 0.0, 0.8]  # Red highlight with 80% alpha
+      blocks:
+        position: |
+          // progress since later of (tile birth, extrude enable)
+          float t = clamp((u_time - max(u_tile_birth,u_extrude_epoch)) / u_extrude_duration, 0.0, 1.0);
+          // smoothstep ease-in-out
+          float s = t * t * (3.0 - 2.0 * t);
+          // anchor bottoms at 0; grow top to final Z
+          position.z = position.z * s;
+        color: |-
+          float normdot = dot(worldNormal(), u_globalDirectionalLight);
+          if (normdot < 0.0) { normdot = 0.0; }
+          normdot = sqrt(normdot * normdot);
+          float xcomp = dot(worldNormal(), vec3(1.0, 0.0, 0.0));
+          float ycomp = dot(worldNormal(), vec3(0.0, 1.0, 0.0));
+          color.rgb = color.rgb * normdot + (0.1 * xcomp + 0.1 * ycomp + 0.7) * color.rgb;
+          // Get the camera position from the inverse of the view matrix
+          mat4 invView = u_inverseView;
+          vec3 cameraPosition = vec3(invView[3]);          
+          // Map the distance to a transparency value using the parameters from u_transparencyParams
+          float transparency = mix(u_transparencyParams.x, u_transparencyParams.y, clamp(cameraPosition.z / u_transparencyParams.z, u_transparencyParams.w, 1.0));
+          color.a = transparency;
+
+          // Apply highlighting if this feature's OSM ID matches the highlighted one
+          if (int(v_osm_id) == 1) {
+              // Blend the highlight color with the base color
+              color.rgb = mix(color.rgb, u_highlightColor.rgb, u_highlightColor.a);
+              // Apply highlight alpha blending
+              color.a = mix(color.a, u_highlightColor.a, u_highlightColor.a * 0.5);
+          }
+layers:
+  median_island:
+    data: { source: hd_area, layer: median_island }
+    filter: { $zoom: { min: 17 } }
+    draw:
+      polygons:
+        color: [0.600, 0.686, 0.714, 1.00]
+        outline: { color: "#8d8463", width: [[17, 0.2px], [20, 0.8px]] }
+        order: 90
+  # community_facility:
+  #   data: { source: hd_area, layer: community_facility }
+  #   filter: { $zoom: { min: 14 } }
+  #   draw:
+  #     polygons:
+  #       color: [0.886, 0.055, 0.149, 1.00]
+  #       outline: { color: "#8a6caf", width: [[17, 0.2px], [20, 0.8px]] }
+  #       order: 830
+  airport_area:
+    data: { source: hd_area, layer: airport_area }
+    filter: { $zoom: { min: 17 } }
+    draw:
+      polygons:
+        color: [0.827, 0.867, 0.878, 1.00]
+        outline: { color: "#6c7682", width: [[17, 0.2px], [20, 0.8px]] }
+        order: 28
+  barrier:
+    data: { source: hd_road_features, layer: barrier }
+    filter: { $zoom: { min: 17 } }
+    draw:
+      lines:
+        color: [0.965, 0.569, 0.282, 1.00]
+        width: [[17, 0.5px], [20, 2px]]
+        outline: { color: [0.965, 0.569, 0.282, 1.00], width: [[17, 0.1px], [20, 0.5px]] }
+        order: 105
+
+  broken_lines:
+    data: { source: hd_road_lines, layer: broken_lines }
+    filter: { $zoom: { min: 17 } }
+    draw:
+      polygons:
+        color: [0.714, 0.776, 0.796, 1.00]
+        outline: { color: [0.86, 0.86, 0.86, 0.25], width: 0px }
+        order: 108
+
+  channel_lines:
+    data: { source: hd_road_lines, layer: channel_lines }
+    filter: { $zoom: { min: 17 } }
+    draw:
+      polygons:
+        color: [1.000, 0.914, 0.263, 1.00]
+        outline: { color: [0.78, 0.66, 0.13, 0.20], width: 0px }
+        order: 109
+  bollards:
+    data:
+      source: hd_road_features
+      layer: bollards
+    filter:
+      $zoom: { min: 17 }
+    draw:
+      points:
+        collide: false
+        size: [[17, [7px, 12px]], [20, [14px, 24px]]]
+        color: "#b2b2b2"
+        outline:
+          color: "#4e5468"
+          width: 0.01px
+        order: 110
+
+  traffic_signal:
+    data:
+      source: hd_road_features
+      layer: traffic_signal
+    filter:
+      $zoom: { min: 17 }
+    draw:
+      points:
+        collide: true
+        texture: traffic_signal
+        color: "#ffffff"
+        order: 113
+
+  traffic_signal_line:
+    data:
+      source: hd_road_lines
+      layer: traffic_signal_line
+    filter:
+      $zoom: { min: 17 }
+    draw:
+      lines:
+        color: [0.761, 0.678, 0.098, 1.00]
+        width: [[17, 1px], [20, 4px]]
+        outline:
+          color: [0.761, 0.678, 0.098, 1.00]
+          width: [[17, 0.2px], [20, 1px]]
+        order: 107
+
+  fire_hydrants:
+    data:
+      source: hd_road_features
+      layer: fire_hydrant
+    filter:
+      $zoom: { min: 17 }
+    draw:
+      points:
+        collide: false
+        size: [[17, 7px], [20, 13px]]
+        color: "#8ec3b9"
+        outline:
+          color: "#1a3646"
+          width: 0.01px
+        order: 111
+
+  speed_limit_sign:
+    data:
+      source: hd_signs
+      layer: speed_limit_sign
+    filter:
+      $zoom: { min: 17 }
+    draw:
+      points:
+        collide: false
+        size: [[17, [9px, 7px]], [20, [17px, 13px]]]
+        color: "#ffffff"
+        outline:
+          color: "#00ddfa"
+          width: [[17, 0.2px], [20, 1px]]
+        order: 114
+
+  cycle_surface:
+    data:
+      source: hd_area
+      layer: cycle_surface
+    filter:
+      $zoom: { min: 17 }
+    draw:
+      polygons:
+        color: [0.451, 0.698, 1.000, 1.00]
+        order: 99
+        outline:
+          color: [0.31, 0.40, 0.58, 1.0]
+          width: [[17, 0.2px], [20, 1px]]
+  cycle_track:
+    data: { source: hd_roads, layer: cycle_track }
+    filter: { $zoom: { min: 17 } }
+    draw:
+      lines:
+        color: [1.000, 1.000, 1.000, 1.00]
+        width: [[17, 0.8px], [20, 3px]]
+        outline: { color: [1.000, 1.000, 1.000, 1.00], width: [[17, 0.1px], [20, 0.5px]] }
+        order: 107
+  pedestrian_navigation:
+    data: { source: hd_roads, layer: pedestrian_navigation }
+    filter: { $zoom: { min: 17 } }
+    draw:
+      lines:
+        color: [0.188, 0.451, 0.290, 1.00]
+        width: [[17, 0.6px], [20, 2px]]
+        dash: [1.5]
+        outline: { color: [0.239, 0.373, 0.533, 1.00], width: 0px }
+        order: 112
+
+  giveway_line:
+    data: { source: hd_road_lines, layer: giveway_line }
+    filter: { $zoom: { min: 17 } }
+    draw:
+      polygons:
+        color: [0.714, 0.776, 0.796, 1.00]
+        outline: { color: [0.714, 0.776, 0.796, 1.00], width: 0px }
+        order: 110
+
+  pedestrian_bridge_tunnel:
+    data:
+      source: hd_roads
+      layer: pedestrian_bridge_tunnel
+    filter:
+      $zoom: { min: 17 }
+    draw:
+      polygons:
+        color: [0.31, 0.40, 0.58, 1.0]
+        order: 100
+        outline:
+          color: [0.22, 0.29, 0.44, 1.0]
+          width: [[17, 0.2px], [20, 1px]]
+
+  junction_box:
+    data:
+      source: hd_road_features
+      layer: junction_box
+    filter:
+      $zoom: { min: 17 }
+    draw:
+      polygons:
+        color: [1.000, 0.922, 0.333, 1.00]
+        order: 101
+        outline:
+          color: [0.10, 0.21, 0.27, 1.0]
+          width: [[17, 0.2px], [20, 1px]]
+
+  bus_stop_area:
+    data:
+      source: hd_area
+      layer: bus_stop_area
+    filter:
+      $zoom: { min: 17 }
+    draw:
+      polygons:
+        color: [1.000, 0.612, 0.612, 1.00]
+        order: 95
+        outline:
+          color: [1.000, 0.306, 0.306, 1.00]
+          width: [[17, 0.2px], [20, 1px]]
+
+  curb_stone:
+    data:
+      source: hd_road_features
+      layer: curb_stone
+    filter:
+      all:
+        - $geometry: line
+        - $zoom: { min: 17 }
+    draw:
+      lines:
+        color: [0.882, 0.910, 0.918, 1.00]
+        width: [[17, 0.5px], [20, 2px]]
+        outline:
+          color: [0.894, 0.910, 0.914, 1.00]
+          width: [[17, 0.2px], [20, 1px]]
+        order: 104
+
+  foot_bridge:
+    data:
+      source: hd_roads
+      layer: foot_bridge
+    filter:
+      $zoom: { min: 18 }
+    draw:
+      polygons:
+        color: [0.420, 0.518, 0.549, 1.00]
+        order: 98
+        outline:
+          color: [0.20, 0.32, 0.48, 1.0]
+          width: [[17, 0.2px], [20, 1px]]
+
+  hump:
+    data:
+      source: hd_road_features
+      layer: hump
+    filter:
+      $zoom: { min: 19 }
+    draw:
+      polygons:
+        color: [0.886, 0.761, 0.000, 1.00]
+        order: 97
+        outline:
+          color: [0.55, 0.42, 0.10, 1.0]
+          width: 0px
+
+  mawaqif:
+    data:
+      source: hd_parking
+      layer: mawaqif
+    filter:
+      $zoom: { min: 17 }
+    draw:
+      polygons:
+        color: |
+          function() {
+            return feature.TYPE === 'Standard'
+              ? [0.592, 0.831, 0.851, 1.00]
+              : [0.275, 0.647, 0.678, 1.00];
+          }
+        order: 96
+        outline:
+          color: [0.28, 0.40, 0.18, 1.0]
+          width: [[17, '0.2px'], [20, '1px']]
+  car_parks:
+    data: { source: hd_area, layer: car_parks }
+    filter: { $zoom: { min: 17 } }
+    draw:
+      polygons:
+        color: [0.675, 0.745, 0.839, 1.00]
+        outline: { color: "#707784", width: [[17, 0.2px], [20, 0.8px]] }
+        order: 90
+  parking_lot:
+    data:
+      source: hd_parking
+      layer: parking_lot
+    filter:
+      $zoom: { min: 17 }
+    draw:
+      polygons:
+        color: [0.569, 0.522, 0.525, 1.00]
+        order: 94
+        outline:
+          color: [0.36, 0.36, 0.40, 1.0]
+          width: [[17, 0.2px], [20, 1px]]
+
+  pedestrian_crossing:
+    data:
+      source: hd_road_features
+      layer: pedestrian_crossing
+    filter:
+      $zoom: { min: 17 }
+    draw:
+      polygons:
+        order: 103
+        color: [0.769, 0.820, 0.835, 1.00]
+        outline:
+          color: [0.882, 0.910, 0.918, 1.00]
+          width: [[17, '0.2px'], [20, '1px']]
+
+  road_signs:
+    data:
+      source: hd_signs
+      layer: road_signs
+    filter:
+      $zoom: { min: 17 }
+    draw:
+      points:
+        collide: false
+        size: [[17, 6px], [20, 11px]]
+        color: "#ffffff"
+        outline:
+          color: "#1a3646"
+          width: 0.01px
+        order: 112
+  greenarea:
+    data: { source: hd_area, layer: green_area }
+    filter: { $zoom: { min: 17 } }
+    draw:
+      polygons:
+        color: [0.145, 0.478, 0.345, 0.55]
+        outline: { color: "#4f8a49", width: [[17, 0.2px], [20, 0.8px]] }
+        order: 82
+  # parks:
+  #   data: { source: hd_area, layer: parks }
+  #   filter: { $zoom: { min: 17 } }
+  #   draw:
+  #     polygons:
+  #       color: [0.529, 0.875, 0.714, 1.00]
+  #       outline: { color: "#468949", width: [[17, 0.2px], [20, 0.8px]] }
+  #       order: 83
+
+  playground:
+    data: { source: hd_area, layer: playground }
+    filter: { $zoom: { min: 17 } }
+    draw:
+      polygons:
+        color: [0.059, 0.831, 0.922, 1.00]
+        outline: { color: "#ad8b2d", width: [[17, 0.2px], [20, 0.8px]] }
+        order: 84
+
+  # padestrian_q2_2025:
+  #   data: { source: hd, layer: padestrian_q2_2025 }
+  #   filter: { $zoom: { min: 17 } }
+  #   draw:
+  #     polygons:
+  #       color: [1.000, 0.000, 0.016, 0.55]
+  #       outline: { color: "#5c82a5", width: [[17, 0.2px], [20, 0.8px]] }
+  #       order: 85
+  toll_ad:
+    data: { source: hd_road_features, layer: toll_ad }
+    filter: { $zoom: { min: 17 } }
+    draw:
+      polygons:
+        color: [0.60, 0.48, 0.85, 0.55]
+        outline: { color: "#5b47a1", width: [[17, 0.2px], [20, 0.8px]] }
+        order: 100
+  road_edge:
+    data:
+      source: hd_road_lines
+      layer: road_edge
+    filter:
+      $zoom: { min: 17 }
+    draw:
+      lines:
+        color: [0.741, 0.741, 0.741, 1.00]
+        width: [[17, 0.2px], [20, 1px]]
+        outline:
+          color: [0.620, 0.620, 0.620, 1.00]
+          width: 0px
+        order: 105
+
+  road_marker_solid_lines:
+    data: { source: hd_road_lines, layer: road_marker_solid_lines }
+    filter: { $zoom: { min: 17 } }
+    draw:
+      polygons:
+        color: [0.714, 0.776, 0.796, 1.00]
+        outline: { color: [0.714, 0.776, 0.796, 1.00], width: 0px }
+        order: 115
+
+  road_markers_line:
+    data: { source: hd_road_lines, layer: road_markers_line }
+    filter: { $zoom: { min: 17 } }
+    draw:
+      lines:
+        color: [0.714, 0.776, 0.796, 1.00]
+        width: [[17, 0.4px], [20, 1.5px]]
+        dash: [8, 6]
+        cap: round
+        join: round
+        outline: { color: [0.714, 0.776, 0.796, 1.00], width: 0px }
+        order: 116
+  rumble_strips:
+    data: { source: hd_road_lines, layer: rumble_strips }
+    filter: { $zoom: { min: 17 } }
+    draw:
+      polygons:
+        color: [0.929, 0.824, 0.176, 0.90]
+        outline: { color: [0.914, 0.773, 0.173, 0.20], width: 0px }
+        order: 118
+
+  road_surface_polygon:
+    data:
+      source: hd_roads
+      layer: road_surface_polygon
+    filter:
+      $zoom: { min: 17 }
+    draw:
+      polygons:
+        color: [0.525, 0.596, 0.620, 1.00]
+        order: 93
+        outline:
+          color: [0.647, 0.647, 0.647, 1.00]
+          width: [[17, 0.2px], [20, 1px]]
+
+  road_traffic_arrows:
+    data:
+      source: hd_road_lines
+      layer: road_traffic_arrows
+    filter:
+      $zoom: { min: 17 }
+    draw:
+      polygons:
+        color: [0.714, 0.776, 0.796, 1.00]
+        order: 109
+        outline:
+          color: [1.000, 1.000, 1.000, 1.00]
+          width: 0px
+
+  shoulder_line:
+    data:
+      source: hd_road_lines
+      layer: shoulder_line
+    filter:
+      $zoom: { min: 17 }
+    draw:
+      lines:
+        color: [0.827, 0.749, 0.188, 1.00]
+        width: [[17, 0.2px], [20, 1px]]
+        outline:
+          color: [0.945, 0.898, 0.545, 1.00]
+          width: [[17, 0.1px], [20, 0.2px]]
+        order: 106
+  route_line_dirarrow_selected:
+    data: {source: route_line_dirarrow_src_selected}
+    draw:
+      ux-route-line-dirarrow-overlay:
+        interactive: false
+        color: '#ff00ffff'
+        order: 399
+        width: [[0, 1.0px], [5, 2px], [9, 2px], [10, 3px], [11, 4px], [13, 5px], [
+            14, 6px], [15, 7px], [16, 8px], [17, 8px], [18, 8px]]
+      ux-route-line-overlay:
+        interactive: false
+        color: '#ff0000ff'
+        order: 398
+        blend_order: 5
+        width: [[0, 2px], [5, 3px], [9, 3px], [10, 4px], [11, 5px], [13, 6px], [14,
+            7px], [15, 8px], [16, 9px], [17, 9px], [18, 9px]]
+        miter_limit: 1
+        cap: round
+        join: miter
+        outline:
+          visible: true
+          width: [[0, 0px], [11, 1px], [13, 2px], [14, 2px], [15, 2px], [16, 2px],
+            [17, 2px], [18, 2px]]
+          color: '#ff606060'
+  route_line_dirarrow_unselected:
+    data: {source: route_line_dirarrow_src_unselected}
+    draw:
+      ux-route-line-overlay-unselected:
+        visible: true
+        interactive: true
+        color: '#ff000005'
+        order: 396
+        width: [[0, 2px], [5, 3px], [9, 3px], [10, 4px], [11, 5px], [13, 6px], [14,
+            7px], [15, 8px], [16, 9px], [17, 9px], [18, 9px]]
+        miter_limit: 1
+        join: miter
+        cap: round
+        outline:
+          visible: true
+          width: [[0, 0px], [11, 1px], [13, 2px], [14, 2px], [15, 2px], [16, 2px],
+            [17, 2px], [18, 2px]]
+          color: '#ff606060'
+  route_line:
+    data: {source: route_line_src}
+    draw:
+      ux-route-line-overlay:
+        color: '#0000ff'
+        order: 399
+        width: [[0, 2px], [5, 3px], [9, 3px], [10, 4px], [11, 5px], [13, 6px], [14,
+            7px], [15, 8px], [16, 9px], [17, 9px], [18, 9px]]
+        miter_limit: 1
+        join: miter
+        cap: round
+        outline:
+          width: [[0, 0px], [11, 1px], [13, 2px], [14, 2px], [15, 2px], [16, 2px],
+            [17, 2px], [18, 2px]]
+          color: '#ff606060'
+  walk_line:
+    data: {source: walk_line_src}
+    draw:
+      # ux-walk-line-walkicon-overlay:
+      #   color: '#ffffff'
+      #   order: 398
+      #   width: [[0,2.0px],[5,3px],[9,3px],[10,4px],[11,5px],[13,6px],[14,7px],[15,8px],[16,8px],[17,8px],[18,8px]]        
+      ux-walk-line-overlay:
+        interactive: true
+        color: '#00101010'
+        order: 399
+        width: 3px
+      # ux-walk-line-border-overlay:
+      #   color: '#00101010'
+      #   order: 399
+      #   width: [[0,2px],[5,3px],[9,3px],[10,4px],[11,5px],[13,6px],[14,7px],[15,8px],[16,9px],[17,9px],[18,9px]]
+  walk_line_small:
+    data: {source: walk_line_src_small}
+    draw:
+      ux-walk-line-overlay:
+        interactive: true
+        color: '#00101010'
+        order: 399
+        width: 1px
+  walk_line_large:
+    data: {source: walk_line_src_large}
+    draw:
+      ux-walk-line-overlay:
+        interactive: true
+        color: '#00101010'
+        order: 399
+        width: 5px
+  dbg_route_line:
+    data: {source: dbg_route_line_src}
+    draw:
+      ux-route-line-overlay:
+        interactive: false
+        color: '#ff00ff00'
+        order: 600
+        width: [[0, 2px], [18, 3px]]
+        cap: round
+  route_line_dash:
+    data: {source: route_line_dash_data}
+    draw:
+      ux-route-line-dash-overlay:
+        interactive: true
+        color: function() { return feature.color || '#06a6d4'; }
+        order: function() { return feature.order || 499; }
+        width: [[2, 1px], [9, 1.25px], [17, 1.5px]]
+  route_line_transit:
+    data: {source: route_line_transit_data}
+    draw:
+      ux-transit-line-overlay:
+        interactive: true
+        color: function() { return feature.color || '#06a6d4'; }
+        order: function() { return feature.order || 499; }
+        outline:
+          color: [1.0, 0.851, 0.553]
+        width: [[0, 3.5px], [5, 5px], [9, 7px], [10, 6px], [11, 6px], [13, 8px], [
+            14, 9px], [15, 10px], [16, 11px], [17, 12px], [18, 10px]]
+      polygons:
+        order: 3
+        outline:
+          color: [0.541, 0.851, 0.553]
+        color: [0.871, 0.918, 0.827]
+  route_line_transit_small:
+    data: {source: route_line_transit_data_small}
+    draw:
+      ux-transit-line-overlay:
+        interactive: true
+        color: function() { return feature.color || '#06a6d4'; }
+        order: function() { return feature.order || 499; }
+        outline:
+          color: [1.0, 0.851, 0.553]
+        width: [[0, 1px], [5, 2.5px], [9, 3.5px], [10, 3.5px], [11, 3.5px], [13, 4px],
+          [14, 5px], [15, 5px], [16, 5px], [17, 5px], [18, 4px]]
+      polygons:
+        order: 3
+        outline:
+          color: [0.541, 0.851, 0.553]
+        color: [0.871, 0.918, 0.827]
+  route_line_transit_large:
+    data: {source: route_line_transit_data_large}
+    draw:
+      ux-transit-line-overlay:
+        interactive: true
+        color: function() { return feature.color || '#06a6d4'; }
+        order: function() { return feature.order || 499; }
+        outline:
+          color: [1.0, 0.851, 0.553]
+        width: [[0, 5px], [5, 7px], [9, 9px], [10, 8px], [11, 8px], [13, 10px], [
+            14, 11px], [15, 12px], [16, 13px], [17, 14px], [18, 12px]]
+      polygons:
+        order: 3
+        outline:
+          color: [0.541, 0.851, 0.553]
+        color: [0.871, 0.918, 0.827]
+  mz_route_line_transit:
+    data: {source: mz_route_line_transit}
+    draw:
+      ux-transit-line-overlay:
+                # each transit route segment could be a different "line" each with it's own color
+                # but some transit lines don't define a color, in those cases default to blue
+                # and since the color is coming from Transit.land they call it "color" instead of "colour"
+        color: function() { return feature.color || '#06a6d4'; }
+        order: 500
+        width: [[0, 3.5px], [5, 5px], [9, 7px], [10, 6px], [11, 6px], [13, 8px], [
+            14, 9px], [15, 10px], [16, 11px], [17, 12px], [18, 10px]]
+  mz_route_arrow:
+    data: {source: mz_route_arrow_src}
+    draw:
+      routearrowstyle:
+        order: 400 # to come on top of route lines
+        extrude: true
+        color: [1.0, 1.0, 1.0, 1.0]
+  location_tracking:
+    data: {source: location_tracking_src}
+    draw:
+      ux-route-line-dirarrow-overlay: #add dirarrow also to location tracking
+        interactive: false
+        color: '#ff00ffff'
+        order: 399
+        width: [[0, 1.0px], [5, 2px], [9, 2px], [10, 3px], [11, 4px], [13, 5px], [
+            14, 6px], [15, 7px], [16, 8px], [17, 8px], [18, 8px]]
+      ux-tracking-line-overlay:
+        interactive: false
+        color: '#ffff8000'
+        order: 396
+        cap: round
+        join: round
+        width: [[0, 2px], [5, 3px], [9, 3px], [10, 4px], [11, 5px], [13, 6px], [14,
+            7px], [15, 8px], [16, 9px], [17, 9px], [18, 9px]]
+        miter_limit: 1
+      marker:
+        interactive: true
+        collide: true
+        priority: 2
+        anchor: top
+        texture: mapMarker
+        color: '#ff0000ff'
+        order: 397
+        size: [18px, 18px]
+  draw_custom_area:
+    data: {source: draw_custom_area_src}
+    draw:
+      areaPolygons:
+        order: 31
+        color: [0.000, 1.000, 0.000, 0.60]
+  draw_custom_area_border:
+    data: {source: draw_custom_area_border_src}
+    draw:
+      lines:   #border lines wont have blending
+        order: 98
+        width: [[4, 2px], [18, 3px]]
+        color: [0.000, 1.000, 0.000, 0.60]
+        join: round
+        cap: round
+  draw_custom_area_border_small:
+    data: {source: draw_custom_area_border_src_small}
+    draw:
+      lines:   #border lines wont have blending
+        order: 98
+        width: [[4, 1px], [18, 1.5px]]
+        color: [0.000, 1.000, 0.000, 0.60]
+        join: round
+        cap: round
+  draw_custom_area_border_large:
+    data: {source: draw_custom_area_border_src_large}
+    draw:
+      lines:   #border lines wont have blending
+        order: 98
+        width: [[4, 4px], [18, 6px]]
+        color: [0.000, 1.000, 0.000, 0.60]
+        join: round
+        cap: round
+  satellite:
+    data: {source: satellite}
+    draw:
+      raster:
+        order: 0
+        opacity: 1.0
+  terrain:
+    data: {source: elevationMap, layer: _default}
+    draw:
+      elevation_raster:
+        order: 0
+  contours:
+    data: {source: contourLines, layer: Elev_Contour}
+    filter:
+      all:
+      - $zoom: {min: 14}
+      - function () { if($zoom == 14) { if ( feature.elev % 16 == 0) return true;
+        else return false; } if($zoom == 15) { if ( feature.elev % 8 == 0) return
+        true; else return false; } if($zoom == 16) { if ( feature.elev % 4 == 0) return
+        true; else return false; } return true; }
+    contourLines:
+      draw:
+        lines:
+          order: 54
+          #"TODO !! above why order has to be  41 , I am still not clear. When set at 25 this is not getting rendered"
+          color: [[1.000, 1.0, 1.00, 1.00], [6, '#FFB86C']]
+          width: [[9, 0.5px], [14, 1px]]
+          join: round
+          cap: round
+    contour_label:
+      draw:
+        text:
+          anchor: bottom
+          priority: 3
+          text_source: global.elev_source
+          font:
+            family: NEFontMainA
+            size: [[12, 21px]]
+            fill: [1.000, 1.000, 1.000, 1.00]
+            stroke:
+              color: [0.000, 0.000, 0.000, 1.00]
+              width: 2.0
+  weather:
+    data: {source: weather, layer: _default}
+    draw:
+      raster:
+        color: [1.000, 1.000, 1.000, .50]
+        order: 0
+  background:
+    data: {source: lbw, layer: background}
+    draw:
+      polygons:
+        order: 0
+        color: '#E4E8E9'
+  landcover:
+    data: {source: lbw, layer: landcover}
+    landcover_sand: #need coloring
+      filter:
+        class: sand
+      draw:
+        polygons:
+          order: 11
+          color: [0.929, 0.922, 0.800, 1.00] # Matching the requested single background color
+    landcover_ice: #need coloring
+      filter:
+        class: ice
+      draw:
+        polygons:
+          order: 12
+          color: [0.90, 0.95, 1.0, 1.0]
+    landcover_wood1: #need coloring
+      filter:
+        class: wetland
+      draw:
+        polygons:
+          order: 5
+          color: [0.851, 0.824, 0.765, 1.00]
+    landcover_wood2: #need coloring
+      filter:
+        class: farmland
+      draw:
+        polygons:
+          order: 6
+          color: [0.702, 0.831, 0.725, 1.00]
+    landcover_wood:
+      filter:
+        class: wood
+      draw:
+        polygons:
+          order: 7
+          color: [0.682, 0.839, 0.592, 1.00]
+    landcover_grass:
+      filter:
+        class: grass
+      draw:
+        polygons:
+          order: 4
+          color: [0.800, 0.871, 0.769, 1.00]
+    landcover_tourism:
+      filter:
+        class: tourism
+      draw:
+        polygons:
+          order: 8  #higher number comes over top
+          color: '#DDE7D8'
+  landuse1:
+    data: {source: lbw, layer: landuse}
+    landuse_residential:
+      filter:
+        all:
+        - subclass: residential
+        - $zoom: {min: 13, max: 17}
+      draw:
+        polygons:
+          order: 8
+          color: [0.737, 0.863, 0.761, 1.00]
+    landuse_commercial:
+      filter:
+        all:
+        - subclass: commercial
+        - $zoom: {min: 13, max: 17}
+      draw:
+        polygons:
+          order: 13
+          color: [0.847, 0.859, 0.773, 1.00]
+    landuse_retail:
+      filter:
+        all:
+        - subclass: retail
+        - $zoom: {min: 15, max: 17}
+      draw:
+        polygons:
+          order: 14
+          color: '#F0E5D1'
+    landuse_industrial:
+      filter:
+        all:
+        - subclass: industrial
+        - $zoom: {min: 15, max: 17}
+      draw:
+        polygons:
+          order: 16
+          color: [0.773, 0.824, 0.863, 1.00]
+    landuse_railway:
+      filter:
+        all:
+        - subclass: railway
+        - $zoom: {min: 15, max: 17}
+      draw:
+        polygons:
+          order: 17
+          color: '#CDD2D5'
+    landuse_college:
+      filter:
+        all:
+        - subclass: college
+        - $zoom: {min: 14, max: 17}
+      draw:
+        polygons:
+          order: 18
+          color: [0.804, 0.749, 0.875, 1.00]
+    landuse_cemetery:
+      filter:
+        all:
+        - subclass: cemetery
+        - $zoom: {min: 15, max: 17}
+      draw:
+        polys-blended:
+          order: 19
+          color: [0.749, 0.757, 0.745, 1.00]
+    landuse_hospital:
+      filter:
+        all:
+        - subclass: hospital
+        - $zoom: {min: 13, max: 17}
+      draw:
+        polygons:
+          order: 21
+          color: [0.910, 0.776, 0.776, 1.00]
+    landuse_school:
+      filter:
+        all:
+        - subclass: school
+        - $zoom: {min: 13, max: 17}
+      draw:
+        polygons:
+          order: 29
+          color: [0.753, 0.788, 0.906, 1.00]
+  water:
+    data: {source: lbw, layer: water}
+    water:
+      filter:
+        $zoom: {min: 3}
+        class: [lake, ocean, river]
+      draw:
+        polygons:
+          order: 10
+          color: [0.525, 0.753, 0.902, 1.00]
+
+  worldocean:
+    data: {source: worldocean, layer: water}
+    water:
+      filter:
+        $zoom: {min: 3}
+        class: [ocean]
+      draw:
+        polygons:
+          order: 1
+          color: '#A6CBE3'
+  water_name:
+    data: {source: names, layer: water_name}
+    water_label:
+      filter:
+        all:
+        - $zoom: {min: 4}
+      draw:
+        text:
+          interactive: true
+          priority: 3
+          text_source: global.name_source
+          font:
+            family: NEFontMainA
+            size: [[8, 9px], [12, 10px], [16, 12px], [18, 14px]]
+            fill: [0.15, 0.35, 0.60, 1.0]
+            stroke:
+              color: [1.0, 1.0, 1.0, 1.0]
+              width: 1
+  aeroway:
+    data: {source: main, layer: aeroway}
+    aeroway_roads:
+      filter:
+        all:
+        - $zoom: {min: 12}
+        - class: runway
+      draw:
+        lines:
+          order: 30
+          color: [0.769, 0.820, 0.835, 1.00]
+          width: [[6, 1.5px], [13, 1.5px], [14, 2.5px], [15, 5px], [16, 10m]] #check sizes
+          join: round
+    aeroway_roads2:
+      filter:
+        all:
+        - $zoom: {min: 12}
+        - class: taxiway
+      draw:
+        lines:
+          order: 32
+          color: [0.769, 0.820, 0.835, 1.00]
+          width: [[6, 1.5px], [14, 1.5px], [15, 2px], [16, 5m]]
+          join: round
+  aerodrome_label:
+    data: {source: names, layer: aerodrome_label}
+    aerodrome_building:
+      filter:
+        all:
+        - $zoom: {min: 11}
+        - class: aerodrome
+      draw:
+        polygons:
+          order: 15
+          color: [0.65, 0.65, 0.65, 1.00]
+  mountain_peak:
+    data: {source: names, layer: mountain_peak}
+    mountain:
+      filter:
+        all:
+        - $geometry: point
+        - class: peak
+        - $zoom: {min: 7}
+      draw:
+        icons:
+          order: 22
+          collide: false
+          anchor: top
+        text:
+          interactive: true
+          text_source: global.name_source
+          collide: true
+          anchor: bottom
+          priority: 10
+          font:
+            family: NEFontMainA
+            size: [[7, 9px], [12, 11px], [16, 13px]]
+            fill: [0.40, 0.30, 0.20, 1.0]
+            stroke:
+              color: [1.000, 1.000, 1.000, 1.00]
+              width: 1
+  housenumber:
+    data: {source: r2hb, layer: hnum}
+    house_numbers:
+      enabled: true
+      filter:
+        all:
+        - class: housenumber
+        - $zoom: {min: 16}
+      draw:
+        text:
+          priority: 17 # applying priority used in z17 which is 17. this means hnum when colliding with z18 icons, hnum is shown instead. Because at close zoom, we prefer hnum to be visible
+          text_source: global.house_number
+          font:
+            family: NEFontMainA
+            size: [[16, 10px], [18, 14px]]
+            fill: [0.361, 0.416, 0.471, 1.00]
+            stroke:
+              width: 0.2
+  park:
+    data: {source: lbw, layer: park}
+    parks:
+      draw:
+        polygons:
+          order: 9
+          outline:
+            color: [0.537, 0.631, 0.443, 1.00]
+          color: [0.839, 0.886, 0.737, 1.00]
+    park_outline:
+      filter: {kind: [nature_reserve, national_park]}
+      draw:
+        lines-dash:
+          order: 33
+          color: [0.275, 0.588, 0.408, 1.00]
+    park_forest: #myself added
+      filter: {kind: [park, forest]}
+      draw:
+        polygons:
+          color: [0.80, 0.86, 0.72, 1.0]
+  roads_hack:
+    data: {source: main, layer: roads}
+    roaddetails:
+      enabled: true
+      arrows:
+        filter: {oneway: yes, not: {brunnel: [tunnel]}, $zoom: {min: 17}}
+        draw:
+          points:
+            texture: road_arrow
+            flat: true
+            size: [[16, 11px], [16, 13px], [17, 0px]]
+            placement: vertex
+            angle: auto
+            blend: inlay
+            blend_order: 2
+            color: |
+              function() {
+                if (feature.class == 'motorway') {
+                  return '#ADD8E6';  // Light Blue
+                } else if (feature.class == 'trunk') {
+                  return '#90EE90';  // Light Green
+                } else if (feature.class == 'primary') {
+                  return '#FF7F7F';  // Light Red
+                } else if (feature.class == 'secondary') {
+                  return '#FFA07A';  // Light Orange
+                } else if (feature.class == 'tertiary') {
+                  return '#FFFFE0';  // Light Yellow
+                } else {
+                  return '#D3D3D3';  // Light Gray
+                }
+              }
+  roads:
+    interactive: true
+    data: {source: main, layer: roads}
+    roaddetails:
+      enabled: true
+      road_emblem_motorway:
+        filter:
+          all:
+          - $zoom: {min: 7, max: 16}
+          - class: [motorway]
+          - not: {brunnel: [bridge, tunnel]}
+          - ramp: no
+          - function() { return typeof feature.highwaynum !== 'undefined' && typeof
+            feature.highwaycode !== 'undefined' && typeof feature.highwaynumlen !==
+            'undefined' && feature.highwaynum !== null && feature.highwaynum !== '';
+            }
+        textured_emblem:
+          filter:
+            all:
+            - function() { return true; }
+          draw:
+            points:
+              placement: midpoint
+              placement_min_length_ratio: [[6, 0.3], [11, 1.0], [14, 1.4], [16, 8.0],
+                [20, 20.0]]
+              #size: [[6, 10px], [14, 20px]]  # Adjust the size as necessary                    
+              size: [24px, 24px]
+              scalex: |
+                function() {
+                  var scale = 1.0;
+                  if( feature.highwaynumlen > 2) {
+                    scale = feature.highwaynumlen * 0.4;
+                  }
+                  return scale;
+                }
+              texture: motorway_emblem #function() { return feature.highwaycode; }
+              collide: true
+              priority: 2.5
+              color: white
+              text:
+                #######an important observation################
+                # this works text_source: function() { return feature.ref; }
+                # this DOES NOT WORK  text_source: feature.ref
+                #############
+                text_source: function() { return feature.highwaynum; }
+                anchor: center
+                #repeat_distance: 150px
+                font:
+                  family: NEFontSansSeriffExtraBold
+                  size: 12px
+                  fill: white
+      road_emblem_trunk:
+        filter:
+          all:
+          - $zoom: {min: 7, max: 16}
+          - class: [trunk]
+          - not: {brunnel: [bridge, tunnel]}
+          - ramp: no
+          - function() { return typeof feature.highwaynum !== 'undefined' && typeof
+            feature.highwaycode !== 'undefined' && typeof feature.highwaynumlen !==
+            'undefined' && feature.highwaynum !== null && feature.highwaynum !== '';
+            }
+        textured_emblem:
+          filter:
+            all:
+            - function() { return true; }
+          draw:
+            points:
+              placement: midpoint
+              placement_min_length_ratio: [[6, 0.3], [11, 1.0], [14, 1.4], [16, 8.0],
+                [20, 20.0]]
+              #size: [[6, 10px], [14, 20px]]  # Adjust the size as necessary
+              size: [24px, 24px]
+              scalex: |
+                function() {
+                  var scale = 1.0;
+                  if( feature.highwaynumlen > 2) {
+                    scale = feature.highwaynumlen * 0.4;
+                  }
+                  return scale;
+                }
+              texture: trunk_emblem #function() { return feature.highwaycode; }
+              collide: true
+              priority: 2.6
+              color: white
+              text:
+                #######an important observation################
+                # this works text_source: function() { return feature.ref; }
+                # this DOES NOT WORK  text_source: feature.ref
+                #############
+                text_source: function() { return feature.highwaynum; }
+                anchor: center
+                #repeat_distance: 150px
+                font:
+                  family: NEFontSansSeriffExtraBold
+                  size: 12px
+                  fill: white
+      road_emblem_primary:
+        filter:
+          all:
+          - $zoom: {min: 7, max: 16}
+          - class: [primary]
+          - not: {brunnel: [bridge, tunnel]}
+          - ramp: no
+          - function() { return typeof feature.highwaynum !== 'undefined' && typeof
+            feature.highwaycode !== 'undefined' && typeof feature.highwaynumlen !==
+            'undefined' && feature.highwaynum !== null && feature.highwaynum !== '';
+            }
+        textured_emblem:
+          filter:
+            all:
+            - function() { return true; }
+          draw:
+            points:
+              placement: midpoint
+              placement_min_length_ratio: [[6, 0.3], [11, 1.0], [14, 1.4], [16, 8.0],
+                [20, 20.0]]
+              #size: [[6, 10px], [14, 20px]]  # Adjust the size as necessary
+              size: [24px, 24px]
+              scalex: |
+                function() {
+                  var scale = 1.0;
+                  if( feature.highwaynumlen > 2) {
+                    scale = feature.highwaynumlen * 0.4;
+                  }
+                  return scale;
+                }
+              texture: primary_emblem #function() { return feature.highwaycode; }
+              collide: true
+              priority: 2.7
+              color: white
+              text:
+                #######an important observation################
+                # this works text_source: function() { return feature.ref; }
+                # this DOES NOT WORK  text_source: feature.ref
+                #############
+                text_source: function() { return feature.highwaynum; }
+                anchor: center
+                #repeat_distance: 150px
+                font:
+                  family: NEFontSansSeriffExtraBold
+                  size: 12px
+                  fill: white
+      road_emblem_secondary:
+        filter:
+          all:
+          - $zoom: {min: 7, max: 16}
+          - class: [secondary]
+          - not: {brunnel: [bridge, tunnel]}
+          - ramp: no
+          - function() { return typeof feature.highwaynum !== 'undefined' && typeof
+            feature.highwaycode !== 'undefined' && typeof feature.highwaynumlen !==
+            'undefined' && feature.highwaynum !== null && feature.highwaynum !== '';
+            }
+        textured_emblem:
+          filter:
+            all:
+            - function() { return true; }
+          draw:
+            points:
+              placement: midpoint
+              placement_min_length_ratio: [[6, 0.3], [11, 1.0], [14, 1.4], [16, 8.0],
+                [20, 20.0]]
+              #size: [[6, 10px], [14, 20px]]  # Adjust the size as necessary
+              size: [24px, 24px]
+              scalex: |
+                function() {
+                  var scale = 1.0;
+                  if( feature.highwaynumlen > 2) {
+                    scale = feature.highwaynumlen * 0.4;
+                  }
+                  return scale;
+                }
+              texture: secondary_emblem #function() { return feature.highwaycode; }
+              collide: true
+              priority: 2.8
+              color: white
+              text:
+                #######an important observation################
+                # this works text_source: function() { return feature.ref; }
+                # this DOES NOT WORK  text_source: feature.ref
+                #############
+                text_source: function() { return feature.highwaynum; }
+                anchor: center
+                #repeat_distance: 150px
+                font:
+                  family: NEFontSansSeriffExtraBold
+                  size: 12px
+                  fill: white
+    tunnel_motorway_link:
+      filter:
+        all:
+        - $zoom: {min: 6}
+        - class: motorway
+        - brunnel: tunnel
+        - ramp: yes
+      draw:
+        lines-case:
+          order: 34
+          color: '#5D7881'
+          width: [[9, 0.5px], [11, 1.0px], [12, 1.0px], [13, 2.5px], [15, 7m]]
+        lines-road:
+          order: 43
+          color: '#7C99A2'
+          width: [[9, 1.0px], [11, 1.5px], [12, 1.8px], [13, 2.5px], [15, 5m]]
+          join: round
+    tunnel_trunk:
+      filter:
+        all:
+        - $zoom: {min: 7}
+        - brunnel: tunnel
+        - class: [trunk]
+      draw:
+        lines-road:
+          order: 49
+          color: '#9CB7C0'
+          width: [[7, 0.8px], [10, 1.5px], [13, 3.5px], [15, 5.5px], [17, 12m]]
+          join: round
+    tunnel_trunk-case:
+      filter:
+        all:
+        - $zoom: {min: 9}
+        - brunnel: tunnel
+        - class: [trunk]
+      draw:
+        lines-case:
+          order: 40
+          color: '#7B9199'
+          width: [[7, 1.2px], [10, 2.5px], [13, 5px], [15, 7px], [16, 14m]]
+    tunnel_primary:
+      filter:
+        all:
+        - $zoom: {min: 7}
+        - brunnel: tunnel
+        - class: [primary]
+      draw:
+        lines-road:
+          order: 48
+          color: '#B6C6CB'
+          width: [[7, 0.7px], [10, 1.4px], [13, 3.2px], [15, 4.5px], [17, 10m]]
+          join: round
+    tunnel_primary-case:
+      filter:
+        all:
+        - $zoom: {min: 9}
+        - brunnel: tunnel
+        - class: [primary]
+      draw:
+        lines-case:
+          order: 39
+          color: '#9BA9AF'
+          width: [[7, 1.0px], [10, 2.1px], [13, 4.2px], [15, 6px], [17, 12m]]
+    tunnel_motorway:
+      filter:
+        all:
+        - $zoom: {min: 6}
+        - class: motorway
+        - brunnel: tunnel
+        - ramp: no
+      draw:
+        lines-road:
+          order: 50
+          color: '#7C99A2'
+          width: [[6, 2px], [13, 3px], [15, 5px], [16, 15m]]
+          join: round
+    tunnel_motorway-case:
+      filter:
+        all:
+        - $zoom: {min: 9}
+        - class: motorway
+        - brunnel: tunnel
+        - ramp: no
+      draw:
+        lines-case:
+          order: 41
+          color: '#5D7881'
+          width: [[6, 2.5px], [13, 3.5px], [15, 7px], [16, 17m]]
+    road_motorway_link:
+      filter:
+        all:
+        - $zoom: {min: 6}
+        - class: motorway
+        - ramp: yes
+        - not: {brunnel: [bridge, tunnel]}
+      draw:
+        lines-road:
+          order: 65
+          color: '#7C99A2'
+          width: [[9, 1.0px], [11, 1.5px], [12, 1.8px], [13, 2.5px], [15, 5m]]
+          join: round
+          cap: round
+        lines-case:
+          order: 53
+          color: '#5D7881'
+          width: [[9, 0.5px], [11, 1.0px], [12, 1.0px], [13, 2.5px], [15, 7m]]
+          join: round
+          cap: round
+    road_trunk:
+      filter:
+        all:
+        - $zoom: {min: 7, max: 17}
+        - class: [trunk]
+        - not: {brunnel: [bridge, tunnel]}
+      draw:
+        lines-road:
+          order: 72
+          color: '#9CB7C0'
+          width: [[7, 0.8px], [10, 1.5px], [13, 3.5px], [15, 5.5px], [17, 12m]]
+          join: round
+          cap: round
+    road_trunk-case:
+      filter:
+        all:
+        - $zoom: {min: 9, max: 17}
+        - class: [trunk]
+        - not: {brunnel: [bridge, tunnel]}
+      draw:
+        lines-case:
+          order: 61
+          color: '#7B9199'
+          width: [[7, 1.2px], [10, 2.5px], [13, 5px], [15, 7px], [17, 14m]]
+          join: round
+          cap: round
+    road_primary:
+      filter:
+        all:
+        - $zoom: {min: 9, max: 17}
+        - class: [primary]
+        - not: {brunnel: [bridge, tunnel]}
+      draw:
+        lines-road:
+          order: 71
+          color: '#B6C6CB'
+          width: [[7, 0.7px], [10, 1.4px], [13, 3.2px], [15, 4.5px], [17, 10m]]
+          join: round
+          cap: round
+    road_primary-case:
+      filter:
+        all:
+        - $zoom: {min: 9, max: 17}
+        - class: [primary]
+        - not: {brunnel: [bridge, tunnel]}
+      draw:
+        lines-case:
+          order: 60
+          color: '#9BA9AF'
+          width: [[7, 1.0px], [10, 2.1px], [13, 4.2px], [15, 6px], [17, 12m]]
+          join: round
+          cap: round
+    road_motorway:
+      filter:
+        all:
+        - $zoom: {min: 6}
+        - class: motorway
+        - ramp: no
+        not:
+        - brunnel: [bridge, tunnel]
+      draw:
+        lines-road:
+          order: 73
+          color: '#7C99A2'
+          width: [[6, 2px], [13, 3px], [15, 5px], [16, 15m]]
+          join: round
+          cap: round
+    road_motorway-case:
+      filter:
+        all:
+        - $zoom: {min: 9}
+        - class: motorway
+        - ramp: no
+        not:
+        - brunnel: [bridge, tunnel]
+      draw:
+        lines-case:
+          order: 62
+          color: '#5D7881'
+          width: [[6, 2.5px], [13, 3.5px], [15, 7px], [16, 17m]]
+          join: round
+          cap: round
+
+    #road_transit_rail: 58
+    #road_transit_rail_hatching: 59
+    #road_one_way_arrow: 60
+    #road_one_way_arrow_opposite: 61
+
+    ###
+    ###bridge###################################        
+    bridge_motorway_link:
+      filter:
+        all:
+        - $zoom: {min: 6}
+        - class: motorway
+        - brunnel: bridge
+        - ramp: yes
+      draw:
+        lines-road:
+          order: 86
+          color: '#7C99A2'
+          width: [[9, 1.0px], [11, 1.5px], [12, 1.8px], [13, 2.5px], [15, 5m]]
+          join: round
+        lines-case:
+          order: 77
+          color: '#5D7881'
+          width: [[9, 0.5px], [11, 1.0px], [12, 1.0px], [13, 2.5px], [15, 7m]]
+    #bridge_service_track: 72
+    #bridge_link: 73
+    #bridge_street: 74
+
+    bridge_trunk:
+      filter:
+        all:
+        - $zoom: {min: 7}
+        - brunnel: bridge
+        - class: [trunk]
+      draw:
+        lines-road:
+          order: 89
+          color: '#9CB7C0'
+          width: [[7, 0.8px], [10, 1.5px], [13, 3.5px], [15, 5.5px], [17, 12m]]
+          join: round
+          cap: round
+    bridge_trunk-case:
+      filter:
+        all:
+        - $zoom: {min: 9}
+        - brunnel: bridge
+        - class: [trunk]
+      draw:
+        lines-case:
+          order: 84
+          color: '#7B9199'
+          width: [[7, 1.2px], [10, 2.5px], [13, 5px], [15, 7px], [17, 14m]]
+          join: round
+    bridge_primary:
+      filter:
+        all:
+        - $zoom: {min: 7}
+        - brunnel: bridge
+        - class: [primary]
+      draw:
+        lines-road:
+          order: 88
+          color: '#B6C6CB'
+          width: [[7, 0.7px], [10, 1.4px], [13, 3.2px], [15, 4.5px], [17, 10m]]
+          join: round
+          cap: round
+    bridge_primary-case:
+      filter:
+        all:
+        - $zoom: {min: 9}
+        - brunnel: bridge
+        - class: [primary]
+      draw:
+        lines-case:
+          order: 83
+          color: '#9BA9AF'
+          width: [[7, 1.0px], [10, 2.1px], [13, 4.2px], [15, 6px], [17, 12m]]
+          join: round
+    bridge_motorway:
+      filter:
+        all:
+        - $zoom: {min: 6}
+        - class: motorway
+        - brunnel: bridge
+        - ramp: no
+      draw:
+        lines-road:
+          order: 90
+          color: '#7C99A2'
+          width: [[6, 2px], [13, 3px], [15, 5px], [16, 15m]]
+          join: round
+    bridge_motorway-case:
+      filter:
+        all:
+        - $zoom: {min: 9}
+        - class: motorway
+        - brunnel: bridge
+        - ramp: no
+      draw:
+        lines-case:
+          order: 85
+          color: '#5D7881'
+          width: [[6, 2.5px], [13, 3.5px], [15, 7px], [16, 17m]]
+          join: round
+      #bridge_transit_rail:  80
+      #bridge_transit_rail_hatching: 81
+      ###  
+  roads2:
+    data: {source: main, layer: roads}
+    road_secondary:
+      filter:
+        all:
+        - $zoom: {min: 11, max: 17}
+        - class: [secondary]
+        - not: {brunnel: [bridge, tunnel]}
+      draw:
+        lines-road:
+          order: 70
+          color: '#C4D1D5'
+          width: [[11, 1.5px], [13, 3px], [15, 4px], [17, 9m]]
+          join: round
+          cap: round
+    road_secondary-case:
+      filter:
+        all:
+        - $zoom: {min: 11, max: 17}
+        - class: [secondary]
+        - not: {brunnel: [bridge, tunnel]}
+      draw:
+        lines-case:
+          order: 59
+          color: '#A9B7BC'
+          width: [[11, 2px], [13, 4px], [15, 5.5px], [17, 11m]]
+          join: round
+    bridge_secondary:
+      filter:
+        all:
+        - $zoom: {min: 11}
+        - brunnel: bridge
+        - class: [secondary]
+      draw:
+        lines-road:
+          order: 87
+          color: '#C4D1D5'
+          width: [[11, 1.5px], [13, 3px], [15, 4px], [17, 9m]]
+          join: round
+          cap: round
+    bridge_secondary-case:
+      filter:
+        all:
+        - $zoom: {min: 13}
+        - brunnel: bridge
+        - class: [secondary]
+      draw:
+        lines-case:
+          order: 82
+          color: '#A9B7BC'
+          width: [[11, 2px], [13, 4px], [15, 5.5px], [17, 11m]]
+          join: round
+    tunnel_secondary:
+      filter:
+        all:
+        - $zoom: {min: 13}
+        - brunnel: tunnel
+        - class: [secondary]
+      draw:
+        lines-road:
+          order: 48
+          color: '#C4D1D5'
+          width: [[11, 1.5px], [13, 3px], [15, 4px], [17, 9m]]
+          join: round
+    tunnel_secondary-case:
+      filter:
+        all:
+        - $zoom: {min: 13}
+        - brunnel: tunnel
+        - class: [secondary]
+      draw:
+        lines-case:
+          order: 38
+          color: '#A9B7BC'
+          width: [[11, 2px], [13, 4px], [15, 5.5px], [17, 11m]]
+    tunnel_tertiary:
+      filter:
+        all:
+        - $zoom: {min: 13}
+        - brunnel: tunnel
+        - class: [tertiary]
+      draw:
+        lines-road:
+          order: 48
+          color: '#D3DDE0'
+          width: [[11, 1.2px], [13, 2.5px], [15, 3.5px], [17, 7m]]
+          join: round
+    tunnel_tertiary-case:
+      filter:
+        all:
+        - $zoom: {min: 13}
+        - brunnel: tunnel
+        - class: [tertiary]
+      draw:
+        lines-case:
+          order: 38
+          # outline:
+          #   width: [[11, 0], [12, 0.4px],[13, 0.8px], [14, 1px], [15, 1.2px], [16, 1.3px], [17, 1.5px]]
+          #   color: [0.878, 0.878, 0.878, 1.00]
+          color: '#B8C3C7'
+          width: [[11, 1.8px], [13, 3.5px], [15, 5px], [17, 9m]]
+    road_tertiary:
+      filter:
+        all:
+        - $zoom: {min: 11}
+        - class: [tertiary]
+        - not: {brunnel: [bridge, tunnel]}
+      draw:
+        lines-road:
+          order: 70
+          color: '#D3DDE0'
+          width: [[11, 1.2px], [13, 2.5px], [15, 3.5px], [17, 7m]]
+          join: round
+          cap: round
+    road_tertiary-case:
+      filter:
+        all:
+        - $zoom: {min: 13}
+        - class: [tertiary]
+        - not: {brunnel: [bridge, tunnel]}
+      draw:
+        lines-case:
+          order: 60
+          color: '#B8C3C7'
+          width: [[11, 1.8px], [13, 3.5px], [15, 5px], [17, 9m]]
+          join: round
+    bridge_tertiary:
+      filter:
+        all:
+        - $zoom: {min: 13}
+        - brunnel: bridge
+        - class: [tertiary]
+      draw:
+        lines-road:
+          order: 88
+          color: '#D3DDE0'
+          width: [[11, 1.2px], [13, 2.5px], [15, 3.5px], [17, 7m]]
+          join: round
+          cap: round
+    bridge_tertiary-case:
+      filter:
+        all:
+        - $zoom: {min: 13}
+        - brunnel: bridge
+        - class: [tertiary]
+      draw:
+        lines-case:
+          order: 83
+          color: '#B8C3C7'
+          width: [[11, 1.8px], [13, 3.5px], [15, 5px], [17, 9m]]
+          join: round
+    tunnel_minor:
+      filter:
+        all:
+        - $zoom: {min: 14}
+        - brunnel: tunnel
+        - class: minor
+      draw:
+        lines:
+          order: 46
+          color: '#FFFFFF'
+          width: [[14, 0.1px], [15, 0.8px], [16, 2px], [17, 5m]]
+          join: round
+    road_service_track:
+      filter:
+        all:
+        - $zoom: {min: 14, max: 17}
+        - class: [service, track]
+        - not: {brunnel: [bridge, tunnel]}
+      draw:
+        lines-road:
+          order: 66
+          color: '#FFFFFF'
+          width: [[14, 0.1px], [15, 0.8px], [16, 4m]]
+          join: round
+          cap: round
+        lines-case:
+          order: 55
+          color: '#E5E5E5'
+          width: [[14, 0px], [15, 0px], [16, 5m]]
+          join: round
+          cap: round
+    road_link:
+      filter:
+        all:
+        - $zoom: {min: 14}
+        - ramp: yes
+        not:
+        - brunnel: [bridge, tunnel]
+        - class: [pedestrian, path, track, service, motorway]
+      draw:
+        lines-road:
+          order: 67
+          color: '#FFFFFF'
+          width: [[14, 0.1px], [15, 0.8px], [16, 1.5m]]
+          join: round
+          cap: round
+        lines-case:
+          order: 56
+          color: '#E5E5E5'
+          width: [[14, 0px], [15, 0px], [16, 2m]]
+          join: round
+          cap: round
+    road_minor:
+      filter:
+        all:
+        - $zoom: {min: 14, max: 17}
+        - $geometry: line
+        - class: [minor]
+        - ramp: no
+        not:
+        - brunnel: [bridge, tunnel]
+      draw:
+        lines-road:
+          order: 68
+          color: '#FFFFFF'
+          width: [[14, 0.5px], [15, 0.8px], [16, 2px], [17, 8m]]
+          join: round
+          cap: round
+        lines-case:
+          order: 57
+          color: '#E5E5E5'
+          width: [[14, 0px], [15, 0px], [16, 3px], [17, 9m]]
+          join: round
+          cap: round
+    road_minor2:
+      filter:
+        all:
+        - $zoom: {min: 14}
+        - $geometry: line
+        - class: [unclassified, residential, road, living_street, local]
+        - ramp: no
+        not:
+        - brunnel: [bridge, tunnel]
+      draw:
+        lines-road:
+          order: 69
+          color: '#FFFFFF'
+          width: [[14, 0.1px], [15, 0.8px], [16, 2px], [17, 5m]]
+          join: round
+          cap: round
+        lines-case:
+          order: 58
+          color: '#E5E5E5'
+          width: [[15, 0px], [16, 3px], [17, 6m]]
+          join: round
+          cap: round
+    tunnel_major_rail:
+      filter:
+        all:
+        - $zoom: {min: 14}
+        - brunnel: tunnel
+        - class: rail
+      draw:
+        lines:
+          order: 51
+          color: [0.557, 0.580, 0.604, 1.00]
+          width: [[14, 0.2px], [15, 0.4px], [16, 0.6px], [17, 0.8px], [18, 1px], [
+              19, 1.5px], [20, 2px]]
+    tunnel_major_rail_hatching:
+      filter:
+        all:
+        - $zoom: {min: 14}
+        - brunnel: tunnel
+        - class: rail
+      draw:
+        rail-dash:
+          order: 52
+          color: [0.557, 0.580, 0.604, 1.00]
+          width: [[14, 0px], [15, 1px], [16, 1.5px], [17, 2px], [18, 3px], [19, 5px],
+            [20, 8px]]
+    #tunnel_transit_rail: 37
+    #tunnel_transit_rail_hatching:    38
+    ###roads###################################        
+    road_path_pedestrian:
+      filter:
+        all:
+        - $zoom: {min:0}
+        - $geometry: line
+        - class: [path, pedestrian, footway, bridleway, steps, corridor]
+        - not: {brunnel: [bridge, tunnel]}
+      draw:
+        lines-dash:
+          order: 63
+          color: [0.620, 0.620, 0.620, 1.00]
+          width: [[14, 0px], [15, 0.5px], [16, 1px], [17, 1.5px], [18, 2px], [19,
+              2.5px], [20, 3px]]
+          join: round
+    road_cycle:
+      filter:
+        all:
+        - $zoom: {min: 16}
+        - $geometry: line
+        - class: [cycleway]
+      draw:
+        lines-cycle:
+          order: 64
+          color: [0.90, 0.95, 0.98, 1.0]
+          width: [[14, 0px], [15, 0.5px], [16, 1px], [17, 1.5px], [18, 2px], [19,
+              2.5px], [20, 3px]]
+          join: round
+    tunnel_service_track:
+      filter:
+        all:
+        - $zoom: {min: 14}
+        - brunnel: tunnel
+        - class: [service, track]
+      draw:
+        lines-road:
+          order: 44
+          color: '#FFFFFF'
+          width: [[14, 0.1px], [15, 0.8px], [16, 4m]]
+          join: round
+        lines-case:
+          order: 35
+          color: '#E5E5E5'
+          width: [[14, 0px], [15, 0px], [16, 5m]]
+    tunnel_link:
+      filter:
+        all:
+        - $zoom: {min: 14}
+        - ramp: yes
+        - brunnel: tunnel
+      draw:
+        lines-road:
+          order: 45
+          color: '#FFFFFF'
+          width: [[14, 0.1px], [15, 0.8px], [17, 2px], [18, 4px], [19, 6px], [20, 20px]]
+          join: round
+        lines-case:
+          order: 36
+          color: '#E5E5E5'
+          width: [[14, 0px], [15, 0px], [17, 2px], [18, 4px], [19, 6px], [20, 20px]]
+    tunnel_street_case:
+      filter:
+        all:
+        - $zoom: {min: 17}
+        - brunnel: tunnel
+        - class: [street, street_limited]
+      draw:
+        lines:
+          order: 37
+          outline:
+            width: [[17, 2px], [18, 4px], [19, 6px], [20, 20px]]
+            color: [0.75, 0.75, 0.75, 1.0]
+    tunnel_path_pedestrian:
+      filter:
+        all:
+        - $zoom: {min: 17}
+        - $geometry: line
+        - brunnel: tunnel
+        - class: [path, pedestrian]
+      draw:
+        lines-dash:
+          order: 42
+          color: [0.506, 0.529, 0.529, 1.00]
+          width: [[14, 0.5px], [15, 1.5px], [16, 2px], [17, 2.5px], [18, 3px], [19,
+              5px], [20, 10px]]
+    road_major_rail:
+      filter:
+        class: rail
+        # - not: {brunnel: [bridge, tunnel]}
+      draw:
+        lines:
+          order: 74
+          color: [0.70, 0.70, 0.70, 1.0]
+          width: [[14, 0.2px], [15, 0.4px], [16, 0.6px], [17, 0.8px], [18, 1px], [
+              19, 1.5px], [20, 2px]]
+    road_subway:
+      filter:
+        all:
+        - class: subway
+        - $zoom: {min: 14}
+        # - not: {brunnel: [bridge, tunnel]}
+      draw:
+        lines:
+          order: 75
+          color: [0.545, 0.647, 0.757, 1.00]
+          width: [[14, 0.4px], [15, 0.8px], [16, 1.6px], [17, 2.0px]]
+    road_major_rail_hatching:
+      filter:
+        all:
+        - $zoom: {min: 14}
+        - class: rail
+        - not: {brunnel: [bridge, tunnel]}
+      draw:
+        rail-dash:
+          order: 76
+          color: [0.70, 0.70, 0.70, 1.0]
+          width: [[14, 0px], [15, 1px], [16, 1.5px], [17, 2px], [18, 3px], [19, 5px],
+            [20, 8px]]
+    bridge_service_track:
+      filter:
+        all:
+        - $zoom: {min: 16}
+        - brunnel: bridge
+        - class: [service, track]
+      draw:
+        lines:
+          order: 78
+          # outline:
+          #   width: [[15, 0px], [16, 0.5px], [17, 1.0px], [18, 1.75px]]
+          #   color: [0.878, 0.878, 0.878, 1.00]
+          color: [1.000, 1.000, 1.000, 1.00]
+          width: [[13, 1px], [15, 4m]]
+    bridge_link_case:
+      filter:
+        all:
+        - $zoom: {min: 14}
+        - class: link
+        - brunnel: bridge
+      draw:
+        lines:
+          order: 79
+          # outline:
+          #   width: [[15, 0px], [16, 0.5px], [17, 1.0px], [18, 1.75px]]
+          #   color: [0.878, 0.878, 0.878, 1.00]
+          color: [0.75, 0.75, 0.75, 1.0]
+          width: [[14, 0.85px], [15, 2m]]
+    bridge_street_case:
+      filter:
+        all:
+        - $zoom: {min: 17}
+        - brunnel: bridge
+        - class: [street, street_limited]
+      draw:
+        lines:
+          order: 80
+          # outline:
+          #   width: [[15, 0px], [16, 0.5px], [17, 1.0px], [18, 1.75px]]
+          #   color: [1.000, 1.000, 1.000, 1.00]
+          color: [0.75, 0.75, 0.75, 1.0]
+          width: [[14, 0.85px], [15, 2m]]
+    bridge_path_pedestrian_case:
+      filter:
+        all:
+        - $zoom: {min: 17}
+        - $geometry: line
+        - brunnel: bridge
+        - class: [path, pedestrian]
+      draw:
+        lines-dash:
+          order: 81
+          color: [0.75, 0.75, 0.75, 1.0]
+          width: [[14, 1px], [15, 1.5px], [16, 2px], [17, 2.5px], [18, 3px], [19,
+              4px], [20, 10px]]
+    bridge_major_rail:
+      filter:
+        all:
+        - $zoom: {min: 10}
+        - class: rail
+        - brunnel: bridge
+      draw:
+        lines:
+          order: 91
+          color: [0.557, 0.580, 0.604, 1.00]
+          width: [[14, 0.2px], [15, 0.4px], [16, 0.6px], [17, 0.8px], [18, 1px], [
+              19, 1.5px], [20, 2px]]
+    bridge_major_rail_hatching:
+      filter:
+        all:
+        - $zoom: {min: 13}
+        - class: rail
+        - brunnel: bridge
+      draw:
+        rail-dash:
+          order: 92
+          color: [0.557, 0.580, 0.604, 1.00]
+          width: [[14, 0px], [15, 1px], [16, 1.5px], [17, 2px], [18, 3px], [19, 5px],
+            [20, 8px]]
+  building:
+    data: {source: hd_buildings, layer: building}
+    base:
+        enabled: true
+        filter:
+          $zoom: { min: 14, max: 17 }
+        draw:
+          polygons:
+            interactive: true
+            # style: building_soft
+            color: |
+                function() {
+                  var use = feature.PRIMARYUSEENGDESC || "Undefined";
+
+                  var colors = {
+                    "Residential":    [0.694, 0.812, 0.718, 1.0],
+                    "Agricultural":   [0.737, 0.867, 0.537, 0.85],
+                    "Industrial":     [0.627, 0.627, 0.627, 0.85],
+                    "Commercial":     [0.769, 0.820, 0.835, 1.0],
+                    "Utility":        [1.000, 0.961, 0.737, 1.0],
+                    "Governmental":   [0.529, 0.808, 0.922, 0.85],
+                    "Religious":      [0.741, 0.619, 0.859, 0.85],
+                    "Investment":     [0.859, 0.659, 0.463, 0.85],
+                    "Educational":    [0.400, 0.761, 0.647, 0.85],
+                    "Recreational":   [0.553, 0.827, 0.780, 0.85],
+                    "Private":        [0.894, 0.651, 0.624, 0.85],
+                    "Undefined":      [0.780, 0.816, 0.859, 0.60],
+                    "Health":         [0.894, 0.651, 0.624, 0.85],
+                    "Transportation": [0.722, 0.722, 0.945, 1.0],
+                    "Archaeological": [0.800, 0.600, 0.400, 0.85],
+                    "Public":         [0.702, 0.863, 0.965, 1.0],
+                    "Cultural":       [0.800, 0.400, 0.700, 0.85],
+                    "Communication":  [0.600, 0.800, 1.000, 0.85],
+                    "Diplomatic":     [0.478, 0.718, 0.875, 1.0]
+                  };
+
+                  return colors[use] || [0.780, 0.816, 0.859, 0.60];
+                }
+            order: 120
+
+    extruded:
+        enabled: true
+        filter:
+          $zoom: { min: 17 }
+        draw:
+          polygons:
+            interactive: true
+            style: building_transparent
+            extrude: |
+                  function() {
+                    return feature.BUILDINGHEIGHT || 15;
+                  }
+            color: |
+                function() {
+                  var use = feature.PRIMARYUSEENGDESC || "Undefined";
+
+                  var colors = {
+                    "Residential":    [0.631, 0.745, 0.655, 0.80],
+                    "Agricultural":   [0.737, 0.867, 0.537, 0.85],
+                    "Industrial":     [0.627, 0.627, 0.627, 0.85],
+                    "Commercial":     [0.769, 0.820, 0.835, 0.80],
+                    "Utility":        [0.937, 0.886, 0.596, 0.50],
+                    "Governmental":   [0.529, 0.808, 0.922, 0.85],
+                    "Religious":      [0.741, 0.619, 0.859, 0.85],
+                    "Investment":     [0.859, 0.659, 0.463, 0.85],
+                    "Educational":    [0.400, 0.761, 0.647, 0.85],
+                    "Recreational":   [0.553, 0.827, 0.780, 0.85],
+                    "Private":        [0.984, 0.502, 0.447, 0.85],
+                    "Undefined":      [0.827, 0.867, 0.878, 0.50],
+                    "Health":         [0.957, 0.427, 0.263, 0.85],
+                    "Transportation": [0.616, 0.616, 0.871, 0.80],
+                    "Archaeological": [0.800, 0.600, 0.400, 0.85],
+                    "Public":         [0.565, 0.733, 0.839, 0.50],
+                    "Cultural":       [0.800, 0.400, 0.700, 0.85],
+                    "Communication":  [0.600, 0.800, 1.000, 0.85],
+                    "Diplomatic":     [0.420, 0.647, 0.800, 0.70]
+                  };
+
+                  return colors[use] || [0.780, 0.816, 0.859, 0.60];
+                }
+            order: 121
+    extruded-nav:
+      filter: {$zoom: {min: 17}}
+      enabled: false
+      draw:
+        polygons:
+          style: buildingVertexShadedWithTransparency
+          extrude: true # #$zoom >= 14; }
+          color: [0.90, 0.90, 0.92, 1.0]
+          order: 20
+        lines:
+          style: heightglowline
+          width: 1px
+          color: [0.878, 0.878, 0.878, 1.00]
+  boundary:
+    data: {source: lbw, layer: boundary}
+    # boundary_disputed:
+    #   filter:
+    #     disputed: ["1", 1, 1.0]
+    #   draw:
+    #     lines-dash:
+    #       order: 10
+    #       color: [0.667, 0.667, 0.667, 1.00]
+    #       width: [[3, 0.5px], [5, 0.8px], [12, 1px]]
+    #       join: round
+    boundary_3:
+      filter:
+        admin_level: ['3', '4', '5', '6']
+        $zoom: {min: 4, max: 12}
+      draw:
+        lines-dash:
+          order: 23
+          color: [0.580, 0.478, 0.396, 1.00]
+          width: [[3, 0.5px], [5, 0.8px], [12, 1px]]
+          join: round
+    boundary_2:
+      filter:
+        admin_level: ['2']
+        $zoom: {min: 4, max: 12}
+      draw:
+        lines-dash:
+          order: 24
+          color: [0.424, 0.612, 0.678, 1.00]
+          width: [[3, 0.5px], [5, 0.8px], [12, 1px]]
+          join: round
+          cap: round
+  boundaryNamed: #https://github.com/tangrams/tangram-es/issues/1320
+    data: {source: lbw, layer: boundary}
+    lineHighlighted:
+      filter:
+        datatype: [boundaryLine]
+        name: ['']
+        #admin_level: ["3", "4","7", 7.0, 3.0, 4.0]
+      draw:
+        lines:
+          style: lineHighlighted
+          order: 99
+          width: [[4, 2px], [15, 4px]]
+          color: [1.000, 0.00980, 0.00796, 0.90]
+    areaHighlighted:
+      filter:
+        datatype: [boundaryArea]
+        name: ['']
+        #admin_level: ["3", "4","7", 7.0, 3.0, 4.0]
+      draw:
+        polygons:
+          style: areaPolygons
+          order: 31
+          color: [1.000, 0.00980, 0.00796, 0.10]
+        lines:
+          order: 98
+          width: [[4, 2px], [15, 4px]]
+          color: [1.000, 0.00980, 0.00796, 0.90]
+  poi:
+    interactive: true
+    data: {source: poi, layer: poi}
+    building3d:
+      filter:
+        all:
+        - $geometry: point
+        - class: [custom]
+        - $zoom: {min: 16}
+      draw:                
+        poi3d:        
+          order: 99
+          sprite: function() { return "" + feature.class + ""; }
+          collide: true
+          anchor: top              
+          text:            
+            text_source: global.name_source
+            collide: true
+            anchor: bottom
+            priority: 10
+            font:
+              family: NEFontMainA
+              size: '12'
+              fill: [0.000, 0.000, 0.000, 1.00]
+              stroke:
+                color: [1.000, 1.000, 1.000, 1.00]
+                width: 1
+    poi_z11:
+      enabled: true
+      filter:
+        all:
+        - class: global.poi_z11_classes
+        - $zoom: {min: 11, max: 14}        
+      draw:        
+        icons:
+          order: 100 #order of POIs is highest to show it render on top of any road, extrusion etc. Priority is used to determine which layer of icons is to be used on collision
+          collide: true
+          anchor: top
+          interactive: true
+          priority: 12       # eg : priority 1 is rendered against priority 2 : higher number means priority decreases
+          text:
+            text_source: global.name_source
+            collide: true
+            anchor: bottom
+            font:
+              family: NEFontMainA
+              size: '12'
+              fill: [0.000, 0.000, 0.000, 1.00]
+              stroke:
+                color: [1.000, 1.000, 1.000, 1.00]
+                width: 2
+    poi_z12:
+      enabled: true
+      filter:
+        all:
+        - class: global.poi_z12_classes
+        - $zoom: {min: 12, max: 14}        
+      draw:        
+        icons:
+          order: 100
+          collide: true
+          anchor: top
+          interactive: true
+          priority: 12                    
+          text:
+            text_source: global.name_source
+            collide: true
+            anchor: bottom
+            font:
+              family: NEFontMainA
+              size: '12'
+              fill: [0.000, 0.000, 0.000, 1.00]
+              stroke:
+                color: [1.000, 1.000, 1.000, 1.00]
+                width: 2
+    poi_z13:
+      enabled: true
+      filter:
+        all:
+        - class: global.poi_z13_classes
+        - $zoom: {min: 13, max: 16}
+      draw:
+        icons:
+          order: 100     
+          collide: true
+          anchor: top
+          interactive: true
+          priority: 13              
+          text:
+            text_source: global.name_source
+            collide: true
+            anchor: bottom
+            font:
+              family: NEFontMainA
+              size: '12'
+              fill: [0.000, 0.000, 0.000, 1.00]
+              stroke:
+                color: [1.000, 1.000, 1.000, 1.00]
+                width: 1
+    poi_z14:
+      enabled: true
+      filter:
+        all:
+        - class: global.poi_z14_classes
+        - $zoom: {min: 14}        
+      draw:
+        icons:
+          order: 100        
+          collide: true
+          anchor: top
+          interactive: true
+          priority: 14          
+          text:            
+            text_source: global.name_source
+            collide: true
+            anchor: bottom
+            #priority: 16 no need to set. automatically +0.5 is set
+            font:
+              family: NEFontMainA
+              size: '12'
+              fill: [0.000, 0.000, 0.000, 1.00]
+              stroke:
+                color: [1.000, 1.000, 1.000, 1.00]
+                width: 1
+    poi_z15:
+      enabled: true
+      filter:
+        all:
+        - class: [airport, rail, bus, restaurant, grocery, amusement_park, 
+              roadblock, bank, building, wood, forest, wetland, beach, sand, 
+              farmland, zoo, farm, orchard, vineyard, plant_nursery, glacier, 
+              ice_shelf, grassland, grass, meadow, allotments, park, 
+              village_green, recreation_ground, garden, golf_course]
+        - $zoom: {min: 15}
+      draw:
+        icons:
+          order: 100       
+          collide: true
+          anchor: top
+          interactive: true
+          priority: 15
+          text:            
+            text_source: global.name_source
+            collide: true
+            anchor: bottom            
+            font:
+              family: NEFontMainA
+              size: '12'
+              fill: [0.000, 0.000, 0.000, 1.00]
+              stroke:
+                color: [1.000, 1.000, 1.000, 1.00]
+                width: 1
+    poi_z16:
+      enabled: true
+      filter:
+        all:
+        - class: global.poi_z16_classes        
+        - $zoom: {min: 16}
+      draw:
+        icons:
+          order: 100    
+          collide: true
+          anchor: top
+          interactive: true
+          priority: 16
+          text:            
+            text_source: global.name_source
+            collide: true
+            anchor: bottom            
+            font:
+              family: NEFontMainA
+              size: '12'
+              fill: [0.000, 0.000, 0.000, 1.00]
+              stroke:
+                color: [1.000, 1.000, 1.000, 1.00]
+                width: 1
+    poi_z17:
+      enabled: true
+      filter:
+        all:
+        - class: global.poi_z17_classes
+        - $zoom: {min: 17}
+      draw:
+        icons:
+          order: 100      
+          collide: true
+          anchor: top
+          interactive: true
+          priority: 17
+          text:            
+            text_source: global.name_source
+            collide: true
+            anchor: bottom
+            font:
+              family: NEFontMainA
+              size: '12'
+              fill: [0.000, 0.000, 0.000, 1.00]
+              stroke:
+                color: [1.000, 1.000, 1.000, 1.00]
+                width: 1
+    poi_z18:
+      enabled: true
+      filter:
+        all:
+        - $geometry: point
+        - not: {class: [custom]} #custom is for 3D textured buildings. Its used in poi3d layer
+        - $zoom: {min: 18}
+      draw:
+        icons:
+          order: 100      
+          collide: true
+          anchor: top
+          priority: 18
+          interactive: true
+          text:            
+            text_source: global.name_source
+            collide: true
+            anchor: bottom
+            font:
+              family: NEFontMainA
+              size: '12'
+              fill: [0.000, 0.000, 0.000, 1.00]
+              stroke:
+                color: [1.000, 1.000, 1.000, 1.00]
+                width: 0.1
+    # selected_poi:
+    #   enabled: true
+    #   filter:
+    #     all:
+    #     - $geometry: point
+    #     - $zoom: {min: 11}
+    #   draw:
+    #     icons_selected:
+    #       order: 2000
+    #       collide: true
+    #       anchor: top
+    #       interactive: true
+    #       priority: 1.5
+    #       text:
+    #         text_source: global.name_source
+    #         collide: true
+    #         anchor: bottom
+    #         font:
+    #           family: NEFontMainA
+    #           size: '12'
+    #           fill: [0.000, 0.000, 0.000, 1.00]
+    #           stroke:
+    #             color: [1.000, 1.000, 1.000, 1.00]
+    #             width: 1
+    poi_interactive:
+      enabled: false
+      filter:
+        all:
+          - class: [bus]
+          - $zoom: {min: 11, max: 18}
+      draw:
+        icons:
+          order: 101
+          collide: true
+          anchor: top
+          interactive: true
+          priority: 11
+          text:
+            text_source: global.name_source
+            collide: true
+            anchor: bottom
+            font:
+              family: NEFontMainA
+              size: '13'
+              fill: [0.000, 0.000, 0.000, 1.00]
+              stroke:
+                color: [1.000, 1.000, 1.000, 1.00]
+                width: 0.5
+  road_name:
+    data: {source: names, layer: road_name}
+    road_label:
+      filter:
+        all:
+        - $zoom: {min: 13}
+        not:
+        - class: [minor, tertiary]
+        - ramp: yes
+      draw:
+        text:
+          interactive: true
+          priority: 3
+          text_source: global.refn_source ## refn_source -->here if name is there it renders if not name then ref renders but mostly showa ref value only
+          font:
+            family: NEFontMainA
+            size: [[13, 8px], [15, 10px], [17, 12px], [18, 13px]]
+            fill: [0.18, 0.22, 0.28, 1.0]
+            stroke:
+              color: [1.000, 1.000, 1.000, 1.00]
+              width: 1
+    road_label_minor:
+      filter:
+        all:
+        - $zoom: {min: 16}
+        - class: minor
+        not:
+        - ramp: yes
+      draw:
+        text:
+          interactive: true
+          priority: 3
+          text_source: global.refn_source ## refn_source -->here if name is there it renders if not name then ref renders but mostly showa ref value only
+          font:
+            family: NEFontMainA
+            size: [[16, 9px], [18, 11px]]
+            fill: [0.18, 0.22, 0.28, 1.0]
+            stroke:
+              color: [1.000, 1.000, 1.000, 1.00]
+              width: 1
+    road_label_tertiary:
+      filter:
+        all:
+        - $zoom: {min: 15}
+        - ramp: no
+        - class: tertiary
+      draw:
+        text:
+          interactive: true
+          priority: 3
+          text_source: global.refn_source ## refn_source -->here if name is there it renders if not name then ref renders but mostly showa ref value only
+          font:
+            family: NEFontMainA
+            size: [[15, 9px], [17, 11px], [18, 12px]]
+            fill: [0.18, 0.22, 0.28, 1.0]
+            stroke:
+              color: [1.000, 1.000, 1.000, 1.00]
+              width: 1
+  worldplace:
+    data: {source: worldplace, layer: worldplace}
+    state:
+      filter:
+        all:
+        - class: state
+        - $zoom: {min: 4, max: 8}
+      draw:
+        text:
+          priority: 9
+          text_source: global.name_source
+          font:
+            family: NEFontMainA
+            size: [[4, 11px], [6, 15px]]
+            fill: [0.188, 0.235, 0.290, 1.00]
+            stroke:
+              color: [0.855, 0.835, 0.835, 1.00]
+              width: 1
+            transform: uppercase
+    country_3:
+      filter:
+        all:
+        - class: country
+        - $zoom: {min: 4, max: 6}
+      draw:
+        text:
+          interactive: true
+          priority: 10
+          text_source: global.name_source
+          font:
+            family: NEFontMainA
+            size: [[3, 11px], [7, 17px]]
+            fill: [0.18, 0.22, 0.28, 1.0]
+            stroke:
+              color: [1.000, 1.000, 1.000, 1.00]
+              width: 1
+            transform: uppercase
+    country_2:
+      filter:
+        all:
+        - rank: 2
+        - class: country
+      draw:
+        text:
+          interactive: true
+          priority: 10
+          text_source: global.name_source
+          font:
+            family: NEFontMainA
+            size: [[2, 11px], [5, 17px]]
+            fill: [0.18, 0.22, 0.28, 1.0]
+            stroke:
+              color: [1.000, 1.000, 1.000, 1.00]
+              width: 1
+            transform: uppercase
+    country_1:
+      filter:
+        all:
+        - rank: 1
+        - class: country
+      draw:
+        text:
+          interactive: true
+          priority: 10
+          text_source: global.name_source
+          font:
+            family: NEFontMainA
+            size: [[1, 11px], [4, 17px]]
+            fill: [0.18, 0.22, 0.28, 1.0]
+            stroke:
+              color: [1.000, 1.000, 1.000, 1.00]
+              width: 1
+            transform: uppercase
+    continent:
+      filter:
+        all:
+        - class: continent
+        - $zoom: {max: 1}
+      draw:
+        text:
+          interactive: true
+          priority: 10
+          text_source: global.name_source
+          font:
+            family: NEFontMainA
+            size: '16'
+            fill: [0.18, 0.22, 0.28, 1.0]
+            stroke:
+              color: [1.000, 1.000, 1.000, 1.00]
+              width: 1
+            transform: uppercase
+  place2:
+    data: {source: names, layer: place}
+    place_other:
+      filter:
+        all:
+        - class: [hamlet, island]
+        - $zoom: {min: 11} #7
+      draw:
+        text:
+          priority: 11
+          text_source: global.name_source
+          font:
+            family: NEFontMainA
+            size: [[12, 11px], [13, 12px], [14, 14px], [18, 16px]]
+            fill: [0.000, 0.000, 0.000, 1.00]
+            stroke:
+              color: [0.835, 0.835, 0.835, 1.00]
+              width: 0.5
+            transform: titlecase
+    place_other1:
+      filter:
+        all:
+        - class: [islet, neighbourhood, suburb, locality, isolated_dwelling]
+        - $zoom: {min: 10} #7
+      draw:
+        text:
+          priority: 11
+          text_source: global.name_source
+          font:
+            family: NEFontMainA
+            size: [[12, 11px], [13, 12px], [14, 14px], [18, 16px]]
+            fill: [0.000, 0.000, 0.000, 1.00]
+            stroke:
+              color: [0.929, 0.902, 0.882, 1.00]
+              width: 0.5
+            transform: titlecase
+  place:
+    data: {source: names, layer: place}
+#    placeFromBoundary:
+#      enabled: true
+#      admin2: #country
+#        filter:
+#          - admin_level: [2.0]
+#          - $zoom: {min: 4, max: 6}
+#        draw:
+#          text:
+#            order: 10
+#            collide: true
+#            text_source: global.name_source
+#            anchor: center
+#            font:
+#              family: NEFontMainA
+#              size: [[2, 11px], [6, 17px]]
+#              fill: [0.188, 0.188, 0.188, 1.00]
+#              stroke:
+#                color: [0.000, 0.000, 0.000, 1.00]
+#                width: 0.2
+#      admin3: #state
+#        filter:
+#          - admin_level: [3.0]
+#          - $zoom: {min: 5, max: 8}
+#        draw:
+#          text:
+#            order: 10
+#            collide: true
+#            text_source: global.name_source
+#            anchor: center
+#            font:
+#              family: NEFontMainA
+#              size: [[4, 11px], [6, 15px]]
+#              fill: [0.188, 0.188, 0.188, 1.00]
+#              stroke:
+#                color: [0.000, 0.000, 0.000, 1.00]
+#                width: 0.2
+#      admin4To13:
+#        filter:
+#          - admin_level: [4.0, 6.0, 8.0, 9.0, 10.0, 11.0, 12.0, 13.0]
+#          - $zoom: {min: 6, max: 14}
+#        draw:
+#          text:
+#            order: 10
+#            collide: true
+#            text_source: global.name_source
+#            anchor: center
+#            font:
+#              family: NEFontMainA
+#              size: [[8, 11px], [18, 21px]]
+#              fill: [0.188, 0.188, 0.188, 1.00]
+#              stroke:
+#                color: [0.000, 0.000, 0.000, 1.00]
+#                width: 0.2
+    areaHighlightedName:
+      filter:
+        datatype: place
+        name: ['']
+      draw:
+        text:
+          interactive: true
+          order: 300
+          priority: 2
+          text_source: global.name_source
+          font:
+            family: NEFontMainA
+            size: [[4, 18px], [18, 24px]]
+            fill: [0.000, 0.000, 0.000, 1.00]
+            stroke:
+              color: [0.561, 0.561, 0.561, 1.00]
+              width: 0.2
+    place_village:
+      icon_text:
+        filter:
+          all:
+          - class: village
+          - $zoom: {min: 12, max: 15}
+        draw:
+          icons:
+            order: 25
+            collide: true
+            priority: 8
+            interactive: false
+            text:
+              interactive: true
+              collide: true
+              text_source: global.name_source
+              anchor: bottom
+              font:
+                family: NEFontMainA
+                size: [[11, 11px], [18, 19px]]
+                fill: [0.208, 0.208, 0.208, 1.00]
+                stroke:
+                  color: [0.200, 0.200, 0.200, 1.00]
+                  width: 0.2
+      text:
+        filter:
+          all:
+          - class: town
+          - $zoom: {min: 15}
+        draw:
+          text:
+            interactive: true
+            collide: true
+            text_source: global.name_source
+            font:
+              family: NEFontMainA
+              size: [[8, 11px], [18, 21px]]
+              fill: [0.188, 0.188, 0.188, 1.00]
+              stroke:
+                color: [0.000, 0.000, 0.000, 1.00]
+                width: 0.2
+    place_town:
+      icon_text:
+        filter:
+          all:
+          - class: town
+          - $zoom: {min: 8, max: 12}
+        draw:
+          icons:
+            order: 26
+            collide: true
+            priority: 8
+            interactive: false
+            text:
+              interactive: true
+              collide: true
+              text_source: global.name_source
+              anchor: bottom
+              font:
+                family: NEFontMainA
+                size: [[8, 11px], [18, 21px]]
+                fill: [0.000, 0.000, 0.000, 1.00]
+                stroke:
+                  color: [1.0, 1.0, 1.0, 1.0]
+                  width: 0.2
+      text:
+        filter:
+          all:
+          - class: town
+          - $zoom: {min: 12}
+        draw:
+          text:
+            interactive: true
+            collide: true
+            text_source: global.name_source
+            font:
+              family: NEFontMainA
+              size: [[8, 11px], [18, 21px]]
+              fill: [0.188, 0.188, 0.188, 1.00]
+              stroke:
+                color: [0.000, 0.000, 0.000, 1.00]
+                width: 0.2
+    place_district:
+      icon_text:
+        filter:
+          all:
+          - class: district
+          - $zoom: {min: 10, max: 14}
+        draw:
+          icons:
+            order: 27
+            collide: true
+            priority: 8
+            interactive: false
+            text:
+              interactive: true
+              collide: true
+              text_source: global.name_source
+              anchor: bottom
+              font:
+                family: NEFontMainA
+                size: [[10, 9px], [14, 13px]]
+                fill: [0.459, 0.459, 0.459, 1.00]
+                stroke:
+                  color: [1.000, 1.000, 1.000, 1.00]
+                  width: 0.2
+      text:
+        filter:
+          all:
+          - class: district
+          - $zoom: {min: 14, max: 16}
+        draw:
+          text:
+            interactive: true
+            collide: true
+            text_source: global.name_source
+            font:
+              family: NEFontMainA
+              size: [[14, 13px], [18, 16px]]
+              fill: [0.459, 0.459, 0.459, 1.00]
+              stroke:
+                color: [1.000, 1.000, 1.000, 1.00]
+                width: 0.2
+    place_city:
+      icon_text:
+        filter:
+          all:
+          - class: city
+          - $zoom: {min: 6, max: 11}
+        draw:
+          icons:
+            order: 28
+            collide: true
+            priority: 8
+            interactive: false
+            text:
+              interactive: true
+              collide: true
+              text_source: global.name_source
+              anchor: bottom
+              font:
+                family: NEFontMainA
+                size: [[7, 14px], [18, 23px]]
+                fill: [0.000, 0.000, 0.000, 1.00]
+                stroke:
+                  color: [0.000, 0.000, 0.000, 1.00]
+                  width: 0.2
+      text:
+        filter:
+          all:
+          - class: city
+          - $zoom: {min: 11, max: 14}
+        draw:
+          text:
+            interactive: true
+            collide: true
+            text_source: global.name_source
+            font:
+              family: NEFontMainA
+              size: [[7, 11px], [18, 23px]]
+              fill: [0.188, 0.188, 0.188, 1.00]
+              stroke:
+                color: [1.000, 1.000, 1.000, 1.00]
+                width: 0.2
+    state:
+      filter:
+        all:
+        - class: state
+        - $zoom: {min: 5, max: 8}
+      draw:
+        text:
+          interactive: true
+          priority: 9
+          text_source: global.name_source
+          font:
+            family: NEFontMainA
+            size: [[4, 11px], [6, 15px]]
+            fill: [0.188, 0.235, 0.290, 1.00]
+            stroke:
+              color: [0.855, 0.835, 0.835, 1.00]
+              width: 1
+            transform: uppercase
+    country_3:
+      filter:
+        all:
+        - class: country
+        - $zoom: {min: 4, max: 6}
+      draw:
+        text:
+          interactive: true
+          priority: 10
+          text_source: global.name_source
+          font:
+            family: NEFontMainA
+            size: [[3, 11px], [7, 17px]]
+            fill: [0.188, 0.235, 0.290, 1.00]
+            stroke:
+              color: [1.000, 1.000, 1.000, 1.00]
+              width: 1
+            transform: none
+    country_2:
+      filter:
+        all:
+        - rank: 2
+        - class: country
+      draw:
+        text:
+          interactive: true
+          priority: 10
+          text_source: global.name_source
+          font:
+            family: NEFontMainA
+            size: [[2, 11px], [5, 17px]]
+            fill: [0.188, 0.235, 0.290, 1.00]
+            stroke:
+              color: [1.000, 1.000, 1.000, 1.00]
+              width: 1
+            transform: none
+    country_1:
+      filter:
+        all:
+        - rank: 1
+        - class: country
+      draw:
+        text:
+          interactive: true
+          priority: 10
+          text_source: global.name_source
+          font:
+            family: NEFontMainA
+            size: [[1, 11px], [4, 17px]]
+            fill: [0.188, 0.235, 0.290, 1.00]
+            stroke:
+              color: [1.000, 1.000, 1.000, 1.00]
+              width: 1
+            transform: none
+    continent:
+      filter:
+        all:
+        - class: continent
+        - $zoom: {max: 1}
+      draw:
+        text:
+          interactive: true
+          priority: 10
+          text_source: global.name_source
+          font:
+            family: NEFontMainA
+            size: '13'
+            fill: [0.000, 0.000, 0.000, 1.00]
+            stroke:
+              color: [0.000, 0.000, 0.000, 1.00]
+              width: 1
+            transform: uppercase
+textures:
+  downblack: {url: https://staging.vmmaps.com/data.png/JV/Common/downblack.png, filtering: nearest, density: 2}
+  downleftblack: {url: https://staging.vmmaps.com/data.png/JV/Common/downleftblack.png, filtering: nearest, density: 2}
+  downleftwhite: {url: https://staging.vmmaps.com/data.png/JV/Common/downleftwhite.png, filtering: nearest, density: 2}
+  downrightblack: {url: https://staging.vmmaps.com/data.png/JV/Common/downrightblack.png, filtering: nearest, density: 2}
+  downrightwhite: {url: https://staging.vmmaps.com/data.png/JV/Common/downrightwhite.png, filtering: nearest, density: 2}
+  downwhite: {url: https://staging.vmmaps.com/data.png/JV/Common/downwhite.png, filtering: nearest, density: 2}
+  leftturn: {url: https://staging.vmmaps.com/data.png/JV/Common/leftturn.png, filtering: nearest, density: 2}
+  rightturn: {url: https://staging.vmmaps.com/data.png/JV/Common/rightturn.png, filtering: nearest, density: 2}
+  upblack: {url: https://staging.vmmaps.com/data.png/JV/Common/upblack.png, filtering: nearest, density: 2}
+  upleftblack: {url: https://staging.vmmaps.com/data.png/JV/Common/upleftblack.png, filtering: nearest, density: 2}
+  upleftwhite: {url: https://staging.vmmaps.com/data.png/JV/Common/upleftwhite.png, filtering: nearest, density: 2}
+  uprightblack: {url: https://staging.vmmaps.com/data.png/JV/Common/uprightblack.png, filtering: nearest, density: 2}
+  uprightwhite: {url: https://staging.vmmaps.com/data.png/JV/Common/uprightwhite.png, filtering: nearest, density: 2}
+  upwhite: {url: https://staging.vmmaps.com/data.png/JV/Common/upwhite.png, filtering: nearest, density: 2}
+  AJ: {url: https://staging.vmmaps.com/data.png/JV/UAE/AJ.png, filtering: nearest, density: 2}
+  D: {url: https://staging.vmmaps.com/data.png/JV/UAE/D.png, filtering: nearest, density: 2}
+  E: {url: https://staging.vmmaps.com/data.png/JV/UAE/E.png, filtering: nearest, density: 2}
+  F: {url: https://staging.vmmaps.com/data.png/JV/UAE/F.png, filtering: nearest, density: 2}
+  M: {url: https://staging.vmmaps.com/data.png/JV/UAE/M.png, filtering: nearest, density: 2}
+  S: {url: https://staging.vmmaps.com/data.png/JV/UAE/S.png, filtering: nearest, density: 2}
+  airport: {url: https://staging.vmmaps.com/data.png/POI/common/airport.png, filtering: nearest, density: 2}
+  beach: {url: https://staging.vmmaps.com/data.png/POI/ITC/beach.png, filtering: nearest, density: 2}
+  camel: {url: https://staging.vmmaps.com/data.png/JV/UAE/camel.png, filtering: nearest, density: 2}
+  citycenter: {url: https://staging.vmmaps.com/data.png/JV/UAE/citycenter.png, filtering: nearest, density: 2}
+  freeway: {url: https://staging.vmmaps.com/data.png/JV/UAE/freeway.png, filtering: nearest, density: 2}
+  salik: {url: https://staging.vmmaps.com/data.png/JV/UAE/salik.png, filtering: nearest, density: 2}
+  zoo: {url: https://staging.vmmaps.com/data.png/POI/day/zoo.png, filtering: nearest, density: 2}
+  Wedding: {url: https://staging.vmmaps.com/data.png/POI/ITC/Wedding.png, filtering: nearest, density: 2}
+  agrarian: {url: https://staging.vmmaps.com/data.png/POI/ITC/agrarian.png, filtering: nearest, density: 2}
+  agricultureplace: {url: https://staging.vmmaps.com/data.png/POI/ITC/agricultureplace.png, filtering: nearest, density: 2}
+  airline_office: {url: https://staging.vmmaps.com/data.png/POI/ITC/airline_office.png, filtering: nearest, density: 2}
+  apartments: {url: https://staging.vmmaps.com/data.png/POI/ITC/apartments.png, filtering: nearest, density: 2}
+  baby_goods: {url: https://staging.vmmaps.com/data.png/POI/ITC/baby_goods.png, filtering: nearest, density: 2}
+  boat: {url: https://staging.vmmaps.com/data.png/POI/ITC/boat.png, filtering: nearest, density: 2}
+  bowling_alley: {url: https://staging.vmmaps.com/data.png/POI/ITC/bowling_alley.png, filtering: nearest, density: 2}
+  bureau_de_change: {url: https://staging.vmmaps.com/data.png/POI/ITC/bureau_de_change.png, filtering: nearest, density: 2}
+  bus: {url: https://staging.vmmaps.com/data.png/POI/common/bus.png, filtering: nearest, density: 2}
+  camel_racing: {url: https://staging.vmmaps.com/data.png/POI/ITC/camel_racing.png, filtering: nearest, density: 2}
+  car_wash: {url: https://staging.vmmaps.com/data.png/POI/ITC/car_wash.png, filtering: nearest, density: 2}
+  charging_station: {url: https://staging.vmmaps.com/data.png/POI/common/charging_station.png, filtering: nearest,
+    density: 2}
+  childcare: {url: https://staging.vmmaps.com/data.png/POI/ITC/childcare.png, filtering: nearest, density: 2}
+  church: {url: https://staging.vmmaps.com/data.png/POI/ITC/church.png, filtering: nearest, density: 2}
+  cinema: {url: https://staging.vmmaps.com/data.png/POI/day/cinema.png, filtering: nearest, density: 2}
+  commercial: {url: https://staging.vmmaps.com/data.png/POI/day/commercial.png, filtering: nearest, density: 2}
+  conference_centre: {url: https://staging.vmmaps.com/data.png/POI/ITC/conference_centre.png, filtering: nearest,
+    density: 2}
+  craft: {url: https://staging.vmmaps.com/data.png/POI/ITC/craft.png, filtering: nearest, density: 2}
+  culinary_school: {url: https://staging.vmmaps.com/data.png/POI/ITC/culinary_school.png, filtering: nearest, density: 2}
+  cycling: {url: https://staging.vmmaps.com/data.png/POI/ITC/cycling.png, filtering: nearest, density: 2}
+  dance: {url: https://staging.vmmaps.com/data.png/POI/ITC/dance.png, filtering: nearest, density: 2}
+  driving_school: {url: https://staging.vmmaps.com/data.png/POI/ITC/driving_school.png, filtering: nearest, density: 2}
+  electrical: {url: https://staging.vmmaps.com/data.png/POI/ITC/electrical.png, filtering: nearest, density: 2}
+  factory_outlet: {url: https://staging.vmmaps.com/data.png/POI/ITC/factory_outlet.png, filtering: nearest, density: 2}
+  farm: {url: https://staging.vmmaps.com/data.png/POI/ITC/farm.png, filtering: nearest, density: 2}
+  financialadvice: {url: https://staging.vmmaps.com/data.png/POI/ITC/financialadvice.png, filtering: nearest, density: 2}
+  fitness: {url: https://staging.vmmaps.com/data.png/POI/ITC/fitness.png, filtering: nearest, density: 2}
+  general: {url: https://staging.vmmaps.com/data.png/POI/ITC/general.png, filtering: nearest, density: 2}
+  greenhouse_horticulture: {url: https://staging.vmmaps.com/data.png/POI/ITC/greenhouse_horticulture.png, filtering: nearest,
+    density: 2}
+  hairdressersupply: {url: https://staging.vmmaps.com/data.png/POI/ITC/hairdressersupply.png, filtering: nearest,
+    density: 2}
+  healthcare: {url: https://staging.vmmaps.com/data.png/POI/ITC/healthcare.png, filtering: nearest, density: 2}
+  hobbies: {url: https://staging.vmmaps.com/data.png/POI/ITC/hobbies.png, filtering: nearest, density: 2}
+  hobbyshop: {url: https://staging.vmmaps.com/data.png/POI/ITC/hobbyshop.png, filtering: nearest, density: 2}
+  horse: {url: https://staging.vmmaps.com/data.png/POI/ITC/horse.png, filtering: nearest, density: 2}
+  ice_skating: {url: https://staging.vmmaps.com/data.png/POI/ITC/ice_skating.png, filtering: nearest, density: 2}
+  industrial: {url: https://staging.vmmaps.com/data.png/POI/day/industrial.png, filtering: nearest, density: 2}
+  insurance: {url: https://staging.vmmaps.com/data.png/POI/ITC/insurance.png, filtering: nearest, density: 2}
+  internet_cafe: {url: https://staging.vmmaps.com/data.png/POI/ITC/internet_cafe.png, filtering: nearest, density: 2}
+  language_school: {url: https://staging.vmmaps.com/data.png/POI/ITC/language_school.png, filtering: nearest, density: 2}
+  leisurecentre: {url: https://staging.vmmaps.com/data.png/POI/ITC/leisurecentre.png, filtering: nearest, density: 2}
+  medical: {url: https://staging.vmmaps.com/data.png/POI/ITC/medical.png, filtering: nearest, density: 2}
+  mobile: {url: https://staging.vmmaps.com/data.png/POI/ITC/mobile.png, filtering: nearest, density: 2}
+  mosque: {url: https://staging.vmmaps.com/data.png/POI/ITC/mosque.png, filtering: nearest, density: 2}
+  motor_sport: {url: https://staging.vmmaps.com/data.png/POI/ITC/motor_sport.png, filtering: nearest, density: 2}
+  music: {url: https://staging.vmmaps.com/data.png/POI/day/music.png, filtering: nearest, density: 2}
+  musical: {url: https://staging.vmmaps.com/data.png/POI/ITC/musical.png, filtering: nearest, density: 2}
+  nail: {url: https://staging.vmmaps.com/data.png/POI/ITC/nail.png, filtering: nearest, density: 2}
+  natural_gas: {url: https://staging.vmmaps.com/data.png/POI/ITC/natural_gas.png, filtering: nearest, density: 2}
+  newsagents: {url: https://staging.vmmaps.com/data.png/POI/day/newsagents.png, filtering: nearest, density: 2}
+  nighclub: {url: https://staging.vmmaps.com/data.png/POI/common/nighclub.png, filtering: nearest, density: 2}
+  optician: {url: https://staging.vmmaps.com/data.png/POI/ITC/optician.png, filtering: nearest, density: 2}
+  parking_space: {url: https://staging.vmmaps.com/data.png/POI/ITC/parking_space.png, filtering: nearest, density: 2}
+  pharmaceutical: {url: https://staging.vmmaps.com/data.png/POI/ITC/pharmaceutical.png, filtering: nearest, density: 2}
+  photocopy: {url: https://staging.vmmaps.com/data.png/POI/ITC/photocopy.png, filtering: nearest, density: 2}
+  preschool: {url: https://staging.vmmaps.com/data.png/POI/ITC/preschool.png, filtering: nearest, density: 2}
+  racetrack: {url: https://staging.vmmaps.com/data.png/POI/ITC/racetrack.png, filtering: nearest, density: 2}
+  real_estate: {url: https://staging.vmmaps.com/data.png/POI/ITC/real_estate.png, filtering: nearest, density: 2}
+  recycling: {url: https://staging.vmmaps.com/data.png/POI/ITC/recycling.png, filtering: nearest, density: 2}
+  rental: {url: https://staging.vmmaps.com/data.png/POI/ITC/rental.png, filtering: nearest, density: 2}
+  rescue_station: {url: https://staging.vmmaps.com/data.png/POI/ITC/rescue_station.png, filtering: nearest, density: 2}
+  research_institute: {url: https://staging.vmmaps.com/data.png/POI/ITC/research_institute.png, filtering: nearest,
+    density: 2}
+  resort: {url: https://staging.vmmaps.com/data.png/POI/ITC/resort.png, filtering: nearest, density: 2}
+  rest_area: {url: https://staging.vmmaps.com/data.png/POI/ITC/rest_area.png, filtering: nearest, density: 2}
+  restaurant_area: {url: https://staging.vmmaps.com/data.png/POI/ITC/restaurant_area.png, filtering: nearest, density: 2}
+  retail: {url: https://staging.vmmaps.com/data.png/POI/day/retail.png, filtering: nearest, density: 2}
+  seafood: {url: https://staging.vmmaps.com/data.png/POI/ITC/seafood.png, filtering: nearest, density: 2}
+  security: {url: https://staging.vmmaps.com/data.png/POI/ITC/security.png, filtering: nearest, density: 2}
+  service_center: {url: https://staging.vmmaps.com/data.png/POI/ITC/service_center.png, filtering: nearest, density: 2}
+  shopping: {url: https://staging.vmmaps.com/data.png/POI/ITC/shopping.png, filtering: nearest, density: 2}
+  shuttle: {url: https://staging.vmmaps.com/data.png/POI/ITC/shuttle.png, filtering: nearest, density: 2}
+  speciality: {url: https://staging.vmmaps.com/data.png/POI/ITC/speciality.png, filtering: nearest, density: 2}
+  studio: {url: https://staging.vmmaps.com/data.png/POI/ITC/studio.png, filtering: nearest, density: 2}
+  temple: {url: https://staging.vmmaps.com/data.png/POI/ITC/temple.png, filtering: nearest, density: 2}
+  theater: {url: https://staging.vmmaps.com/data.png/POI/ITC/theater.png, filtering: nearest, density: 2}
+  tollgantry: {url: https://staging.vmmaps.com/data.png/POI/ITC/tollgantry.png, filtering: nearest, density: 2}
+  trade: {url: https://staging.vmmaps.com/data.png/POI/ITC/trade.png, filtering: nearest, density: 2}
+  transport: {url: https://staging.vmmaps.com/data.png/POI/ITC/transport.png, filtering: nearest, density: 2}
+  travel: {url: https://staging.vmmaps.com/data.png/POI/ITC/travel.png, filtering: nearest, density: 2}
+  truck: {url: https://staging.vmmaps.com/data.png/app/neNative/day/truck.png, filtering: nearest, density: 2}
+  tyres: {url: https://staging.vmmaps.com/data.png/POI/ITC/tyres.png, filtering: nearest, density: 2}
+  utilities: {url: https://staging.vmmaps.com/data.png/POI/ITC/utilities.png, filtering: nearest, density: 2}
+  variety: {url: https://staging.vmmaps.com/data.png/POI/ITC/variety.png, filtering: nearest, density: 2}
+  vehicleregistration: {url: https://staging.vmmaps.com/data.png/POI/ITC/vehicleregistration.png, filtering: nearest,
+    density: 2}
+  warehouse: {url: https://staging.vmmaps.com/data.png/POI/day/warehouse.png, filtering: nearest, density: 2}
+  wildlife: {url: https://staging.vmmaps.com/data.png/POI/ITC/wildlife.png, filtering: nearest, density: 2}
+  yes: {url: https://staging.vmmaps.com/data.png/POI/ITC/yes.png, filtering: nearest, density: 2}
+  arts_centre: {url: https://staging.vmmaps.com/data.png/POI/common/arts_centre.png, filtering: nearest, density: 2}
+  biergarten: {url: https://staging.vmmaps.com/data.png/POI/common/biergarten.png, filtering: nearest, density: 2}
+  Chicken: {url: https://staging.vmmaps.com/data.png/POI/common/Chicken.png, filtering: nearest, density: 2}
+  chicken_only: {url: https://staging.vmmaps.com/data.png/POI/common/chicken_only.png, filtering: nearest, density: 2}
+  clothes: {url: https://staging.vmmaps.com/data.png/POI/common/clothes.png, filtering: nearest, density: 2}
+  Edutainment: {url: https://staging.vmmaps.com/data.png/POI/common/Edutainment.png, filtering: nearest, density: 2}
+  fountain: {url: https://staging.vmmaps.com/data.png/POI/common/fountain.png, filtering: nearest, density: 2}
+  Fruits: {url: https://staging.vmmaps.com/data.png/POI/common/Fruits.png, filtering: nearest, density: 2}
+  juice_center: {url: https://staging.vmmaps.com/data.png/POI/common/juice_center.png, filtering: nearest, density: 2}
+  Office Space: {url: https://staging.vmmaps.com/data.png/POI/common/Office Space.png, filtering: nearest, density: 2}
+  pub: {url: https://staging.vmmaps.com/data.png/POI/common/pub.png, filtering: nearest, density: 2}
+  stable: {url: https://staging.vmmaps.com/data.png/POI/common/stable.png, filtering: nearest, density: 2}
+  Sugarcane_juice: {url: https://staging.vmmaps.com/data.png/POI/common/Sugarcane_juice.png, filtering: nearest,
+    density: 2}
+  tea_stall: {url: https://staging.vmmaps.com/data.png/POI/common/tea_stall.png, filtering: nearest, density: 2}
+  two_wheeler_dealer: {url: https://staging.vmmaps.com/data.png/POI/common/two_wheeler_dealer.png, filtering: nearest,
+    density: 2}
+  aerialway: {url: https://staging.vmmaps.com/data.png/POI/common/aerialway.png, filtering: nearest, density: 2}
+  airfield: {url: https://staging.vmmaps.com/data.png/POI/common/airfield.png, filtering: nearest, density: 2}
+  alcohol_shop: {url: https://staging.vmmaps.com/data.png/POI/common/alcohol_shop.png, filtering: nearest, density: 2}
+  appliance: {url: https://staging.vmmaps.com/data.png/POI/common/appliance.png, filtering: nearest, density: 2}
+  archery: {url: https://staging.vmmaps.com/data.png/POI/common/archery.png, filtering: nearest, density: 2}
+  athletics: {url: https://staging.vmmaps.com/data.png/POI/common/athletics.png, filtering: nearest, density: 2}
+  australian_football: {url: https://staging.vmmaps.com/data.png/POI/common/australian_football.png, filtering: nearest,
+    density: 2}
+  badminton: {url: https://staging.vmmaps.com/data.png/POI/common/badminton.png, filtering: nearest, density: 2}
+  beachvolleyball: {url: https://staging.vmmaps.com/data.png/POI/common/beachvolleyball.png, filtering: nearest,
+    density: 2}
+  bicycle_parking: {url: https://staging.vmmaps.com/data.png/POI/common/bicycle_parking.png, filtering: nearest,
+    density: 2}
+  billiards: {url: https://staging.vmmaps.com/data.png/POI/common/billiards.png, filtering: nearest, density: 2}
+  bmx: {url: https://staging.vmmaps.com/data.png/POI/common/bmx.png, filtering: nearest, density: 2}
+  boules: {url: https://staging.vmmaps.com/data.png/POI/common/boules.png, filtering: nearest, density: 2}
+  bowls: {url: https://staging.vmmaps.com/data.png/POI/common/bowls.png, filtering: nearest, density: 2}
+  boxing: {url: https://staging.vmmaps.com/data.png/POI/common/boxing.png, filtering: nearest, density: 2}
+  canadian_football: {url: https://staging.vmmaps.com/data.png/POI/common/canadian_football.png, filtering: nearest,
+    density: 2}
+  canoe: {url: https://staging.vmmaps.com/data.png/POI/common/canoe.png, filtering: nearest, density: 2}
+  car: {url: https://staging.vmmaps.com/data.png/app/neNative/day/car.png, filtering: nearest, density: 2}
+  charge station: {url: https://staging.vmmaps.com/data.png/POI/common/charge station.png, filtering: nearest, density: 2}
+  charge_station: {url: https://staging.vmmaps.com/data.png/POI/common/charge_station.png, filtering: nearest, density: 2}
+  charity: {url: https://staging.vmmaps.com/data.png/POI/common/charity.png, filtering: nearest, density: 2}
+  chemist: {url: https://staging.vmmaps.com/data.png/POI/common/chemist.png, filtering: nearest, density: 2}
+  chess: {url: https://staging.vmmaps.com/data.png/POI/common/chess.png, filtering: nearest, density: 2}
+  city: {url: https://staging.vmmaps.com/data.png/POI/common/city.png, filtering: nearest, density: 2}
+  climbing: {url: https://staging.vmmaps.com/data.png/POI/common/climbing.png, filtering: nearest, density: 2}
+  climbing_adventure: {url: https://staging.vmmaps.com/data.png/POI/common/climbing_adventure.png, filtering: nearest,
+    density: 2}
+  coffee: {url: https://staging.vmmaps.com/data.png/POI/common/coffee.png, filtering: nearest, density: 2}
+  cricket_nets: {url: https://staging.vmmaps.com/data.png/POI/common/cricket_nets.png, filtering: nearest, density: 2}
+  croquet: {url: https://staging.vmmaps.com/data.png/POI/common/croquet.png, filtering: nearest, density: 2}
+  curling: {url: https://staging.vmmaps.com/data.png/POI/common/curling.png, filtering: nearest, density: 2}
+  disc_golf: {url: https://staging.vmmaps.com/data.png/POI/common/disc_golf.png, filtering: nearest, density: 2}
+  district: {url: https://staging.vmmaps.com/data.png/POI/common/district.png, filtering: nearest, density: 2}
+  diving: {url: https://staging.vmmaps.com/data.png/POI/common/diving.png, filtering: nearest, density: 2}
+  dog_racing: {url: https://staging.vmmaps.com/data.png/POI/common/dog_racing.png, filtering: nearest, density: 2}
+  entrance: {url: https://staging.vmmaps.com/data.png/POI/common/entrance.png, filtering: nearest, density: 2}
+  equestrian: {url: https://staging.vmmaps.com/data.png/POI/common/equestrian.png, filtering: nearest, density: 2}
+  ferry: {url: https://staging.vmmaps.com/data.png/POI/common/ferry.png, filtering: nearest, density: 2}
+  field_hockey: {url: https://staging.vmmaps.com/data.png/POI/common/field_hockey.png, filtering: nearest, density: 2}
+  florist: {url: https://staging.vmmaps.com/data.png/POI/common/florist.png, filtering: nearest, density: 2}
+  free_flying: {url: https://staging.vmmaps.com/data.png/POI/common/free_flying.png, filtering: nearest, density: 2}
+  fuel: {url: https://staging.vmmaps.com/data.png/POI/common/fuel.png, filtering: nearest, density: 2}
+  gaelic_games: {url: https://staging.vmmaps.com/data.png/POI/common/gaelic_games.png, filtering: nearest, density: 2}
+  garden_centre: {url: https://staging.vmmaps.com/data.png/POI/common/garden_centre.png, filtering: nearest, density: 2}
+  gymnastics: {url: https://staging.vmmaps.com/data.png/POI/common/gymnastics.png, filtering: nearest, density: 2}
+  halt: {url: https://staging.vmmaps.com/data.png/POI/common/halt.png, filtering: nearest, density: 2}
+  handball: {url: https://staging.vmmaps.com/data.png/POI/common/handball.png, filtering: nearest, density: 2}
+  harbor: {url: https://staging.vmmaps.com/data.png/POI/common/harbor.png, filtering: nearest, density: 2}
+  heliport: {url: https://staging.vmmaps.com/data.png/POI/common/heliport.png, filtering: nearest, density: 2}
+  hockey: {url: https://staging.vmmaps.com/data.png/POI/common/hockey.png, filtering: nearest, density: 2}
+  horse_racing: {url: https://staging.vmmaps.com/data.png/POI/common/horse_racing.png, filtering: nearest, density: 2}
+  horseshoes: {url: https://staging.vmmaps.com/data.png/POI/common/horseshoes.png, filtering: nearest, density: 2}
+  ice_hockey: {url: https://staging.vmmaps.com/data.png/POI/common/ice_hockey.png, filtering: nearest, density: 2}
+  ice_rink: {url: https://staging.vmmaps.com/data.png/POI/common/ice_rink.png, filtering: nearest, density: 2}
+  ice_stock: {url: https://staging.vmmaps.com/data.png/POI/common/ice_stock.png, filtering: nearest, density: 2}
+  judo: {url: https://staging.vmmaps.com/data.png/POI/common/judo.png, filtering: nearest, density: 2}
+  karting: {url: https://staging.vmmaps.com/data.png/POI/common/karting.png, filtering: nearest, density: 2}
+  korfball: {url: https://staging.vmmaps.com/data.png/POI/common/korfball.png, filtering: nearest, density: 2}
+  model_aerodrome: {url: https://staging.vmmaps.com/data.png/POI/common/model_aerodrome.png, filtering: nearest,
+    density: 2}
+  motocross: {url: https://staging.vmmaps.com/data.png/POI/common/motocross.png, filtering: nearest, density: 2}
+  motor: {url: https://staging.vmmaps.com/data.png/POI/common/motor.png, filtering: nearest, density: 2}
+  motorcycle: {url: https://staging.vmmaps.com/data.png/app/neNative/day/motorcycle.png, filtering: nearest,
+    density: 2}
+  multi: {url: https://staging.vmmaps.com/data.png/POI/common/multi.png, filtering: nearest, density: 2}
+  netball: {url: https://staging.vmmaps.com/data.png/POI/common/netball.png, filtering: nearest, density: 2}
+  paddle_tennis: {url: https://staging.vmmaps.com/data.png/POI/common/paddle_tennis.png, filtering: nearest, density: 2}
+  paintball: {url: https://staging.vmmaps.com/data.png/POI/common/paintball.png, filtering: nearest, density: 2}
+  paragliding: {url: https://staging.vmmaps.com/data.png/POI/common/paragliding.png, filtering: nearest, density: 2}
+  parking: {url: https://staging.vmmaps.com/data.png/POI/common/parking.png, filtering: nearest, density: 2}
+  parkinggarage: {url: https://staging.vmmaps.com/data.png/POI/common/parkinggarage.png, filtering: nearest, density: 2}
+  peak: {url: https://staging.vmmaps.com/data.png/POI/common/peak.png, filtering: nearest, density: 2}
+  pelota: {url: https://staging.vmmaps.com/data.png/POI/common/pelota.png, filtering: nearest, density: 2}
+  racquet: {url: https://staging.vmmaps.com/data.png/POI/common/racquet.png, filtering: nearest, density: 2}
+  railway: {url: https://staging.vmmaps.com/data.png/POI/day/railway.png, filtering: nearest, density: 2}
+  railwaylight: {url: https://staging.vmmaps.com/data.png/POI/common/railwaylight.png, filtering: nearest, density: 2}
+  railwaymetro: {url: https://staging.vmmaps.com/data.png/POI/common/railwaymetro.png, filtering: nearest, density: 2}
+  rc_car: {url: https://staging.vmmaps.com/data.png/POI/common/rc_car.png, filtering: nearest, density: 2}
+  rowing: {url: https://staging.vmmaps.com/data.png/POI/common/rowing.png, filtering: nearest, density: 2}
+  rugby: {url: https://staging.vmmaps.com/data.png/POI/common/rugby.png, filtering: nearest, density: 2}
+  rugby_league: {url: https://staging.vmmaps.com/data.png/POI/common/rugby_league.png, filtering: nearest, density: 2}
+  rugby_union: {url: https://staging.vmmaps.com/data.png/POI/common/rugby_union.png, filtering: nearest, density: 2}
+  running: {url: https://staging.vmmaps.com/data.png/POI/common/running.png, filtering: nearest, density: 2}
+  sailing: {url: https://staging.vmmaps.com/data.png/POI/common/sailing.png, filtering: nearest, density: 2}
+  scuba_diving: {url: https://staging.vmmaps.com/data.png/POI/common/scuba_diving.png, filtering: nearest, density: 2}
+  shooting: {url: https://staging.vmmaps.com/data.png/POI/common/shooting.png, filtering: nearest, density: 2}
+  shooting_range: {url: https://staging.vmmaps.com/data.png/POI/common/shooting_range.png, filtering: nearest, density: 2}
+  skateboard: {url: https://staging.vmmaps.com/data.png/POI/common/skateboard.png, filtering: nearest, density: 2}
+  skating: {url: https://staging.vmmaps.com/data.png/POI/common/skating.png, filtering: nearest, density: 2}
+  sports: {url: https://staging.vmmaps.com/data.png/POI/common/sports.png, filtering: nearest, density: 2}
+  station: {url: https://staging.vmmaps.com/data.png/POI/common/station.png, filtering: nearest, density: 2}
+  stationery: {url: https://staging.vmmaps.com/data.png/POI/common/stationery.png, filtering: nearest, density: 2}
+  surfing: {url: https://staging.vmmaps.com/data.png/POI/common/surfing.png, filtering: nearest, density: 2}
+  swimming_pool: {url: https://staging.vmmaps.com/data.png/POI/common/swimming_pool.png, filtering: nearest, density: 2}
+  table soccer: {url: https://staging.vmmaps.com/data.png/POI/common/table soccer.png, filtering: nearest, density: 2}
+  table_soccer: {url: https://staging.vmmaps.com/data.png/POI/common/table_soccer.png, filtering: nearest, density: 2}
+  table_tennis: {url: https://staging.vmmaps.com/data.png/POI/common/table_tennis.png, filtering: nearest, density: 2}
+  taxi: {url: https://staging.vmmaps.com/data.png/POI/common/taxi.png, filtering: nearest, density: 2}
+  team_handball: {url: https://staging.vmmaps.com/data.png/POI/common/team_handball.png, filtering: nearest, density: 2}
+  toboggan: {url: https://staging.vmmaps.com/data.png/POI/common/toboggan.png, filtering: nearest, density: 2}
+  toll_booth: {url: https://staging.vmmaps.com/data.png/POI/common/toll_booth.png, filtering: nearest, density: 2}
+  town: {url: https://staging.vmmaps.com/data.png/POI/common/town.png, filtering: nearest, density: 2}
+  toys: {url: https://staging.vmmaps.com/data.png/POI/common/toys.png, filtering: nearest, density: 2}
+  tram_stop: {url: https://staging.vmmaps.com/data.png/POI/common/tram_stop.png, filtering: nearest, density: 2}
+  village: {url: https://staging.vmmaps.com/data.png/POI/common/village.png, filtering: nearest, density: 2}
+  volleyball: {url: https://staging.vmmaps.com/data.png/POI/common/volleyball.png, filtering: nearest, density: 2}
+  water_park: {url: https://staging.vmmaps.com/data.png/POI/common/water_park.png, filtering: nearest, density: 2}
+  water_ski: {url: https://staging.vmmaps.com/data.png/POI/common/water_ski.png, filtering: nearest, density: 2}
+  winter_sports: {url: https://staging.vmmaps.com/data.png/POI/common/winter_sports.png, filtering: nearest, density: 2}
+  yoga: {url: https://staging.vmmaps.com/data.png/POI/common/yoga.png, filtering: nearest, density: 2}
+  hotel: {url: https://staging.vmmaps.com/data.png/POI/day/hotel.png, filtering: nearest, density: 2}
+  aikido: {url: https://staging.vmmaps.com/data.png/POI/day/aikido.png, filtering: nearest, density: 2}
+  aluminium: {url: https://staging.vmmaps.com/data.png/POI/day/aluminium.png, filtering: nearest, density: 2}
+  bridge: {url: https://staging.vmmaps.com/data.png/POI/day/bridge.png, filtering: nearest, density: 2}
+  chalet: {url: https://staging.vmmaps.com/data.png/POI/day/chalet.png, filtering: nearest, density: 2}
+  community_centre: {url: https://staging.vmmaps.com/data.png/POI/day/community_centre.png, filtering: nearest,
+    density: 2}
+  dojo: {url: https://staging.vmmaps.com/data.png/POI/day/dojo.png, filtering: nearest, density: 2}
+  greengrocer: {url: https://staging.vmmaps.com/data.png/POI/day/greengrocer.png, filtering: nearest, density: 2}
+  haveli: {url: https://staging.vmmaps.com/data.png/POI/day/haveli.png, filtering: nearest, density: 2}
+  houseware: {url: https://staging.vmmaps.com/data.png/POI/day/houseware.png, filtering: nearest, density: 2}
+  iron_and_steel_store: {url: https://staging.vmmaps.com/data.png/POI/day/iron_and_steel_store.png, filtering: nearest,
+    density: 2}
+  kabaddi: {url: https://staging.vmmaps.com/data.png/POI/day/kabaddi.png, filtering: nearest, density: 2}
+  market: {url: https://staging.vmmaps.com/data.png/POI/day/market.png, filtering: nearest, density: 2}
+  mini_hotel: {url: https://staging.vmmaps.com/data.png/POI/day/mini_hotel.png, filtering: nearest, density: 2}
+  Palace: {url: https://staging.vmmaps.com/data.png/POI/day/Palace.png, filtering: nearest, density: 2}
+  pawnbroker: {url: https://staging.vmmaps.com/data.png/POI/day/pawnbroker.png, filtering: nearest, density: 2}
+  polling_booth: {url: https://staging.vmmaps.com/data.png/POI/day/polling_booth.png, filtering: nearest,
+    density: 2}
+  post_office: {url: https://staging.vmmaps.com/data.png/POI/day/post_office.png, filtering: nearest, density: 2}
+  power_office: {url: https://staging.vmmaps.com/data.png/POI/day/power_office.png, filtering: nearest,
+    density: 2}
+  public_bookcase: {url: https://staging.vmmaps.com/data.png/POI/day/public_bookcase.png, filtering: nearest,
+    density: 2}
+  slipway: {url: https://staging.vmmaps.com/data.png/POI/day/slipway.png, filtering: nearest, density: 2}
+  social_facility: {url: https://staging.vmmaps.com/data.png/POI/day/social_facility.png, filtering: nearest,
+    density: 2}
+  toddy: {url: https://staging.vmmaps.com/data.png/POI/day/toddy.png, filtering: nearest, density: 2}
+  ATM: {url: https://staging.vmmaps.com/data.png/POI/day/ATM.png, filtering: nearest, density: 2}
+  General: {url: https://staging.vmmaps.com/data.png/POI/day/General.png, filtering: nearest, density: 2}
+  accessories: {url: https://staging.vmmaps.com/data.png/POI/day/accessories.png, filtering: nearest, density: 2}
+  aeroway: {url: https://staging.vmmaps.com/data.png/POI/day/aeroway.png, filtering: nearest, density: 2}
+  alcohol: {url: https://staging.vmmaps.com/data.png/POI/day/alcohol.png, filtering: nearest, density: 2}
+  american_football: {url: https://staging.vmmaps.com/data.png/POI/day/american_football.png, filtering: nearest,
+    density: 2}
+  amusementpark: {url: https://staging.vmmaps.com/data.png/POI/day/amusementpark.png, filtering: nearest,
+    density: 2}
+  antiques: {url: https://staging.vmmaps.com/data.png/POI/day/antiques.png, filtering: nearest, density: 2}
+  apartment: {url: https://staging.vmmaps.com/data.png/POI/day/apartment.png, filtering: nearest, density: 2}
+  aquarium: {url: https://staging.vmmaps.com/data.png/POI/day/aquarium.png, filtering: nearest, density: 2}
+  art_gallery: {url: https://staging.vmmaps.com/data.png/POI/day/art_gallery.png, filtering: nearest, density: 2}
+  attraction: {url: https://staging.vmmaps.com/data.png/POI/day/attraction.png, filtering: nearest, density: 2}
+  bakery: {url: https://staging.vmmaps.com/data.png/POI/day/bakery.png, filtering: nearest, density: 2}
+  bank: {url: https://staging.vmmaps.com/data.png/POI/day/bank.png, filtering: nearest, density: 2}
+  bar: {url: https://staging.vmmaps.com/data.png/POI/day/bar.png, filtering: nearest, density: 2}
+  baseball: {url: https://staging.vmmaps.com/data.png/POI/day/baseball.png, filtering: nearest, density: 2}
+  basin: {url: https://staging.vmmaps.com/data.png/POI/day/basin.png, filtering: nearest, density: 2}
+  basketball: {url: https://staging.vmmaps.com/data.png/POI/day/basketball.png, filtering: nearest, density: 2}
+  beauty: {url: https://staging.vmmaps.com/data.png/POI/day/beauty.png, filtering: nearest, density: 2}
+  bed: {url: https://staging.vmmaps.com/data.png/POI/day/bed.png, filtering: nearest, density: 2}
+  beer: {url: https://staging.vmmaps.com/data.png/POI/day/beer.png, filtering: nearest, density: 2}
+  bicycle: {url: https://staging.vmmaps.com/data.png/POI/day/bicycle.png, filtering: nearest, density: 2}
+  bicycle_rental: {url: https://staging.vmmaps.com/data.png/POI/day/bicycle_rental.png, filtering: nearest,
+    density: 2}
+  bollard: {url: https://staging.vmmaps.com/data.png/POI/day/bollard.png, filtering: nearest, density: 2}
+  border_control: {url: https://staging.vmmaps.com/data.png/POI/day/border_control.png, filtering: nearest,
+    density: 2}
+  boutique: {url: https://staging.vmmaps.com/data.png/POI/day/boutique.png, filtering: nearest, density: 2}
+  brownfield: {url: https://staging.vmmaps.com/data.png/POI/day/brownfield.png, filtering: nearest, density: 2}
+  building: {url: https://staging.vmmaps.com/data.png/POI/day/building.png, filtering: nearest, density: 2}
+  bus_station: {url: https://staging.vmmaps.com/data.png/POI/day/bus_station.png, filtering: nearest, density: 2}
+  butcher: {url: https://staging.vmmaps.com/data.png/POI/day/butcher.png, filtering: nearest, density: 2}
+  cafe: {url: https://staging.vmmaps.com/data.png/POI/day/cafe.png, filtering: nearest, density: 2}
+  camera: {url: https://staging.vmmaps.com/data.png/POI/day/camera.png, filtering: nearest, density: 2}
+  campsite: {url: https://staging.vmmaps.com/data.png/POI/day/campsite.png, filtering: nearest, density: 2}
+  car_rental: {url: https://staging.vmmaps.com/data.png/POI/day/car_rental.png, filtering: nearest, density: 2}
+  car_repair: {url: https://staging.vmmaps.com/data.png/POI/day/car_repair.png, filtering: nearest, density: 2}
+  carpet: {url: https://staging.vmmaps.com/data.png/POI/day/carpet.png, filtering: nearest, density: 2}
+  cash: {url: https://staging.vmmaps.com/data.png/POI/day/cash.png, filtering: nearest, density: 2}
+  castle: {url: https://staging.vmmaps.com/data.png/POI/day/castle.png, filtering: nearest, density: 2}
+  cemetery: {url: https://staging.vmmaps.com/data.png/POI/day/cemetery.png, filtering: nearest, density: 2}
+  circle: {url: https://staging.vmmaps.com/data.png/POI/day/circle.png, filtering: nearest, density: 2}
+  circlestroked: {url: https://staging.vmmaps.com/data.png/POI/day/circlestroked.png, filtering: nearest,
+    density: 2}
+  clothing_store: {url: https://staging.vmmaps.com/data.png/POI/day/clothing_store.png, filtering: nearest,
+    density: 2}
+  college: {url: https://staging.vmmaps.com/data.png/POI/day/college.png, filtering: nearest, density: 2}
+  commerical: {url: https://staging.vmmaps.com/data.png/POI/day/commerical.png, filtering: nearest, density: 2}
+  computer: {url: https://staging.vmmaps.com/data.png/POI/day/computer.png, filtering: nearest, density: 2}
+  convenience: {url: https://staging.vmmaps.com/data.png/POI/day/convenience.png, filtering: nearest, density: 2}
+  copyshop: {url: https://staging.vmmaps.com/data.png/POI/day/copyshop.png, filtering: nearest, density: 2}
+  cosmetics: {url: https://staging.vmmaps.com/data.png/POI/day/cosmetics.png, filtering: nearest, density: 2}
+  cricket: {url: https://staging.vmmaps.com/data.png/POI/day/cricket.png, filtering: nearest, density: 2}
+  cross: {url: https://staging.vmmaps.com/data.png/POI/day/cross.png, filtering: nearest, density: 2}
+  cycle_barrier: {url: https://staging.vmmaps.com/data.png/POI/day/cycle_barrier.png, filtering: nearest,
+    density: 2}
+  dam: {url: https://staging.vmmaps.com/data.png/POI/day/dam.png, filtering: nearest, density: 2}
+  danger: {url: https://staging.vmmaps.com/data.png/POI/day/danger.png, filtering: nearest, density: 2}
+  dentist: {url: https://staging.vmmaps.com/data.png/POI/day/dentist.png, filtering: nearest, density: 2}
+  department_store: {url: https://staging.vmmaps.com/data.png/POI/day/department_store.png, filtering: nearest,
+    density: 2}
+  doctors: {url: https://staging.vmmaps.com/data.png/POI/day/doctors.png, filtering: nearest, density: 2}
+  dog_park: {url: https://staging.vmmaps.com/data.png/POI/day/dog_park.png, filtering: nearest, density: 2}
+  doityourself: {url: https://staging.vmmaps.com/data.png/POI/day/doityourself.png, filtering: nearest,
+    density: 2}
+  drinkingwater: {url: https://staging.vmmaps.com/data.png/POI/day/drinkingwater.png, filtering: nearest,
+    density: 2}
+  electronics: {url: https://staging.vmmaps.com/data.png/POI/day/electronics.png, filtering: nearest, density: 2}
+  embassy: {url: https://staging.vmmaps.com/data.png/POI/day/embassy.png, filtering: nearest, density: 2}
+  erotic: {url: https://staging.vmmaps.com/data.png/POI/day/erotic.png, filtering: nearest, density: 2}
+  escape_game: {url: https://staging.vmmaps.com/data.png/POI/day/escape_game.png, filtering: nearest, density: 2}
+  fabric: {url: https://staging.vmmaps.com/data.png/POI/day/fabric.png, filtering: nearest, density: 2}
+  farmland: {url: https://staging.vmmaps.com/data.png/POI/day/farmland.png, filtering: nearest, density: 2}
+  fast_food: {url: https://staging.vmmaps.com/data.png/POI/day/fast_food.png, filtering: nearest, density: 2}
+  ferry_terminal: {url: https://staging.vmmaps.com/data.png/POI/day/ferry_terminal.png, filtering: nearest,
+    density: 2}
+  fire_station: {url: https://staging.vmmaps.com/data.png/POI/day/fire_station.png, filtering: nearest,
+    density: 2}
+  frozen_food: {url: https://staging.vmmaps.com/data.png/POI/day/frozen_food.png, filtering: nearest, density: 2}
+  furniture: {url: https://staging.vmmaps.com/data.png/POI/day/furniture.png, filtering: nearest, density: 2}
+  garden: {url: https://staging.vmmaps.com/data.png/POI/day/garden.png, filtering: nearest, density: 2}
+  gate: {url: https://staging.vmmaps.com/data.png/POI/day/gate.png, filtering: nearest, density: 2}
+  gift: {url: https://staging.vmmaps.com/data.png/POI/day/gift.png, filtering: nearest, density: 2}
+  golf: {url: https://staging.vmmaps.com/data.png/POI/day/golf.png, filtering: nearest, density: 2}
+  government: {url: https://staging.vmmaps.com/data.png/POI/day/government.png, filtering: nearest, density: 2}
+  grass: {url: https://staging.vmmaps.com/data.png/POI/day/grass.png, filtering: nearest, density: 2}
+  grocery: {url: https://staging.vmmaps.com/data.png/POI/day/grocery.png, filtering: nearest, density: 2}
+  hackerspace: {url: https://staging.vmmaps.com/data.png/POI/day/hackerspace.png, filtering: nearest, density: 2}
+  hairdresser: {url: https://staging.vmmaps.com/data.png/POI/day/hairdresser.png, filtering: nearest, density: 2}
+  hardware: {url: https://staging.vmmaps.com/data.png/POI/day/hardware.png, filtering: nearest, density: 2}
+  hearing_aids: {url: https://staging.vmmaps.com/data.png/POI/day/hearing_aids.png, filtering: nearest,
+    density: 2}
+  heart: {url: https://staging.vmmaps.com/data.png/POI/day/heart.png, filtering: nearest, density: 2}
+  hifi: {url: https://staging.vmmaps.com/data.png/POI/day/hifi.png, filtering: nearest, density: 2}
+  hospital: {url: https://staging.vmmaps.com/data.png/POI/day/hospital.png, filtering: nearest, density: 2}
+  hostel: {url: https://staging.vmmaps.com/data.png/POI/day/hostel.png, filtering: nearest, density: 2}
+  ice: {url: https://staging.vmmaps.com/data.png/POI/day/ice.png, filtering: nearest, density: 2}
+  ice_cream: {url: https://staging.vmmaps.com/data.png/POI/day/ice_cream.png, filtering: nearest, density: 2}
+  industry: {url: https://staging.vmmaps.com/data.png/POI/day/industry.png, filtering: nearest, density: 2}
+  information: {url: https://staging.vmmaps.com/data.png/POI/day/information.png, filtering: nearest, density: 2}
+  interior_decoration: {url: https://staging.vmmaps.com/data.png/POI/day/interior_decoration.png, filtering: nearest,
+    density: 2}
+  jewelry: {url: https://staging.vmmaps.com/data.png/POI/day/jewelry.png, filtering: nearest, density: 2}
+  kindergarten: {url: https://staging.vmmaps.com/data.png/POI/day/kindergarten.png, filtering: nearest,
+    density: 2}
+  kiosk: {url: https://staging.vmmaps.com/data.png/POI/day/kiosk.png, filtering: nearest, density: 2}
+  laundry: {url: https://staging.vmmaps.com/data.png/POI/day/laundry.png, filtering: nearest, density: 2}
+  library: {url: https://staging.vmmaps.com/data.png/POI/day/library.png, filtering: nearest, density: 2}
+  lift_gate: {url: https://staging.vmmaps.com/data.png/POI/day/lift_gate.png, filtering: nearest, density: 2}
+  lighthouse: {url: https://staging.vmmaps.com/data.png/POI/day/lighthouse.png, filtering: nearest, density: 2}
+  lodging: {url: https://staging.vmmaps.com/data.png/POI/day/lodging.png, filtering: nearest, density: 2}
+  long_jump: {url: https://staging.vmmaps.com/data.png/POI/day/long_jump.png, filtering: nearest, density: 2}
+  mall: {url: https://staging.vmmaps.com/data.png/POI/day/mall.png, filtering: nearest, density: 2}
+  marina: {url: https://staging.vmmaps.com/data.png/POI/day/marina.png, filtering: nearest, density: 2}
+  marker: {url: https://staging.vmmaps.com/data.png/POI/day/marker.png, filtering: nearest, density: 2}
+  massage: {url: https://staging.vmmaps.com/data.png/POI/day/massage.png, filtering: nearest, density: 2}
+  military: {url: https://staging.vmmaps.com/data.png/POI/day/military.png, filtering: nearest, density: 2}
+  mini_roundabout: {url: https://staging.vmmaps.com/data.png/POI/day/mini_roundabout.png, filtering: nearest,
+    density: 2}
+  mobile_phone: {url: https://staging.vmmaps.com/data.png/POI/day/mobile_phone.png, filtering: nearest,
+    density: 2}
+  monument: {url: https://staging.vmmaps.com/data.png/POI/day/monument.png, filtering: nearest, density: 2}
+  mountain: {url: https://staging.vmmaps.com/data.png/POI/day/mountain.png, filtering: nearest, density: 2}
+  museum: {url: https://staging.vmmaps.com/data.png/POI/day/museum.png, filtering: nearest, density: 2}
+  newsagent: {url: https://staging.vmmaps.com/data.png/POI/day/newsagent.png, filtering: nearest, density: 2}
+  orienteering: {url: https://staging.vmmaps.com/data.png/POI/day/orienteering.png, filtering: nearest,
+    density: 2}
+  outdoor: {url: https://staging.vmmaps.com/data.png/POI/day/outdoor.png, filtering: nearest, density: 2}
+  park: {url: https://staging.vmmaps.com/data.png/POI/day/park.png, filtering: nearest, density: 2}
+  people: {url: https://staging.vmmaps.com/data.png/POI/day/people.png, filtering: nearest, density: 2}
+  perfumery: {url: https://staging.vmmaps.com/data.png/POI/day/perfumery.png, filtering: nearest, density: 2}
+  pet: {url: https://staging.vmmaps.com/data.png/POI/day/pet.png, filtering: nearest, density: 2}
+  pharmacy: {url: https://staging.vmmaps.com/data.png/POI/day/pharmacy.png, filtering: nearest, density: 2}
+  photo: {url: https://staging.vmmaps.com/data.png/POI/day/photo.png, filtering: nearest, density: 2}
+  picnic_site: {url: https://staging.vmmaps.com/data.png/POI/day/picnic_site.png, filtering: nearest, density: 2}
+  pitch: {url: https://staging.vmmaps.com/data.png/POI/day/pitch.png, filtering: nearest, density: 2}
+  place_of_worship: {url: https://staging.vmmaps.com/data.png/POI/day/place_of_worship.png, filtering: nearest,
+    density: 2}
+  playground: {url: https://staging.vmmaps.com/data.png/POI/day/playground.png, filtering: nearest, density: 2}
+  police: {url: https://staging.vmmaps.com/data.png/POI/day/police.png, filtering: nearest, density: 2}
+  post: {url: https://staging.vmmaps.com/data.png/POI/day/post.png, filtering: nearest, density: 2}
+  prison: {url: https://staging.vmmaps.com/data.png/POI/day/prison.png, filtering: nearest, density: 2}
+  rangerstation: {url: https://staging.vmmaps.com/data.png/POI/day/rangerstation.png, filtering: nearest,
+    density: 2}
+  religiouschristian: {url: https://staging.vmmaps.com/data.png/POI/day/religiouschristian.png, filtering: nearest,
+    density: 2}
+  religiousjewish: {url: https://staging.vmmaps.com/data.png/POI/day/religiousjewish.png, filtering: nearest,
+    density: 2}
+  religiousmuslim: {url: https://staging.vmmaps.com/data.png/POI/day/religiousmuslim.png, filtering: nearest,
+    density: 2}
+  reservoir: {url: https://staging.vmmaps.com/data.png/POI/day/reservoir.png, filtering: nearest, density: 2}
+  residential: {url: https://staging.vmmaps.com/data.png/POI/day/residential.png, filtering: nearest, density: 2}
+  restaurant: {url: https://staging.vmmaps.com/data.png/POI/day/restaurant.png, filtering: nearest, density: 2}
+  roadblock: {url: https://staging.vmmaps.com/data.png/POI/day/roadblock.png, filtering: nearest, density: 2}
+  rocket: {url: https://staging.vmmaps.com/data.png/POI/day/rocket.png, filtering: nearest, density: 2}
+  sally_port: {url: https://staging.vmmaps.com/data.png/POI/day/sally_port.png, filtering: nearest, density: 2}
+  sand: {url: https://staging.vmmaps.com/data.png/POI/day/sand.png, filtering: nearest, density: 2}
+  school: {url: https://staging.vmmaps.com/data.png/POI/day/school.png, filtering: nearest, density: 2}
+  second_hand: {url: https://staging.vmmaps.com/data.png/POI/day/second_hand.png, filtering: nearest, density: 2}
+  shelter: {url: https://staging.vmmaps.com/data.png/POI/day/shelter.png, filtering: nearest, density: 2}
+  shoes: {url: https://staging.vmmaps.com/data.png/POI/day/shoes.png, filtering: nearest, density: 2}
+  shop: {url: https://staging.vmmaps.com/data.png/POI/day/shop.png, filtering: nearest, density: 2}
+  skiing: {url: https://staging.vmmaps.com/data.png/POI/day/skiing.png, filtering: nearest, density: 2}
+  soccer: {url: https://staging.vmmaps.com/data.png/POI/day/soccer.png, filtering: nearest, density: 2}
+  sports_centre: {url: https://staging.vmmaps.com/data.png/POI/day/sports_centre.png, filtering: nearest,
+    density: 2}
+  square: {url: https://staging.vmmaps.com/data.png/POI/day/square.png, filtering: nearest, density: 2}
+  squarestroke: {url: https://staging.vmmaps.com/data.png/POI/day/squarestroke.png, filtering: nearest,
+    density: 2}
+  stadium: {url: https://staging.vmmaps.com/data.png/POI/day/stadium.png, filtering: nearest, density: 2}
+  star: {url: https://staging.vmmaps.com/data.png/POI/day/star.png, filtering: nearest, density: 2}
+  starstroke: {url: https://staging.vmmaps.com/data.png/POI/day/starstroke.png, filtering: nearest, density: 2}
+  stile: {url: https://staging.vmmaps.com/data.png/POI/day/stile.png, filtering: nearest, density: 2}
+  suitcase: {url: https://staging.vmmaps.com/data.png/POI/day/suitcase.png, filtering: nearest, density: 2}
+  supermarket: {url: https://staging.vmmaps.com/data.png/POI/day/supermarket.png, filtering: nearest, density: 2}
+  sushi: {url: https://staging.vmmaps.com/data.png/POI/day/sushi.png, filtering: nearest, density: 2}
+  swimming: {url: https://staging.vmmaps.com/data.png/POI/day/swimming.png, filtering: nearest, density: 2}
+  tailor: {url: https://staging.vmmaps.com/data.png/POI/day/tailor.png, filtering: nearest, density: 2}
+  tattoo: {url: https://staging.vmmaps.com/data.png/POI/day/tattoo.png, filtering: nearest, density: 2}
+  telephone: {url: https://staging.vmmaps.com/data.png/POI/day/telephone.png, filtering: nearest, density: 2}
+  tennis: {url: https://staging.vmmaps.com/data.png/POI/day/tennis.png, filtering: nearest, density: 2}
+  theatre: {url: https://staging.vmmaps.com/data.png/POI/day/theatre.png, filtering: nearest, density: 2}
+  theme_park: {url: https://staging.vmmaps.com/data.png/POI/day/theme_park.png, filtering: nearest, density: 2}
+  ticket: {url: https://staging.vmmaps.com/data.png/POI/day/ticket.png, filtering: nearest, density: 2}
+  tobacco: {url: https://staging.vmmaps.com/data.png/POI/day/tobacco.png, filtering: nearest, density: 2}
+  toilet: {url: https://staging.vmmaps.com/data.png/POI/day/toilet.png, filtering: nearest, density: 2}
+  toilets: {url: https://staging.vmmaps.com/data.png/POI/day/toilets.png, filtering: nearest, density: 2}
+  town-hall: {url: https://staging.vmmaps.com/data.png/POI/day/town-hall.png, filtering: nearest, density: 2}
+  town_hall: {url: https://staging.vmmaps.com/data.png/POI/day/town_hall.png, filtering: nearest, density: 2}
+  traffic_signal: {url: https://staging.vmmaps.com/data.png/POI/day/traffic_signal.png, filtering: nearest,
+    density: 2}
+  traffic_signals: {url: https://staging.vmmaps.com/data.png/POI/day/traffic_signals.png, filtering: nearest,
+    density: 2}
+  travel_agency: {url: https://staging.vmmaps.com/data.png/POI/day/travel_agency.png, filtering: nearest,
+    density: 2}
+  triangle: {url: https://staging.vmmaps.com/data.png/POI/day/triangle.png, filtering: nearest, density: 2}
+  trianglestroked: {url: https://staging.vmmaps.com/data.png/POI/day/trianglestroked.png, filtering: nearest,
+    density: 2}
+  university: {url: https://staging.vmmaps.com/data.png/POI/day/university.png, filtering: nearest, density: 2}
+  veterinary: {url: https://staging.vmmaps.com/data.png/POI/day/veterinary.png, filtering: nearest, density: 2}
+  video: {url: https://staging.vmmaps.com/data.png/POI/day/video.png, filtering: nearest, density: 2}
+  video_games: {url: https://staging.vmmaps.com/data.png/POI/day/video_games.png, filtering: nearest, density: 2}
+  volcano: {url: https://staging.vmmaps.com/data.png/POI/day/volcano.png, filtering: nearest, density: 2}
+  waste_basket: {url: https://staging.vmmaps.com/data.png/POI/day/waste_basket.png, filtering: nearest,
+    density: 2}
+  watches: {url: https://staging.vmmaps.com/data.png/POI/day/watches.png, filtering: nearest, density: 2}
+  water: {url: https://staging.vmmaps.com/data.png/POI/day/water.png, filtering: nearest, density: 2}
+  weapons: {url: https://staging.vmmaps.com/data.png/POI/day/weapons.png, filtering: nearest, density: 2}
+  wetland: {url: https://staging.vmmaps.com/data.png/POI/day/wetland.png, filtering: nearest, density: 2}
+  wheelchair: {url: https://staging.vmmaps.com/data.png/POI/day/wheelchair.png, filtering: nearest, density: 2}
+  wholesale: {url: https://staging.vmmaps.com/data.png/POI/day/wholesale.png, filtering: nearest, density: 2}
+  wood: {url: https://staging.vmmaps.com/data.png/POI/day/wood.png, filtering: nearest, density: 2}
+  checkered_end: {url: https://staging.vmmaps.com/data.png/app/OMN/checkered_end.png, filtering: nearest, density: 2}
+  poi_highlighted: {url: https://staging.vmmaps.com/data.png/app/OMN/poi_highlighted.png, filtering: nearest, density: 2}
+  preview_dot: {url: https://staging.vmmaps.com/data.png/app/OMN/preview_dot.png, filtering: nearest, density: 2}
+  marker_car: {url: https://staging.vmmaps.com/data.png/app/Tools/marker_car.png, filtering: nearest, density: 2}
+  marker_phone: {url: https://staging.vmmaps.com/data.png/app/Tools/marker_phone.png, filtering: nearest, density: 2}
+  marker_pin: {url: https://staging.vmmaps.com/data.png/app/Tools/marker_pin.png, filtering: nearest, density: 2}
+  marker_point_a: {url: https://staging.vmmaps.com/data.png/app/Tools/marker_point_a.png, filtering: nearest, density: 2}
+  marker_point_b: {url: https://staging.vmmaps.com/data.png/app/Tools/marker_point_b.png, filtering: nearest, density: 2}
+  marker_point_c: {url: https://staging.vmmaps.com/data.png/app/Tools/marker_point_c.png, filtering: nearest, density: 2}
+  marker_point_d: {url: https://staging.vmmaps.com/data.png/app/Tools/marker_point_d.png, filtering: nearest, density: 2}
+  marker_point_e: {url: https://staging.vmmaps.com/data.png/app/Tools/marker_point_e.png, filtering: nearest, density: 2}
+  marker_point_f: {url: https://staging.vmmaps.com/data.png/app/Tools/marker_point_f.png, filtering: nearest, density: 2}
+  marker_point_g: {url: https://staging.vmmaps.com/data.png/app/Tools/marker_point_g.png, filtering: nearest, density: 2}
+  marker_point_h: {url: https://staging.vmmaps.com/data.png/app/Tools/marker_point_h.png, filtering: nearest, density: 2}
+  mylocationdot: {url: https://staging.vmmaps.com/data.png/app/Tools/mylocationdot.png, filtering: nearest, density: 2}
+  pin_active: {url: https://staging.vmmaps.com/data.png/app/Tools/pin_active.png, filtering: nearest, density: 2}
+  pin_destination: {url: https://staging.vmmaps.com/data.png/app/Tools/pin_destination.png, filtering: nearest, density: 2}
+  pin_inactive: {url: https://staging.vmmaps.com/data.png/app/Tools/pin_inactive.png, filtering: nearest, density: 2}
+  pin_origin: {url: https://staging.vmmaps.com/data.png/app/Tools/pin_origin.png, filtering: nearest, density: 2}
+  red_dot_circle: {url: https://staging.vmmaps.com/data.png/app/Tools/red_dot_circle.png, filtering: nearest, density: 2}
+  car_green: {url: https://staging.vmmaps.com/data.png/app/VMTracker/car_green.png, filtering: nearest, density: 2}
+  car_red: {url: https://staging.vmmaps.com/data.png/app/VMTracker/car_red.png, filtering: nearest, density: 2}
+  car_yellow: {url: https://staging.vmmaps.com/data.png/app/VMTracker/car_yellow.png, filtering: nearest, density: 2}
+  circle_green: {url: https://staging.vmmaps.com/data.png/app/VMTracker/circle_green.png, filtering: nearest, density: 2}
+  circle_red: {url: https://staging.vmmaps.com/data.png/app/VMTracker/circle_red.png, filtering: nearest, density: 2}
+  circle_selected_green: {url: https://staging.vmmaps.com/data.png/app/VMTracker/circle_selected_green.png, filtering: nearest,
+    density: 2}
+  circle_selected_red: {url: https://staging.vmmaps.com/data.png/app/VMTracker/circle_selected_red.png, filtering: nearest,
+    density: 2}
+  circle_selected_yellow: {url: https://staging.vmmaps.com/data.png/app/VMTracker/circle_selected_yellow.png, filtering: nearest,
+    density: 2}
+  circle_yellow: {url: https://staging.vmmaps.com/data.png/app/VMTracker/circle_yellow.png, filtering: nearest, density: 2}
+  people_common: {url: https://staging.vmmaps.com/data.png/app/VMTracker/people_common.png, filtering: nearest, density: 2}
+  accident: {url: https://staging.vmmaps.com/data.png/app/neNative/common/accident.png, filtering: nearest, density: 2}
+  pin: {url: https://staging.vmmaps.com/data.png/app/neNative/common/pin.png, filtering: nearest, density: 2}
+  roadclosure: {url: https://staging.vmmaps.com/data.png/app/neNative/common/roadclosure.png, filtering: nearest,
+    density: 2}
+  motor_scooter: {url: https://staging.vmmaps.com/data.png/app/neNative/day/motor_scooter.png, filtering: nearest,
+    density: 2}
+  bike: {url: https://staging.vmmaps.com/data.png/app/neNative/day/bike.png, filtering: nearest, density: 2}
+  current_location: {url: https://staging.vmmaps.com/data.png/app/neNative/day/current_location.png, filtering: nearest,
+    density: 2}
+  current_location__SZ4: {url: https://staging.vmmaps.com/data.png/app/neNative/day/current_location__SZ4.png,
+    filtering: nearest, density: 2}
+  current_location_heading__SZ4: {url: https://staging.vmmaps.com/data.png/app/neNative/day/current_location_heading__SZ4.png,
+    filtering: nearest, density: 2}
+  walk: {url: https://staging.vmmaps.com/data.png/app/neNative/day/walk.png, filtering: nearest, density: 2}
+  marker_waypoint1: {url: https://staging.vmmaps.com/data.png/nav/marker_waypoint1.png, filtering: nearest, density: 2}
+  marker_waypoint10: {url: https://staging.vmmaps.com/data.png/nav/marker_waypoint10.png, filtering: nearest, density: 2}
+  marker_waypoint11: {url: https://staging.vmmaps.com/data.png/nav/marker_waypoint11.png, filtering: nearest, density: 2}
+  marker_waypoint12: {url: https://staging.vmmaps.com/data.png/nav/marker_waypoint12.png, filtering: nearest, density: 2}
+  marker_waypoint13: {url: https://staging.vmmaps.com/data.png/nav/marker_waypoint13.png, filtering: nearest, density: 2}
+  marker_waypoint14: {url: https://staging.vmmaps.com/data.png/nav/marker_waypoint14.png, filtering: nearest, density: 2}
+  marker_waypoint15: {url: https://staging.vmmaps.com/data.png/nav/marker_waypoint15.png, filtering: nearest, density: 2}
+  marker_waypoint16: {url: https://staging.vmmaps.com/data.png/nav/marker_waypoint16.png, filtering: nearest, density: 2}
+  marker_waypoint2: {url: https://staging.vmmaps.com/data.png/nav/marker_waypoint2.png, filtering: nearest, density: 2}
+  marker_waypoint3: {url: https://staging.vmmaps.com/data.png/nav/marker_waypoint3.png, filtering: nearest, density: 2}
+  marker_waypoint4: {url: https://staging.vmmaps.com/data.png/nav/marker_waypoint4.png, filtering: nearest, density: 2}
+  marker_waypoint5: {url: https://staging.vmmaps.com/data.png/nav/marker_waypoint5.png, filtering: nearest, density: 2}
+  marker_waypoint6: {url: https://staging.vmmaps.com/data.png/nav/marker_waypoint6.png, filtering: nearest, density: 2}
+  marker_waypoint7: {url: https://staging.vmmaps.com/data.png/nav/marker_waypoint7.png, filtering: nearest, density: 2}
+  marker_waypoint8: {url: https://staging.vmmaps.com/data.png/nav/marker_waypoint8.png, filtering: nearest, density: 2}
+  marker_waypoint9: {url: https://staging.vmmaps.com/data.png/nav/marker_waypoint9.png, filtering: nearest, density: 2}
+  bearingMarker: {url: https://staging.vmmaps.com/data.png/nav/bearingMarker.png, filtering: nearest, density: 2}
+  mapMarker: {url: https://staging.vmmaps.com/data.png/nav/mapMarker.png, filtering: nearest, density: 2}
+  marker_end: {url: https://staging.vmmaps.com/data.png/nav/marker_end.png, filtering: nearest, density: 2}
+  marker_start: {url: https://staging.vmmaps.com/data.png/nav/marker_start.png, filtering: nearest, density: 2}
+  marker_waypoint: {url: https://staging.vmmaps.com/data.png/nav/marker_waypoint.png, filtering: nearest, density: 2}
+  nav: {url: https://staging.vmmaps.com/data.png/nav/nav.png, filtering: nearest, density: 2}
+  navcircle: {url: https://staging.vmmaps.com/data.png/nav/navcircle.png, filtering: nearest, density: 2}
+  navcircle_erraticsignal: {url: https://staging.vmmaps.com/data.png/nav/navcircle_erraticsignal.png, filtering: nearest,
+    density: 2}
+  navcircle_lowsignal: {url: https://staging.vmmaps.com/data.png/nav/navcircle_lowsignal.png, filtering: nearest,
+    density: 2}
+  navcircle_nosignal: {url: https://staging.vmmaps.com/data.png/nav/navcircle_nosignal.png, filtering: nearest, density: 2}
+  navcircle_offroute: {url: https://staging.vmmaps.com/data.png/nav/navcircle_offroute.png, filtering: nearest, density: 2}
+  fallback: {url: https://staging.vmmaps.com/data.png/routeline/fallback.png, filtering: nearest, density: 2}
+  motorway_emblem: {url: https://staging.vmmaps.com/data.png/routeline/motorway_emblem.png, filtering: nearest, density: 2}
+  primary_emblem: {url: https://staging.vmmaps.com/data.png/routeline/primary_emblem.png, filtering: nearest, density: 2}
+  road_arrow: {url: https://staging.vmmaps.com/data.png/routeline/road_arrow.png, filtering: nearest, density: 2}
+  route_line_dirarrow: {url: https://staging.vmmaps.com/data.png/routeline/route_line_dirarrow.png, filtering: nearest,
+    density: 2}
+  secondary_emblem: {url: https://staging.vmmaps.com/data.png/routeline/secondary_emblem.png, filtering: nearest,
+    density: 2}
+  trunk_emblem: {url: https://staging.vmmaps.com/data.png/routeline/trunk_emblem.png, filtering: nearest, density: 2}
+  routeLineWalkIcon:
+    url: img/routeLine/walkdot.png
+
+  # svgs:
+  #   url: img/cloudDownload.png
+  #   sprites:
+  #     cd1:
+  #     - 0
+  #     - 0
+  #     - 512
+  #     - 512  
+global:
+  default_text_source: |
+    function() {
+      if (feature.ref && feature.name ) { return feature.ref +" " + feature.name_en      ; } else if (feature.name_en      ) { return feature.name_en      ; } else { return feature.ref; }
+    }
+  name_source: |
+    function() {
+      if (feature.name_en      ) { return feature.name_en      ; } else if (feature.name) { return feature.name; }
+    }  
+  house_number: |
+    function() {
+      { return feature.housenumber; }
+    }  
+  refn_source: |
+    function() {
+        if (feature.name_en      ) { return feature.name_en      ; } else if (feature.name) { return feature.name; } else if (feature.ref) { return feature.ref; }
+    }
+  elev_source: |
+    function() {
+      if(feature.elev) { return feature.elev + "m"; } else { return ""; }
+    }
+  get_elevMax_from_tile: |
+    function() { return 4; }  
+  ###########
+  poiSize: 32
+  navImageSizeMultiplier: 2.0
+  poiTheme: day
+  poiDensity: 2
+  extrudeDuration: 1.0
+  poi_z11_classes: [airport, rail, airline_office]
+  poi_z12_classes: [bus, transport, aeroway]
+  poi_z13_classes: [fuel, charging_station, natural_gas, beach, toll_gantry]
+  poi_z14_classes: [parking_space, school, college, hospital, doctor, dentist, 
+              preschool, childcare, healthcare, language_school, culinary_school,
+            restaurant_area, driving_school, pharmaceutical, medical, rest_area, 
+              research_institute]
+  poi_z15_classes: [airport, rail, bus, restaurant, grocery, amusement_park, 
+              roadblock, bank, building, wood, forest, wetland, beach, sand, 
+              farmland, zoo, farm, orchard, vineyard, plant_nursery, glacier, 
+              ice_shelf, grassland, grass, meadow, allotments, park, 
+              village_green, recreation_ground, garden, golf_course]
+  poi_z16_classes: [religious_muslim, park, museum, place_of_worship, industry, 
+              clothing_store, police, religious_christian, monument, library, 
+              harbor, fire_station, lighthouse, temple, mosque, church, car_wash,
+            car_rental, shuttle, race_track, camel_racing, ice_skating, 
+              motor_sport, general, resort, apartment, commercial, industrial, 
+              farm, bureau_de_change, studio, cafe, post, bakery, ice_cream, 
+              shop, fuel, hospital, weddings, financial_advice, 
+              greenhouse_horticulture, insurance, seafood, warehouse, travel, 
+              variety, boat, trade, agrarian, mobile, electrical, recycling, 
+              speciality, appliance, opticians, craft, hairdresser_supply, 
+              fitness, tyres, security, photocopy, baby_goods, real estate, 
+              rental, cinema, nail, medical, newsagents, musical, truck, 
+              wildlife, hobbies, factory outlet, horse, retail, cycling, 
+              shopping, conference_centre, nighclub, vehicle_registration, 
+              leisure_centre, hobby_shop, rescue_station, music, utilities, 
+              internet_cafe, dance, bowling_alley, Service_Center, residential, 
+              school, college, railway, cemetery, commercial, kindergarten, 
+              stadium, pitch, playground, theme_park, bus_station, university, 
+              military]
+  poi_z17_classes: [laundry, prison, dam, cinema, theatre, alcohol_shop, theater]  
+fonts:
+  default:
+    url: https://staging.vmmaps.com/fonts/NotoSans-All.woff
+  NEFontMainA:
+    url: https://staging.vmmaps.com/fonts/NotoSans-All.woff
+  NEFontSansSeriffExtraBold:
+    url: https://staging.vmmaps.com/fonts/OpenSans-ExtraBold.woff
+scene:
+  background:
+     color: [0.894, 0.910, 0.914, 1.00]
+  lights:
+    lights:
+      ambient_light:
+        type: ambient
+        ambient: 0.72
+
+    sun:
+        type: directional
+        direction: [0.45, 0.55, -1.0]
+        diffuse: 0.95
+        ambient: 0.15
+        specular: 0.08
+cameras:
+  map-camera:
+    #position: [54.344354,24.469401, 16] #for corniche
+    #position: [54.393255, 24.470888, 18] #for road label, route line check after press I    
+    #position: [13.197474, 52.420583,17] #for berlin
+    #position: [80.101637, 12.9158267, 18] #for chennai
+    #position: [92.694959, 11.950336, 16.32443] #for chennai
+    #position: [80.269609, 13.020800, 16] #for chennai/MRC
+    #position: [54.393201, 24.446266, 14] #for abu dhabi
+    #position: [52.307659, 24.513139, 14] #for dalma contour raster
+    #position: [80.2707, 13.0827, 12] #for JV in tiles-jv @ dubai. Almahktoum and Sheik bin
+    type: isometric
+    axis: [0, 1]
+    active: true
+    vanishing_point: [0, 0] #vanishing point only works for perspective camera..this is added for auto/aaos to update the camera type  #offset in ratio
+  navigation-camera:
+    position: [54.393201, 24.446266, 16] #for abu dhabi
+    #position: [80.2707, 13.0827, 12] #for JV in tiles-jv @ dubai. Almahktoum and Sheik bin
+    type: perspective
+    active: false
+    vanishing_point: [0, -0.45] #offset in ratio
+sources:
+  main:
+    max_zoom: 14
+    url:  https://staging.vmmaps.com/tiles/services/v2.0/main/tiles/{z}/{x}/{y}.pbf?access_token=eyJhbGciOiJIUzM4NCIsInR5cCI6IkpXVCJ9.eyJfaWQiOiJ1c3ItNzV1bXJpa2k0YjY0c3AiLCJ0aWQiOiJ0a24tNzV1bXJpa2k0Y2RlY3ciLCJpYXQiOjE2MDY3MjgwMDl9.ck77ElEO7VR-yEJ0RrSHMp9OdDPvYUAuQqc-eASNk-sah2TX-Rhjvj71B2aFFlC-&os=android&nenative=1.0.4
+    type: MVT
+  lbw:
+    max_zoom: 11
+    url:  https://staging.vmmaps.com/tiles/services/v2.0/lbw/tiles/{z}/{x}/{y}.pbf?access_token=eyJhbGciOiJIUzM4NCIsInR5cCI6IkpXVCJ9.eyJfaWQiOiJ1c3ItNzV1bXJpa2k0YjY0c3AiLCJ0aWQiOiJ0a24tNzV1bXJpa2k0Y2RlY3ciLCJpYXQiOjE2MDY3MjgwMDl9.ck77ElEO7VR-yEJ0RrSHMp9OdDPvYUAuQqc-eASNk-sah2TX-Rhjvj71B2aFFlC-&os=android&nenative=1.0.4
+    type: MVT
+  poi:
+    min_display_zoom: 11
+    max_zoom: 14
+    url:  https://staging.vmmaps.com/tiles/services/v2.0/poi/tiles/{z}/{x}/{y}.pbf?access_token=eyJhbGciOiJIUzM4NCIsInR5cCI6IkpXVCJ9.eyJfaWQiOiJ1c3ItNzV1bXJpa2k0YjY0c3AiLCJ0aWQiOiJ0a24tNzV1bXJpa2k0Y2RlY3ciLCJpYXQiOjE2MDY3MjgwMDl9.ck77ElEO7VR-yEJ0RrSHMp9OdDPvYUAuQqc-eASNk-sah2TX-Rhjvj71B2aFFlC-&os=android&nenative=1.0.4
+    type: MVT
+  names:
+    max_zoom: 14
+    url:  https://staging.vmmaps.com/tiles/services/v2.0/names/tiles/{z}/{x}/{y}.pbf?access_token=eyJhbGciOiJIUzM4NCIsInR5cCI6IkpXVCJ9.eyJfaWQiOiJ1c3ItNzV1bXJpa2k0YjY0c3AiLCJ0aWQiOiJ0a24tNzV1bXJpa2k0Y2RlY3ciLCJpYXQiOjE2MDY3MjgwMDl9.ck77ElEO7VR-yEJ0RrSHMp9OdDPvYUAuQqc-eASNk-sah2TX-Rhjvj71B2aFFlC-&os=android&nenative=1.0.4
+    type: MVT
+  r2hb:
+    max_zoom: 14
+    url:  https://staging.vmmaps.com/tiles/services/v2.0/r2hb/tiles/{z}/{x}/{y}.pbf?access_token=eyJhbGciOiJIUzM4NCIsInR5cCI6IkpXVCJ9.eyJfaWQiOiJ1c3ItNzV1bXJpa2k0YjY0c3AiLCJ0aWQiOiJ0a24tNzV1bXJpa2k0Y2RlY3ciLCJpYXQiOjE2MDY3MjgwMDl9.ck77ElEO7VR-yEJ0RrSHMp9OdDPvYUAuQqc-eASNk-sah2TX-Rhjvj71B2aFFlC-&os=android&nenative=1.0.4
+    type: MVT
+  hd_area:
+    min_zoom: 17
+    url:  https://staging.vmmaps.com/tiles/services/v2.0/hd_area/tiles/{z}/{x}/{y}.pbf?access_token=eyJhbGciOiJIUzM4NCIsInR5cCI6IkpXVCJ9.eyJfaWQiOiJ1c3ItNzV1bXJpa2k0YjY0c3AiLCJ0aWQiOiJ0a24tNzV1bXJpa2k0Y2RlY3ciLCJpYXQiOjE2MDY3MjgwMDl9.ck77ElEO7VR-yEJ0RrSHMp9OdDPvYUAuQqc-eASNk-sah2TX-Rhjvj71B2aFFlC-&os=android&nenative=1.0.4
+    type: MVT
+  hd_buildings:
+    min_zoom: 17
+    url:  https://staging.vmmaps.com/tiles/services/v2.0/hd_buildings/tiles/{z}/{x}/{y}.pbf?access_token=eyJhbGciOiJIUzM4NCIsInR5cCI6IkpXVCJ9.eyJfaWQiOiJ1c3ItNzV1bXJpa2k0YjY0c3AiLCJ0aWQiOiJ0a24tNzV1bXJpa2k0Y2RlY3ciLCJpYXQiOjE2MDY3MjgwMDl9.ck77ElEO7VR-yEJ0RrSHMp9OdDPvYUAuQqc-eASNk-sah2TX-Rhjvj71B2aFFlC-&os=android&nenative=1.0.4
+    type: MVT
+  hd_parking:
+    min_zoom: 17
+    url:  https://staging.vmmaps.com/tiles/services/v2.0/hd_parking/tiles/{z}/{x}/{y}.pbf?access_token=eyJhbGciOiJIUzM4NCIsInR5cCI6IkpXVCJ9.eyJfaWQiOiJ1c3ItNzV1bXJpa2k0YjY0c3AiLCJ0aWQiOiJ0a24tNzV1bXJpa2k0Y2RlY3ciLCJpYXQiOjE2MDY3MjgwMDl9.ck77ElEO7VR-yEJ0RrSHMp9OdDPvYUAuQqc-eASNk-sah2TX-Rhjvj71B2aFFlC-&os=android&nenative=1.0.4
+    type: MVT
+  hd_road_features:
+    min_zoom: 17
+    url:  https://staging.vmmaps.com/tiles/services/v2.0/hd_road_features/tiles/{z}/{x}/{y}.pbf?access_token=eyJhbGciOiJIUzM4NCIsInR5cCI6IkpXVCJ9.eyJfaWQiOiJ1c3ItNzV1bXJpa2k0YjY0c3AiLCJ0aWQiOiJ0a24tNzV1bXJpa2k0Y2RlY3ciLCJpYXQiOjE2MDY3MjgwMDl9.ck77ElEO7VR-yEJ0RrSHMp9OdDPvYUAuQqc-eASNk-sah2TX-Rhjvj71B2aFFlC-&os=android&nenative=1.0.4
+    type: MVT
+  hd_road_lines:
+    min_zoom: 17
+    url:  https://staging.vmmaps.com/tiles/services/v2.0/hd_road_lines/tiles/{z}/{x}/{y}.pbf?access_token=eyJhbGciOiJIUzM4NCIsInR5cCI6IkpXVCJ9.eyJfaWQiOiJ1c3ItNzV1bXJpa2k0YjY0c3AiLCJ0aWQiOiJ0a24tNzV1bXJpa2k0Y2RlY3ciLCJpYXQiOjE2MDY3MjgwMDl9.ck77ElEO7VR-yEJ0RrSHMp9OdDPvYUAuQqc-eASNk-sah2TX-Rhjvj71B2aFFlC-&os=android&nenative=1.0.4
+    type: MVT
+  hd_roads:
+    min_zoom: 17
+    url:  https://staging.vmmaps.com/tiles/services/v2.0/hd_roads/tiles/{z}/{x}/{y}.pbf?access_token=eyJhbGciOiJIUzM4NCIsInR5cCI6IkpXVCJ9.eyJfaWQiOiJ1c3ItNzV1bXJpa2k0YjY0c3AiLCJ0aWQiOiJ0a24tNzV1bXJpa2k0Y2RlY3ciLCJpYXQiOjE2MDY3MjgwMDl9.ck77ElEO7VR-yEJ0RrSHMp9OdDPvYUAuQqc-eASNk-sah2TX-Rhjvj71B2aFFlC-&os=android&nenative=1.0.4
+    type: MVT
+  hd_signs:
+    min_zoom: 17
+    url:  https://staging.vmmaps.com/tiles/services/v2.0/hd_signs/tiles/{z}/{x}/{y}.pbf?access_token=eyJhbGciOiJIUzM4NCIsInR5cCI6IkpXVCJ9.eyJfaWQiOiJ1c3ItNzV1bXJpa2k0YjY0c3AiLCJ0aWQiOiJ0a24tNzV1bXJpa2k0Y2RlY3ciLCJpYXQiOjE2MDY3MjgwMDl9.ck77ElEO7VR-yEJ0RrSHMp9OdDPvYUAuQqc-eASNk-sah2TX-Rhjvj71B2aFFlC-&os=android&nenative=1.0.4
+    type: MVT
+  
+VMMaps:
+  JunctionView:
+    url: jvstrings.zip
+  data:
+    url: data.zip
+  3db:
+    serverpath: https://nav.darb.ae/nemaps/api/maps
+    defaultstoragepath: cached_3db
+
