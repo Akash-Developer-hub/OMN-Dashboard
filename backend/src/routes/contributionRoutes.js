@@ -535,7 +535,7 @@ router.post('/categories', validate(schemas.createCategory), contributionControl
  *               verified: false
  *             mapunit: India
  *             fcm_token: null
- *             app_name: ADMaps
+ *             app_name: OMN
  *     responses:
  *       201:
  *         description: Contribution created successfully

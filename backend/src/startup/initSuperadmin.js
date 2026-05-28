@@ -46,8 +46,8 @@ async function createDefaultRoles() {
 }
 
 async function createSuperadmin() {
-    const superEmail = process.env.SUPER_ADMIN_EMAIL || 'superadmin@admaps.com';
-    const originalAdminEmail = process.env.ADMIN_DASHBOARD_EMAIL || 'admin@admaps.com';
+    const superEmail = process.env.SUPER_ADMIN_EMAIL || 'superadmin@omn.com';
+    const originalAdminEmail = process.env.ADMIN_DASHBOARD_EMAIL || 'admin@omn.com';
     const password = process.env.SUPER_ADMIN_PASSWORD || 'superadmin123';
 
     const emailsToUpgrade = [superEmail.toLowerCase(), originalAdminEmail.toLowerCase()];

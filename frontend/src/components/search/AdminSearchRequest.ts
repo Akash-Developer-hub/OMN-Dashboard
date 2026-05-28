@@ -2,7 +2,7 @@ const ACCESS_TOKEN =
   import.meta.env.VITE_SEARCH_ACCESS_TOKEN ||
   "eyJhbGciOiJIUzM4NCIsInR5cCI6IkpXVCJ9.eyJfaWQiOiJ1c3ItNzV1bXJpa2k0YjY0c3AiLCJ0aWQiOiJ0a24tNzV1bXJpa2k0Y2RlY3ciLCJpYXQiOjE2MDY3MjgwMDl9.ck77ElEO7VR-yEJ0RrSHMp9OdDPvYUAuQqc-eASNk-sah2TX-Rhjvj71B2aFFlC-";
 
-const BASE_URL = import.meta.env.VITE_SEARCH_BASE_URL || "https://admaps.maps42.ae/neapi/itc";
+const BASE_URL = import.meta.env.VITE_SEARCH_BASE_URL;
 
 export interface SearchItem {
   primaryText?: string;

@@ -1,6 +1,6 @@
 {
   "version": 8,
-  "name": "ADMaps_DayStyle_V1.0",
+  "name": "OMN_DayStyle_V1.0",
   "metadata": {"maputnik:renderer": "mlgljs"},
   "zoom": 8,
   "bearing": 0,
@@ -114,7 +114,7 @@
     },
     "road_closure": {
       "type": "geojson",
-      "data": "https://admaps.maps42.ae/statictiles/road_closure.geojson"
+      "data": "https://omn.maps42.ae/statictiles/road_closure.geojson"
     },
     "bus_stops": {
       "type": "vector",
@@ -135,7 +135,7 @@
       "scheme": "xyz"
     }
   },
-  "sprite": "https://admaps.maps42.ae/statictiles/spritesv2/sprite",
+  "sprite": "https://omn.maps42.ae/statictiles/spritesv2/sprite",
   "glyphs": "https://demotiles.maplibre.org/font/{fontstack}/{range}.pbf",
   "layers": [
     {

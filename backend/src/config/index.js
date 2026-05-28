@@ -5,10 +5,10 @@ const config = {
     isProduction: process.env.NODE_ENV === 'production',
     port: parseInt(process.env.PORT, 10) || 3000,
     apiVersion: process.env.API_VERSION || 'v1',
-    appName: process.env.APP_NAME || 'ADMAPS',
+    appName: process.env.APP_NAME || 'OMN',
 
     db: {
-        uri: process.env.MONGODB_URI || 'mongodb://localhost:27017/admaps',
+        uri: process.env.MONGODB_URI || 'mongodb://localhost:27017/omn',
     },
 
     jwt: {

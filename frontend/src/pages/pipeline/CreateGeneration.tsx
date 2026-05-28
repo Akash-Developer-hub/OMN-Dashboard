@@ -151,7 +151,7 @@ const emptyServiceForm = (service: GenerationService): ServiceFormState => ({
   contribPythonScriptPath: "",
   contribITCSearchDBPath: "",
   contribMode: "STAGING",
-  contribApi:  "https://sandbox.vmmaps.com/admaps",
+  contribApi:  "https://sandbox.vmmaps.com/omn",
   isnotify: true,
   backup: true,
   backupPath: "",

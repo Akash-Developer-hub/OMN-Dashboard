@@ -112,7 +112,7 @@ api.interceptors.response.use(
     } catch (refreshError) {
       notifyTokenRefreshed(null);
       clearAuthStorage();
-      window.location.assign("/admapsdashboard/login");
+      window.location.assign("/omndashboard/login");
       return Promise.reject(refreshError);
     } finally {
       isRefreshing = false;
@@ -122,7 +122,7 @@ api.interceptors.response.use(
 
 // Shared base URL for road closures and map events (liveTraffic + events endpoints).
 // Set VITE_LIVE_TRAFFIC_BASE_URL in .env to override.
-const itcBase = import.meta.env.VITE_LIVE_TRAFFIC_BASE_URL || "https://admaps.maps42.ae/neapi/events";
+const itcBase = import.meta.env.VITE_LIVE_TRAFFIC_BASE_URL;
 
 export const roadClosureApi = axios.create({
   baseURL: `${itcBase}/liveTraffic`,
@@ -145,7 +145,7 @@ export const itcEventsApi = axios.create({
 
 // Client for the locate API (snap lat/lon to nearest road and get OSM way_id)
 export const locateApi = axios.create({
-  baseURL: import.meta.env.VITE_FIND_WAY_BASE_URL || "https://admaps.maps42.ae/neapi/itc",
+  baseURL: import.meta.env.VITE_FIND_WAY_BASE_URL,
   timeout: 10000,
   headers: {
     "Content-Type": "application/json",

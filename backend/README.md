@@ -1,4 +1,4 @@
-# ADMAPS — Enterprise-Grade Secure Node.js Backend
+# OMN — Offline Map Navigation Backend
 
 ![Node.js](https://img.shields.io/badge/Node.js-20+-green)
 ![Express](https://img.shields.io/badge/Express-4.21-blue)

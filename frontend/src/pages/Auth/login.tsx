@@ -6,7 +6,7 @@ import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { toast } from "@/hooks/use-toast";
 import { Eye, EyeOff } from "lucide-react";
-import admapsLogo from "@/admaps_logo.png";
+import omnLogo from "@/omn_logo.png";
 
 const sidebarRouteOrder: Array<{ permission: string; path: string }> = [
   { permission: "data-pipeline", path: "/pipeline" },
@@ -83,7 +83,7 @@ export default function Login() {
     <div className="min-h-screen flex items-center justify-center bg-background">
       <Card className="w-full max-w-sm shadow-lg">
         <CardHeader className="text-center">
-          <img src={admapsLogo} alt="ADMaps" className="h-20 mx-auto mb-2" />
+          <img src={omnLogo} alt="OMN" className="h-20 mx-auto mb-2" />
           <CardTitle className="text-xl">Admin Login</CardTitle>
         </CardHeader>
         <CardContent>

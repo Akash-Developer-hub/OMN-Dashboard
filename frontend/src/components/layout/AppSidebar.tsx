@@ -1,78 +1,15 @@
 import { useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import {
-  GitPullRequest, Database, Shield,
-  Settings, Users, Activity, ChevronLeft, ChevronRight,
-  ChevronDown, ChevronRight as ChevronSub, ServerIcon
+  ChevronLeft,
+  ChevronRight,
+  ChevronDown,
+  ChevronRight as ChevronSub,
 } from "lucide-react";
-import admapsLogo from "@/admaps_logo.png";
+import omnLogo from "@/omn_logo.png";
 import mobilityLogo from "@/mobility_log.webp";
 import spaceLogo from "@/space_logo.svg";
-
-export const navSections = [
-  {
-    label: "Contributions",
-    icon: GitPullRequest,
-    path: "/contributions",
-    permission: "contributions",
-    children: [
-      { label: "Insights", path: "/contributions/insights" },
-      { label: "POI Contributions", path: "/contributions/poi" },
-      { label: "Contribution Generation", path: "/contributions/generation" },
-      { label: "Contribution Config", path: "/contributions/config" },
-      { label: "Contribution Support", path: "/contributions/support" },
-    ],
-  },
-  {
-    label: "Data Pipeline",
-    icon: Database,
-    path: "/pipeline",
-    permission: "data-pipeline",
-    children: [
-      { label: "Generation", path: "/pipeline" },
-      { label: "Generation Logs", path: "/pipeline/log" },
-      { label: "Configuration", path: "/pipeline/config" }
-    ],
-  },
-  {
-    label: "Roles & Access",
-    icon: Shield,
-    path: "/roles",
-    permission: "role-access",
-  },
-  {
-    label: "App Config",
-    icon: Settings,
-    path: "/config",
-    permission: "app-config",
-    children: [
-      { label: "App Update", path: "/config/app-update" },
-      { label: "Category Config", path: "/config/category-config" },
-      { label: "Category Images", path: "/config/category-images" },
-      { label: "Home Screen Config", path: "/config/home-screen" },
-      { label: "Attraction Config", path: "/config/attraction-config" },
-      { label: "Explore Guide Config", path: "/config/explore-guide" },
-    ],
-  },
-  {
-    label: "User Management",
-    icon: Users,
-    path: "/users",
-    permission: "user-management",
-  },
-  {
-    label: "Service Health",
-    icon: Activity,
-    path: "/health",
-    permission: "service-health",
-  },
-  {
-    label: "Servers",
-    icon: ServerIcon,
-    path: "/servers",
-    permission: "servers",
-  },
-];
+import { navSections, type NavSection } from "./navSections.ts";
 
 export function AppSidebar() {
   const [collapsed, setCollapsed] = useState(false);
@@ -89,7 +26,7 @@ export function AppSidebar() {
     isSuperAdmin || !section.permission || userPermissions.includes(section.permission)
   );
 
-  const filteredChildren = (section: typeof navSections[0]) =>
+  const filteredChildren = (section: NavSection) =>
     section.children?.filter((child) =>
       isSuperAdmin || !child.permission || userPermissions.includes(child.permission)
     ) ?? [];
@@ -101,7 +38,7 @@ export function AppSidebar() {
   };
 
   const isActive = (path: string) => location.pathname === path;
-  const isSectionActive = (section: typeof navSections[0]) => {
+  const isSectionActive = (section: NavSection) => {
     if (isActive(section.path)) return true;
     return section.children?.some((c) => isActive(c.path)) ?? false;
   };
@@ -118,13 +55,13 @@ export function AppSidebar() {
         {!collapsed ? (
           <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 flex items-center justify-center">
             <div className="w-20 h-14  items-center justify-center shadow-sm ">
-              <img src={admapsLogo} alt="ADmaps" className="w-full h-full object-contain rounded-lg" />
+              <img src={omnLogo} alt="OMN" className="w-full h-full object-contain rounded-lg" />
             </div>
             {/* <span className="font-semibold text-white tracking-tight">Admin</span> */}
           </div>
         ) : (
           <div className="w-8 h-8 rounded-lg p-1 flex items-center justify-center shadow-sm">
-            <img src={admapsLogo} alt="ADmaps" className="w-full h-full object-contain rounded-lg" />
+            <img src={omnLogo} alt="OMN" className="w-full h-full object-contain rounded-lg" />
           </div>
         )}
 

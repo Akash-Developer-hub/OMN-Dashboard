@@ -83,8 +83,8 @@ export default function AppConfig() {
       title: "Update Required",
       message: "Please update to the latest version.",
       updateUrl: platform === "android"
-        ? "https://play.google.com/store/apps/details?id=ae.admaps.app"
-        : "https://apps.apple.com/ae/app/admaps/id123456789",
+        ? "https://play.google.com/store/apps/details?id=ae.omn.app"
+        : "https://apps.apple.com/ae/app/omn/id123456789",
       isBlocking: true,
       enabled: true,
     });

@@ -17,7 +17,7 @@ class ContributionGenerationConfig {
                 pythonScriptPath: " ",
                 ITCSearchDatabasePath: "/ITC.sqlite3",
                 mode: "PRODUCTION",
-                api: "https://sandbox.vmmaps.com/admaps",
+                api: "https://sandbox.vmmaps.com/omn",
                 tmux: "ITC"
             };
         }

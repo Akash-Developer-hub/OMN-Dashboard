@@ -9,7 +9,7 @@ async function connectDb() {
     const uri = process.env.MONGODB_URI;
     if (!uri) throw new Error('MONGODB_URI is not set in environment variables.');
 
-    const dbName = new URL(uri).pathname.replace('/', '') || 'admaps';
+    const dbName = new URL(uri).pathname.replace('/', '') || 'omn';
 
     try {
         client = new MongoClient(uri, {

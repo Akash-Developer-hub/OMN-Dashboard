@@ -5,7 +5,7 @@ import { componentTagger } from "lovable-tagger";
 
 // https://vitejs.dev/config/
 export default defineConfig(({ mode }) => ({
-  base: "/admapsdashboard/",
+  base: "/omndashboard/",
   server: {
     host: "::",
     port: 8080,
@@ -17,7 +17,7 @@ export default defineConfig(({ mode }) => ({
       "/api-proxy": {
         target: "https://sandbox.vmmaps.com",
         changeOrigin: true,
-        rewrite: (path) => path.replace(/^\/api-proxy/, "/admaps/api/v1"),
+        rewrite: (path) => path.replace(/^\/api-proxy/, "/omn/api/v1"),
       },
       // Proxy for ITC events / live-traffic API
       "/itc-proxy": {
