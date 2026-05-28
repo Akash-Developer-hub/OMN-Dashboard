@@ -54,14 +54,14 @@ export function AppSidebar() {
       >
         {!collapsed ? (
           <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 flex items-center justify-center">
-            <div className="w-20 h-14  items-center justify-center shadow-sm ">
+            {/* <div className="w-20 h-14  items-center justify-center shadow-sm ">
               <img src={omnLogo} alt="OMN" className="w-full h-full object-contain rounded-lg" />
-            </div>
+            </div> */}
             {/* <span className="font-semibold text-white tracking-tight">Admin</span> */}
           </div>
         ) : (
           <div className="w-8 h-8 rounded-lg p-1 flex items-center justify-center shadow-sm">
-            <img src={omnLogo} alt="OMN" className="w-full h-full object-contain rounded-lg" />
+            {/* <img src={omnLogo} alt="OMN" className="w-full h-full object-contain rounded-lg" /> */}
           </div>
         )}
 
@@ -134,22 +134,6 @@ export function AppSidebar() {
           );
         })}
       </nav>
-
-      <div className={`border-t border-sidebar-border ${collapsed ? "p-1" : "p-3"}`}>
-        <div className={`flex items-center justify-center ${collapsed ? "gap-1" : "gap-2"}`}>
-          <div
-            className={`border border-white rounded-md flex items-center justify-center bg-white ${collapsed ? "w-6 h-6 p-0.5" : "w-20 h-10 p-1"}`}
-          >
-            <img src={mobilityLogo} alt="Mobility" className="w-full h-full object-contain" />
-          </div>
-          <div
-            className={`border border-white rounded-md flex items-center justify-center bg-white ${collapsed ? "w-6 h-6 p-0.5" : "w-20 h-10 p-1"}`}
-          >
-            <img src={spaceLogo} alt="Space" className="w-full h-full object-contain" />
-          </div>
-        </div>
-      </div>
-
     </aside>
   );
 }

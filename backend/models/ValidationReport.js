@@ -2,7 +2,7 @@
 
 const { getDb } = require('../config/database');
 
-const COLLECTION = 'validation_reports';
+const COLLECTION = 'pipeline_validation_reports';
 
 class ValidationReport {
     static get collection() { return getDb().collection(COLLECTION); }

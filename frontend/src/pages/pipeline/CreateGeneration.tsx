@@ -626,6 +626,26 @@ function PathInputWithBrowser({
   );
 }
 
+function ConfigSection({
+  title,
+  description,
+  children,
+}: {
+  title: string;
+  description?: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <section className="rounded-2xl border border-border bg-background/70 p-4 shadow-sm">
+      <div className="mb-3">
+        <h4 className="text-sm font-semibold text-foreground">{title}</h4>
+        {description ? <p className="mt-1 text-xs text-muted-foreground">{description}</p> : null}
+      </div>
+      <div className="space-y-3">{children}</div>
+    </section>
+  );
+}
+
 // ─── Component ────────────────────────────────────────────────────────────────
 
 export function CreateGeneration({ open, onClose, preSelectContribution, servers: externalServers, loadingServers: externalLoading }: Props) {
@@ -656,6 +676,8 @@ export function CreateGeneration({ open, onClose, preSelectContribution, servers
   const [approvedPOICount, setApprovedPOICount] = useState(0);
   const [poiCountLoading, setPoiCountLoading]   = useState(false);
   const [approvedPOIIds, setApprovedPOIIds]     = useState<string[]>([]);
+  const [activeService, setActiveService]       = useState<GenerationService>("search");
+  const [confirmOpen, setConfirmOpen]           = useState(false);
 
   // Track which folder browser is open: "svc_fieldKey" e.g. "search_filePath"
   const [openBrowser, setOpenBrowser] = useState<string | null>(null);
@@ -823,12 +845,26 @@ export function CreateGeneration({ open, onClose, preSelectContribution, servers
         routing: emptyServiceForm("routing"),
         tile:    emptyServiceForm("tile"),
       });
+      setActiveService("search");
+      setConfirmOpen(false);
       setOpenBrowser(null);
       if (preSelectContribution) {
         setForms((prev) => ({ ...prev, search: { ...prev.search, searchMode: "contribution" } }));
       }
     }
   }, [open, fetchServers, fetchApprovedPOI, preSelectContribution]);
+
+  useEffect(() => {
+    const orderedSelected = SERVICES.filter(({ key }) => selected.has(key));
+    if (orderedSelected.length === 0) {
+      setActiveService("search");
+      return;
+    }
+
+    if (!orderedSelected.some(({ key }) => key === activeService)) {
+      setActiveService(orderedSelected[0].key);
+    }
+  }, [activeService, selected]);
 
   // Fetch server paths when targetServerId changes
   useEffect(() => {
@@ -977,9 +1013,11 @@ export function CreateGeneration({ open, onClose, preSelectContribution, servers
   ]);
 
   const toggleService = (svc: GenerationService) => {
+    setActiveService(svc);
     setSelected((prev) => {
       const next = new Set(prev);
-      next.has(svc) ? next.delete(svc) : next.add(svc);
+      if (next.has(svc)) next.delete(svc);
+      else next.add(svc);
       return next;
     });
   };
@@ -1079,6 +1117,28 @@ export function CreateGeneration({ open, onClose, preSelectContribution, servers
     });
   };
 
+  const selectedServices = SERVICES.filter(({ key }) => selected.has(key));
+  const currentService = selectedServices.find(({ key }) => key === activeService) || selectedServices[0] || null;
+  const currentServiceKey = currentService?.key || null;
+  const currentForm = currentServiceKey ? forms[currentServiceKey] : null;
+  const currentTargetServerName = currentServiceKey ? getServerName(currentServiceKey, "target") : "";
+  const currentSourceServerName = currentServiceKey ? getServerName(currentServiceKey, "source") : "";
+  const serviceReviewCards = selectedServices.map((service) => {
+    const form = forms[service.key];
+    return {
+      ...service,
+      form,
+      targetServerName: getServerName(service.key, "target"),
+      sourceServerName: getServerName(service.key, "source"),
+      inputPath:
+        form.inputMode === "import"
+          ? form.importServerFilePath || "Pending upload"
+          : form.filePath || form.sourceFilePath || "Not selected",
+      outputPath: form.outputPath || "Default / not required",
+      command: buildCommand(form),
+    };
+  });
+
   const validate = (): string | null => {
     if (selected.size === 0) return "Select at least one service.";
     for (const svc of selected) {
@@ -1122,10 +1182,13 @@ export function CreateGeneration({ open, onClose, preSelectContribution, servers
     return null;
   };
 
+  const submitBlockingReason = validate();
+
   const handleSubmit = async () => {
     const err = validate();
     if (err) { toast.error(err); return; }
 
+    setConfirmOpen(false);
     setSubmitting(true);
     onClose();
     toast.success("Generation started successfully.");
@@ -1304,85 +1367,115 @@ export function CreateGeneration({ open, onClose, preSelectContribution, servers
             <Play className="w-5 h-5 text-primary" />
             <h2 className="text-lg font-semibold text-foreground">Data Generation Pipeline</h2>
           </div>
-          <button onClick={() => onClose()} className="text-muted-foreground hover:text-foreground transition-colors">
+          <button
+            onClick={() => onClose()}
+            title="Close generation modal"
+            aria-label="Close generation modal"
+            className="text-muted-foreground hover:text-foreground transition-colors"
+          >
             <X className="w-5 h-5" />
           </button>
         </div>
 
-        <div className="px-6 py-5 space-y-6 flex-1 overflow-y-auto">
-          {/* Step 1: Service selection */}
-          <div>
-            <h3 className="text-sm font-semibold text-foreground mb-1">1. Select Services</h3>
-            <p className="text-xs text-muted-foreground mb-3">Choose one or more generation services to configure.</p>
-            <div className="grid grid-cols-3 gap-3">
-              {SERVICES.map(({ key, label, color, desc }) => {
-                const active = selected.has(key);
-                return (
+        <div className="px-6 py-5 space-y-6 flex-1 overflow-y-auto bg-muted/20">
+          <div className="grid gap-4 xl:grid-cols-[minmax(0,1.55fr)_minmax(280px,360px)]">
+            <div className="rounded-3xl border border-border bg-card p-5 shadow-sm">
+              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">Step 1</p>
+              <h3 className="mt-1 text-base font-semibold text-foreground">Select Services</h3>
+              <p className="mt-1 text-sm text-muted-foreground">Choose the services you want in this generation run. You can configure one service at a time after selection.</p>
+              <div className="mt-4 grid gap-3 md:grid-cols-3">
+                {SERVICES.map(({ key, label, color, desc }) => {
+                  const active = selected.has(key);
+                  return (
+                    <button
+                      key={key}
+                      type="button"
+                      onClick={() => toggleService(key)}
+                      className={`relative flex flex-col items-start gap-3 rounded-2xl border p-4 text-left transition-all ${
+                        active
+                          ? `${color} border-current shadow-sm`
+                          : "bg-card border-border text-muted-foreground hover:border-muted-foreground/40 hover:bg-muted/30"
+                      }`}
+                    >
+                      {active ? (
+                        <span className="absolute right-3 top-3 flex h-5 w-5 items-center justify-center rounded-full bg-current/20">
+                          <span className="h-2.5 w-2.5 rounded-full bg-current" />
+                        </span>
+                      ) : null}
+                      <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-background/80">
+                        <Server className="w-5 h-5" />
+                      </div>
+                      <div>
+                        <p className="text-sm font-semibold">{label}</p>
+                        <p className="mt-1 text-[11px] opacity-75">{desc}</p>
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            <div className="rounded-3xl border border-border bg-card p-5 shadow-sm">
+              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">Run Settings</p>
+              <h3 className="mt-1 text-base font-semibold text-foreground">Common Options</h3>
+              <p className="mt-1 text-sm text-muted-foreground">These switches apply globally and do not change how the payload is constructed.</p>
+              <div className="mt-4 space-y-3">
+                <div className="flex items-center justify-between rounded-2xl border border-border bg-muted/30 px-4 py-3">
+                  <div>
+                    <p className="text-xs font-semibold text-foreground">Notify</p>
+                    <p className="text-[11px] text-muted-foreground">Send notification after the run finishes.</p>
+                  </div>
                   <button
-                    key={key}
                     type="button"
-                    onClick={() => toggleService(key)}
-                    className={`relative flex flex-col items-center gap-2 p-4 rounded-xl border-2 transition-all text-center ${
-                      active
-                        ? `${color} border-current ring-2 ring-current/20`
-                        : "bg-card border-border text-muted-foreground hover:border-muted-foreground/40"
-                    }`}
+                    onClick={() => updateGlobalToggles({ isnotify: !forms.search.isnotify })}
+                    title="Toggle notifications"
+                    aria-label="Toggle notifications"
+                    className={`relative inline-flex h-5 w-9 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors focus:outline-none ${forms.search.isnotify ? "bg-primary" : "bg-muted-foreground/30"}`}
                   >
-                    {active && (
-                      <span className="absolute top-2 right-2 w-5 h-5 rounded-full bg-current/20 flex items-center justify-center">
-                        <span className="w-2.5 h-2.5 rounded-full bg-current" />
-                      </span>
-                    )}
-                    <Server className="w-6 h-6" />
-                    <span className="text-sm font-semibold">{label}</span>
-                    <span className="text-[11px] opacity-70">{desc}</span>
+                    <span className={`pointer-events-none inline-block h-4 w-4 rounded-full bg-white shadow transform transition-transform ${forms.search.isnotify ? "translate-x-4" : "translate-x-0"}`} />
                   </button>
-                );
-              })}
+                </div>
+                <div className="flex items-center justify-between rounded-2xl border border-border bg-muted/30 px-4 py-3">
+                  <div>
+                    <p className="text-xs font-semibold text-foreground">Backup</p>
+                    <p className="text-[11px] text-muted-foreground">Store generated data backup when available.</p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => updateGlobalToggles({ backup: !forms.search.backup })}
+                    title="Toggle backup"
+                    aria-label="Toggle backup"
+                    className={`relative inline-flex h-5 w-9 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors focus:outline-none ${forms.search.backup ? "bg-primary" : "bg-muted-foreground/30"}`}
+                  >
+                    <span className={`pointer-events-none inline-block h-4 w-4 rounded-full bg-white shadow transform transition-transform ${forms.search.backup ? "translate-x-4" : "translate-x-0"}`} />
+                  </button>
+                </div>
+                <div className="rounded-2xl border border-border bg-background px-4 py-3 text-xs text-muted-foreground">
+                  {selected.size === 0 ? "Select a service to begin configuration." : `${selected.size} service${selected.size > 1 ? "s" : ""} selected.`}
+                </div>
+              </div>
             </div>
           </div>
 
-          {/* Step 2: Service configurations */}
-          {selected.size > 0 && (
+          {selected.size > 0 && currentService && (
             <div>
-              <h3 className="text-sm font-semibold text-foreground mb-1">2. Configure Services</h3>
-              <p className="text-xs text-muted-foreground mb-3">Set up each selected service below.</p>
-
-              {/* Common Notify & Backup Toggles */}
-              <div className="mb-4 flex items-center gap-4 border border-border rounded-xl p-4 bg-muted/30 max-w-fit">
-                <div className="flex items-center justify-between gap-8">
-                  <div className="flex items-center gap-3">
-                    <div>
-                      <p className="text-xs font-semibold text-foreground">Notify</p>
-                      <p className="text-[10px] text-muted-foreground">Send notification after finish</p>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => updateGlobalToggles({ isnotify: !forms.search.isnotify })}
-                      className={`relative inline-flex h-5 w-9 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors focus:outline-none ${forms.search.isnotify ? "bg-primary" : "bg-muted-foreground/30"}`}
-                    >
-                      <span className={`pointer-events-none inline-block h-4 w-4 rounded-full bg-white shadow transform transition-transform ${forms.search.isnotify ? "translate-x-4" : "translate-x-0"}`} />
-                    </button>
+              <div className="mb-4 rounded-3xl border border-border bg-card p-5 shadow-sm">
+                <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">Step 2</p>
+                <div className="mt-1 flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
+                  <div>
+                    <h3 className="text-base font-semibold text-foreground">Configure Services</h3>
+                    <p className="mt-1 text-sm text-muted-foreground">Focus on one service workspace at a time to keep the form lighter and easier to review.</p>
                   </div>
-                  <div className="w-px h-8 bg-border" />
-                  <div className="flex items-center gap-3">
-                    <div>
-                      <p className="text-xs font-semibold text-foreground">Backup</p>
-                      <p className="text-[10px] text-muted-foreground">Store backup of generated data</p>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => updateGlobalToggles({ backup: !forms.search.backup })}
-                      className={`relative inline-flex h-5 w-9 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors focus:outline-none ${forms.search.backup ? "bg-primary" : "bg-muted-foreground/30"}`}
-                    >
-                      <span className={`pointer-events-none inline-block h-4 w-4 rounded-full bg-white shadow transform transition-transform ${forms.search.backup ? "translate-x-4" : "translate-x-0"}`} />
-                    </button>
+                  <div className="rounded-full border border-border bg-muted/30 px-4 py-2 text-xs text-muted-foreground">
+                    Active service: <span className="font-semibold text-foreground">{currentService.label}</span>
                   </div>
                 </div>
               </div>
 
-              <div className="flex gap-4 overflow-x-auto">
-                {SERVICES.filter(({ key }) => selected.has(key)).map(({ key, label, color }) => {
+              <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_280px] xl:items-start">
+                <div className="min-w-0">
+                <div className="flex gap-4 overflow-x-auto">
+                {[currentService].filter(Boolean).map(({ key, label, color }) => {
                   const f        = forms[key];
                   const fileList = filesState[key]?.list || [];
                   const targetServerName = getServerName(key, "target");
@@ -2273,7 +2366,7 @@ export function CreateGeneration({ open, onClose, preSelectContribution, servers
                               )}
 
                               {/* Generated command preview */}
-                              <div>
+                              {/* <div>
                                 <div className="flex items-center gap-1.5 mb-1">
                                   <Terminal className="w-3.5 h-3.5 text-muted-foreground" />
                                   <label className="text-xs font-medium text-foreground">Generated Command</label>
@@ -2289,7 +2382,7 @@ export function CreateGeneration({ open, onClose, preSelectContribution, servers
                                 <pre className="w-full bg-muted border border-border rounded-lg px-3 py-2 text-xs text-foreground font-mono whitespace-pre-wrap break-all leading-relaxed">
                                   {buildCommand(f)}
                                 </pre>
-                              </div>
+                              </div> */}
                             </>
                           )}
                         </TooltipProvider>
@@ -2298,17 +2391,84 @@ export function CreateGeneration({ open, onClose, preSelectContribution, servers
                   );
                 })}
               </div>
+                </div>
+
+                <aside className="rounded-3xl border border-border bg-card p-4 shadow-sm xl:sticky xl:top-4">
+                  <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">Service Navigator</p>
+                  <h4 className="mt-1 text-sm font-semibold text-foreground">Selected Services</h4>
+                  <p className="mt-1 text-xs text-muted-foreground">Use these buttons to switch the workspace. Each card shows the current server and input mode.</p>
+
+                  <div className="mt-4 space-y-3">
+                    {selectedServices.map(({ key, label, color }) => {
+                      const active = currentService.key === key;
+                      const serviceForm = forms[key];
+                      const serviceTarget = getServerName(key, "target");
+                      return (
+                        <button
+                          key={key}
+                          type="button"
+                          onClick={() => setActiveService(key)}
+                          className={`w-full rounded-2xl border px-4 py-3 text-left transition-all ${
+                            active
+                              ? `${color} border-current shadow-sm ring-2 ring-current/10`
+                              : "border-border bg-background hover:border-muted-foreground/40 hover:bg-muted/30"
+                          }`}
+                        >
+                          <div className="flex items-center justify-between gap-3">
+                            <div className="flex items-center gap-2">
+                              <div className={`flex h-9 w-9 items-center justify-center rounded-xl ${active ? "bg-background/80" : "bg-muted"}`}>
+                                <Server className="w-4 h-4" />
+                              </div>
+                              <div>
+                                <p className="text-sm font-semibold text-foreground">{label}</p>
+                                <p className="text-[11px] text-muted-foreground">{serviceTarget || "Target server pending"}</p>
+                              </div>
+                            </div>
+                            {active ? (
+                              <span className="rounded-full bg-background/80 px-2.5 py-1 text-[11px] font-medium text-foreground">Active</span>
+                            ) : null}
+                          </div>
+                          <div className="mt-3 flex items-center justify-between text-[11px] text-muted-foreground">
+                            <span>Input mode</span>
+                            <span className="font-medium uppercase text-foreground">{serviceForm.inputMode}</span>
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </aside>
+              </div>
+
+              {currentForm && (
+                <div className="mt-4 rounded-3xl border border-border bg-card p-5 shadow-sm">
+                  <div className="mb-3 flex items-center gap-2">
+                    <Terminal className="w-4 h-4 text-muted-foreground" />
+                    <div>
+                      <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">Review</p>
+                      <h4 className="text-sm font-semibold text-foreground">Generated Command</h4>
+                    </div>
+                  </div>
+                  <pre className="w-full rounded-2xl border border-border bg-muted/30 px-4 py-3 text-xs text-foreground font-mono whitespace-pre-wrap break-all leading-relaxed">
+                    {buildCommand(currentForm)}
+                  </pre>
+                </div>
+              )}
             </div>
           )}
         </div>
 
         {/* Footer */}
-        <div className="flex items-center justify-between px-6 py-4 border-t border-border bg-card rounded-b-xl flex-shrink-0">
-          <p className="text-xs text-muted-foreground">
-            {selected.size === 0
-              ? "No services selected"
-              : `${selected.size} service${selected.size > 1 ? "s" : ""} selected`}
-          </p>
+        <div className="flex flex-col gap-3 px-6 py-4 border-t border-border bg-card rounded-b-xl flex-shrink-0 md:flex-row md:items-center md:justify-between">
+          <div>
+            <p className="text-sm font-medium text-foreground">
+              {selected.size === 0
+                ? "No services selected"
+                : `${selected.size} service${selected.size > 1 ? "s" : ""} selected`}
+            </p>
+            <p className="mt-1 text-xs text-muted-foreground">
+              {submitBlockingReason || "The request payload and generation flow remain unchanged. This refactor only simplifies the UI."}
+            </p>
+          </div>
           <div className="flex items-center gap-3">
             <button
               type="button"
@@ -2319,30 +2479,9 @@ export function CreateGeneration({ open, onClose, preSelectContribution, servers
             </button>
             <button
               type="button"
-              onClick={handleSubmit}
-              disabled={
-                submitting ||
-                selected.size === 0 ||
-                (selected.has("search") && forms.search.searchMode === "contribution" && approvedPOICount === 0) ||
-                Array.from(selected).some((svc) => {
-                  const f = forms[svc];
-                  if (f.inputMode === "path") return !isFileSelectedFromViewFiles(svc);
-                  if (f.inputMode === "copy") return !f.sourceFilePath?.trim() || !f.inputFile?.trim();
-                  if (f.inputMode === "import") return !f.importFile;
-                  return false;
-                })
-              }
-              title={
-                Array.from(selected).some((svc) => {
-                  const f = forms[svc];
-                  if (f.inputMode === "path") return !isFileSelectedFromViewFiles(svc);
-                  if (f.inputMode === "copy") return !f.sourceFilePath?.trim() || !f.inputFile?.trim();
-                  if (f.inputMode === "import") return !f.importFile;
-                  return false;
-                })
-                  ? "Please select file using View Files option for search, routing, and tile"
-                  : "Start generation"
-              }
+              onClick={() => setConfirmOpen(true)}
+              disabled={submitting || Boolean(submitBlockingReason)}
+              title={submitBlockingReason || "Review generation before starting"}
               className="flex items-center gap-2 bg-primary text-primary-foreground px-5 py-2 rounded-lg text-sm font-medium hover:bg-primary/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {submitting ? (
@@ -2353,6 +2492,115 @@ export function CreateGeneration({ open, onClose, preSelectContribution, servers
             </button>
           </div>
         </div>
+
+        {confirmOpen && (
+          <div className="absolute inset-0 z-20 flex items-center justify-center bg-black/55 p-6 backdrop-blur-sm">
+            <div className="w-full max-w-6xl rounded-3xl border border-border bg-card shadow-2xl">
+              <div className="flex items-center justify-between border-b border-border px-6 py-5">
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">Confirmation</p>
+                  <h3 className="mt-1 text-lg font-semibold text-foreground">Review Generation Setup</h3>
+                  <p className="mt-1 text-sm text-muted-foreground">Confirm the service configuration below before the generation request is sent.</p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setConfirmOpen(false)}
+                  title="Close confirmation"
+                  aria-label="Close confirmation"
+                  className="rounded-full p-2 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              <div className="max-h-[70vh] overflow-y-auto px-6 py-5">
+                <div className="space-y-4">
+                  {serviceReviewCards.map(({ key, label, color, targetServerName, sourceServerName, inputPath, outputPath, command, form }) => (
+                    <div
+                      key={key}
+                      className={`w-full rounded-3xl border p-5 shadow-sm bg-card ${color}`}
+                    >
+                      <div className="flex items-center justify-between gap-3">
+                        <div className="flex items-center gap-2">
+                          <Server className="w-4 h-4" />
+                          <h4 className="text-sm font-semibold">{label}</h4>
+                        </div>
+                        <span className="rounded-full bg-background/80 px-2.5 py-1 text-[11px] font-medium text-foreground">
+                          Included
+                        </span>
+                      </div>
+
+                      <div className="mt-4 space-y-3 text-xs">
+                        <div className="flex items-start justify-between gap-3">
+                          <span className="text-muted-foreground">Target server</span>
+                          <span className="max-w-[60%] break-all text-right font-medium text-foreground">{targetServerName || "Not selected"}</span>
+                        </div>
+                        <div className="flex items-start justify-between gap-3">
+                          <span className="text-muted-foreground">Source server</span>
+                          <span className="max-w-[60%] break-all text-right font-medium text-foreground">{sourceServerName || "Not required"}</span>
+                        </div>
+                        <div className="flex items-start justify-between gap-3">
+                          <span className="text-muted-foreground">Input mode</span>
+                          <span className="max-w-[60%] text-right font-medium uppercase text-foreground">{form.inputMode}</span>
+                        </div>
+                        <div className="flex items-start justify-between gap-3">
+                          <span className="text-muted-foreground">Input path</span>
+                          <span className="max-w-[60%] break-all text-right font-mono text-foreground">{inputPath}</span>
+                        </div>
+                        <div className="flex items-start justify-between gap-3">
+                          <span className="text-muted-foreground">Output path</span>
+                          <span className="max-w-[60%] break-all text-right font-mono text-foreground">{outputPath}</span>
+                        </div>
+                        <div className="flex items-start justify-between gap-3">
+                          <span className="text-muted-foreground">Notify</span>
+                          <span className="max-w-[60%] text-right font-medium text-foreground">{forms.search.isnotify ? "Enabled" : "Disabled"}</span>
+                        </div>
+                        <div className="flex items-start justify-between gap-3">
+                          <span className="text-muted-foreground">Backup</span>
+                          <span className="max-w-[60%] text-right font-medium text-foreground">{forms.search.backup ? "Enabled" : "Disabled"}</span>
+                        </div>
+                      </div>
+
+                      <div className="mt-4 rounded-2xl border border-border bg-background/70 p-3">
+                        <div className="mb-2 flex items-center gap-2 text-muted-foreground">
+                          <Terminal className="w-3.5 h-3.5" />
+                          <span className="text-[11px] font-semibold uppercase tracking-[0.16em]">Command</span>
+                        </div>
+                        <pre className="whitespace-pre-wrap break-all font-mono text-[11px] leading-relaxed text-foreground">{command}</pre>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <div className="flex flex-col gap-3 border-t border-border px-6 py-4 md:flex-row md:items-center md:justify-between">
+                <p className="text-sm text-muted-foreground">{submitBlockingReason || "All selected services are ready. Confirm to start generation."}</p>
+                <div className="flex items-center gap-3">
+                  <button
+                    type="button"
+                    onClick={() => setConfirmOpen(false)}
+                    className="rounded-lg border border-border px-4 py-2 text-sm text-muted-foreground transition-colors hover:text-foreground"
+                  >
+                    Back
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleSubmit}
+                    disabled={submitting || Boolean(submitBlockingReason)}
+                    title={submitBlockingReason || "Confirm and start generation"}
+                    className="flex items-center gap-2 rounded-lg bg-primary px-5 py-2 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    {submitting ? (
+                      <><Loader2 className="w-4 h-4 animate-spin" /> Starting…</>
+                    ) : (
+                      <><Play className="w-4 h-4" /> Confirm Generation</>
+                    )}
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
