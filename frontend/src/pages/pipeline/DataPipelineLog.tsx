@@ -15,7 +15,8 @@ const SERVICE_TAG_COLOR: Record<string, string> = {
 
 const RUNS_PER_PAGE = 10;
 const RUN_ID_LOGS_URL = "https://sandbox.vmmaps.com/n8n/webhook/runId-logs";
-const LOG_POLL_DELAY = 1000;
+const REMOVE_LOG_URL = "https://sandbox.vmmaps.com/n8n/webhook/remove-log";
+const LOG_POLL_DELAY = 500;
 const LOG_REQUEST_TIMEOUT = 3000;
 const MAX_LOG_RETRIES = 3;
 const MAX_IDLE_POLLS_WHILE_RUNNING = 600;
@@ -26,6 +27,11 @@ type ServiceLogState = {
   log: string;
   loading: boolean;
   error: string | null;
+};
+type ServerPathEntry = {
+  targetServerId?: string;
+  serverId?: string;
+  logPath?: string;
 };
 
 function extractPipelineRuns(payload: any): PipelinePayload[] {
@@ -106,6 +112,31 @@ function sIdFor(run: PipelinePayload | null, service: string | null) {
     run?.[`${service}SId`],
     run?.[`${service}_sId`],
   );
+}
+
+function targetServerIdFor(run: PipelinePayload | null, service: string | null) {
+  const svcData = getServiceData(run, service);
+  return pickFirstString(
+    svcData?.targetServerId,
+    svcData?.target_server_id,
+    svcData?.serverId,
+    run?.[`${service}TargetServerId`],
+    run?.[`${service}_targetServerId`],
+    run?.targetServerId,
+    run?.target_server_id,
+    run?.serverId,
+  );
+}
+
+function flattenServerPaths(serverPaths: Record<string, ServerPathEntry[]> | ServerPathEntry[] | undefined): ServerPathEntry[] {
+  if (!serverPaths) return [];
+  if (Array.isArray(serverPaths)) return serverPaths;
+  return Object.values(serverPaths).flat();
+}
+
+function joinLogPath(basePath: string, fileName: string) {
+  const normalizedBase = basePath.trim().replace(/\/+$/, "");
+  return `${normalizedBase}/${fileName}`;
 }
 
 function normalizeLogLines(payload: any): string[] {
@@ -205,6 +236,7 @@ export default function DataPipelineLog({ runId }: { runId?: string }) {
   const logScrollRef = useRef<HTMLDivElement | null>(null);
   const logBottomRef = useRef<HTMLDivElement | null>(null);
   const shouldStickToBottomRef = useRef(true);
+  const removeLogCallsRef = useRef<Set<string>>(new Set());
 
   // Pagination state
   const [currentPage, setCurrentPage] = useState(1);
@@ -283,6 +315,65 @@ export default function DataPipelineLog({ runId }: { runId?: string }) {
     }
   }, [effectiveRunId]);
 
+  const removeSuccessfulServiceLog = useCallback(async (
+    run: PipelinePayload,
+    service: string,
+    runKey: string,
+    targetServer: string,
+    sId: string,
+  ) => {
+    if (statusFor(service, run).status !== "success") return;
+
+    const targetServerId = targetServerIdFor(run, service);
+    if (!targetServerId) {
+      console.warn("Skipping remove-log: targetServerId is missing.", { runKey, service });
+      return;
+    }
+
+    const removeKey = `${runKey}:${service}:${targetServerId}:${sId}`;
+    if (removeLogCallsRef.current.has(removeKey)) return;
+    removeLogCallsRef.current.add(removeKey);
+
+    try {
+      const version = currentVersion || (await fetchCurrentVersion());
+      if (!version || version === "Unknown" || version === "Error") return;
+
+      const serverPathRes = await api.post("/admin-dashboard/pipeline-config/server-path", { version });
+      const serverPaths =
+        serverPathRes.data?.data?.serverPaths ||
+        serverPathRes.data?.serverPaths ||
+        {};
+      const pathInfo = flattenServerPaths(serverPaths).find(
+        (path) => (path.targetServerId || path.serverId) === targetServerId
+      );
+      const logPath = pathInfo?.logPath?.trim();
+
+      if (!logPath) {
+        console.warn("Skipping remove-log: logPath is missing for target server.", {
+          runKey,
+          service,
+          targetServerId,
+        });
+        return;
+      }
+
+      const fullLogPath = joinLogPath(logPath, `${runKey}_${service}.log`);
+
+      await axios.post(
+        REMOVE_LOG_URL,
+        {
+          server: targetServer,
+          sId,
+          logPath: fullLogPath,
+        },
+        { timeout: LOG_REQUEST_TIMEOUT }
+      );
+    } catch (err) {
+      removeLogCallsRef.current.delete(removeKey);
+      console.error("Failed to remove service log:", err);
+    }
+  }, [currentVersion, fetchCurrentVersion]);
+
   useEffect(() => {
     let cancelled = false;
 
@@ -346,6 +437,7 @@ export default function DataPipelineLog({ runId }: { runId?: string }) {
       let retryCount = 0;
       let idlePollCount = 0;
       const serviceStatus = statusFor(selectedService, selectedRun).status;
+      const fallbackLog = statusFor(selectedService, selectedRun).log;
 
       try {
         while (!controller.signal.aborted) {
@@ -422,22 +514,34 @@ export default function DataPipelineLog({ runId }: { runId?: string }) {
           }
         }
 
+        const finalLog = lines.length > 0 ? lines.join("\n") : fallbackLog;
         setServiceLogs((prev) => ({
           ...prev,
           [logKey]: {
-            log: lines.join("\n"),
+            log: finalLog,
             loading: false,
             error: null,
           },
         }));
+
+        if (!controller.signal.aborted) {
+          await removeSuccessfulServiceLog(
+            selectedRun,
+            selectedService,
+            runKey,
+            targetServer,
+            sId,
+          );
+        }
       } catch (err: any) {
         if (err?.name === "AbortError") return;
+        const finalLog = lines.length > 0 ? lines.join("\n") : fallbackLog;
         setServiceLogs((prev) => ({
           ...prev,
           [logKey]: {
-            log: lines.join("\n"),
+            log: finalLog,
             loading: false,
-            error: err?.message || "Failed to fetch run logs.",
+            error: finalLog ? null : err?.message || "Failed to fetch run logs.",
           },
         }));
       }
@@ -451,7 +555,7 @@ export default function DataPipelineLog({ runId }: { runId?: string }) {
       // Clean up all pending timeouts
       pendingTimeouts.forEach((timeoutId) => clearTimeout(timeoutId));
     };
-  }, [selectedRun, selectedService]);
+  }, [removeSuccessfulServiceLog, selectedRun, selectedService]);
 
   const activeRunKey = String(selectedRun?.runId ?? selectedRun?.id ?? selectedRun?._id ?? "");
   const activeLogState =

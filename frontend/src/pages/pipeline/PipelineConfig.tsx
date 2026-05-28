@@ -66,6 +66,7 @@ interface ServerPathEntry {
   outputPath: string;
   scriptPath: string;
   backupPath: string;
+  logPath: string;
 }
 
 // ─── API Calls ────────────────────────────────────────────────────────────────
@@ -149,6 +150,7 @@ const updateServerPaths = async (version: string, serverId: string, paths: Omit<
     outputPath: paths.outputPath,
     scriptPath: paths.scriptPath,
     backupPath: paths.backupPath,
+    logPath: paths.logPath,
   });
   return res.data;
 };
@@ -164,7 +166,8 @@ const normalizeServerPathsByServerId = (serverPaths: Record<string, ServerPathEn
       entry.inputPath === pathEntry.inputPath &&
       entry.outputPath === pathEntry.outputPath &&
       entry.scriptPath === pathEntry.scriptPath &&
-      entry.backupPath === pathEntry.backupPath
+      entry.backupPath === pathEntry.backupPath &&
+      entry.logPath === pathEntry.logPath
     );
     if (!isDuplicate) {
       pathsByServerId[serverId].push(pathEntry);
@@ -359,8 +362,8 @@ const ServerCard = ({ server, serverPaths, onAddPath, onViewPath }: ServerCardPr
 
 interface PathFormProps {
   server: AvailabilityServer;
-  paths: { inputPath: string; outputPath: string; scriptPath: string; backupPath: string };
-  setPaths: React.Dispatch<React.SetStateAction<{ inputPath: string; outputPath: string; scriptPath: string; backupPath: string }>>;
+  paths: { inputPath: string; outputPath: string; scriptPath: string; backupPath: string; logPath: string };
+  setPaths: React.Dispatch<React.SetStateAction<{ inputPath: string; outputPath: string; scriptPath: string; backupPath: string; logPath: string }>>;
   submitting: boolean;
   onSubmit: () => void;
   onClose: () => void;
@@ -467,9 +470,19 @@ const PathFormFields = ({ server, paths, setPaths, submitting, onSubmit, onClose
         </svg>
       ),
     },
+    {
+      key: "logPath" as const,
+      label: "Log Path",
+      placeholder: "/home/user/Projects/TileGen/logs",
+      icon: (
+        <svg className="w-3.5 h-3.5 text-rose-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+        </svg>
+      ),
+    },
   ];
 
-  const isValid = paths.inputPath.trim() && paths.outputPath.trim() && paths.scriptPath.trim();
+  const isValid = paths.inputPath.trim() && paths.outputPath.trim() && paths.scriptPath.trim() && paths.logPath.trim();
 
   return (
     <div className="p-6 space-y-4 max-h-[70vh] overflow-y-auto">
@@ -597,7 +610,7 @@ interface AddPathModalProps {
 }
 
 const AddPathModal = ({ server, onClose, onSubmit, submitting }: AddPathModalProps) => {
-  const [paths, setPaths] = useState({ inputPath: "/home", outputPath: "/home", scriptPath: "/home", backupPath: "/home" });
+  const [paths, setPaths] = useState({ inputPath: "/home", outputPath: "/home", scriptPath: "/home", backupPath: "/home", logPath: "/home" });
 
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
@@ -654,6 +667,7 @@ const EditPathModal = ({ server, existingEntry, onClose, onSubmit, submitting }:
     outputPath: existingEntry.outputPath,
     scriptPath: existingEntry.scriptPath,
     backupPath: existingEntry.backupPath,
+    logPath: existingEntry.logPath || "/home", // Fallback for existing entries without logPath
   });
 
   return (
@@ -771,6 +785,11 @@ const ViewPathModal = ({ server, paths, onClose, onEdit }: ViewPathModalProps) =
                 label="Backup Path"
                 value={entry.backupPath}
                 icon={<svg className="w-3.5 h-3.5 text-amber-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4" /></svg>}
+              />
+              <PathRow
+                label="Log Path"
+                value={entry.logPath || "Not configured"}
+                icon={<svg className="w-3.5 h-3.5 text-rose-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>}
               />
             </div>
           </div>

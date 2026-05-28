@@ -151,7 +151,7 @@ const emptyServiceForm = (service: GenerationService): ServiceFormState => ({
   contribPythonScriptPath: "",
   contribITCSearchDBPath: "",
   contribMode: "STAGING",
-  contribApi:  "https://sandbox.vmmaps.com/omn",
+  contribApi:  "https://sandbox.vmmaps.com/admaps",
   isnotify: true,
   backup: true,
   backupPath: "",
@@ -1217,6 +1217,7 @@ export function CreateGeneration({ open, onClose, preSelectContribution, servers
         })();
 
         const base = {
+          targetServerId: f.targetServerId,
           targetServer: target?.name || f.targetServerId,
           targetServerAddress: pickAddress(target),
           targetServerPort: pickPort(target),
