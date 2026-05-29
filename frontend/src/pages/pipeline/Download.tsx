@@ -46,10 +46,12 @@ type ServerPathEntry = {
 type DownloadJob = {
   id: string;
   runId: string;
+  sId: string;
   workflow: WorkflowKey;
   workflowLabel: string;
   serverName: string;
   outputPath: string;
+  logPath: string;
   status: JobStatus;
   requestedAt: string;
   lastError?: string;
@@ -204,6 +206,13 @@ const normalizeBrowsePath = (path: string) => {
   const value = String(path || "").trim();
   if (!value) return "/home";
   return value.startsWith("/") ? value : `/${value}`;
+};
+
+const buildWorkflowLogPath = (basePath: string, sId: string) => {
+  const value = String(basePath || "").trim();
+  if (!value) return `${sId}.log`;
+  if (/\.log$/i.test(value)) return value;
+  return `${value.replace(/\/+$/, "")}/${sId}.log`;
 };
 
 const buildBrowserPath = (basePath: string, item: string) => {
@@ -754,6 +763,8 @@ export default function Download() {
     if (!force && now - lastLogPollAtRef.current[workflow] < LOG_POLL_INTERVAL_MS) return;
 
     const currentLogState = jobLogs[workflow];
+    const sId = job.sId || job.runId;
+    const logPath = job.logPath || buildWorkflowLogPath("/home/logs", sId);
     logPollInFlightRef.current[workflow] = true;
     lastLogPollAtRef.current[workflow] = now;
 
@@ -762,9 +773,10 @@ export default function Download() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          runId: job.runId,
-          workflow,
+          targetServer: job.serverName,
+          sId,
           offset: currentLogState.offset,
+          logPath,
         }),
         signal: AbortSignal.timeout(LOG_REQUEST_TIMEOUT_MS),
       });
@@ -1041,14 +1053,23 @@ export default function Download() {
       return;
     }
 
+    if (!form.logPath.trim()) {
+      toast.error("Select a log path.");
+      return;
+    }
+
     const runId = makeRunId(workflow);
+    const sId = runId;
+    const logPath = buildWorkflowLogPath(form.logPath, sId);
     const provisionalJob: DownloadJob = {
       id: runId,
       runId,
+      sId,
       workflow,
       workflowLabel: workflowCopy[workflow].label,
       serverName: server.name,
       outputPath: normalizeBrowsePath(form.outputPath),
+      logPath,
       status: workflow === "searchTiles" ? "running" : "queued",
       requestedAt: new Date().toISOString(),
     };
@@ -1078,7 +1099,9 @@ export default function Download() {
         workflow,
         workflowLabel: workflowCopy[workflow].label,
         runId,
+        sId,
         outputPath: provisionalJob.outputPath,
+        logPath,
         downloadType: workflow === "searchTiles" ? "search_tiles" : "routing",
         scriptPath,
         ...(workflow === "routing"

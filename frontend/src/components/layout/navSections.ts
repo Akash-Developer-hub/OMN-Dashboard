@@ -44,6 +44,7 @@ export const navSections: NavSection[] = [
     children: [
       { label: "Download", path: "/pipeline/download" },
       { label: "Generation", path: "/pipeline" },
+      { label: "Preview Generation", path: "/pipeline/preview" },
       { label: "Generation Logs", path: "/pipeline/log" },
       { label: "Configuration", path: "/pipeline/config" },
     ],
