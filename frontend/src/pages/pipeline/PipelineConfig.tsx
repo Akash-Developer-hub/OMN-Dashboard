@@ -95,6 +95,13 @@ const fetchServerPathConfig = async (version: string): Promise<Record<string, Se
   return res.data?.data?.serverPaths ?? {};
 };
 
+const fetchDownloadPathConfig = async (version: string): Promise<Record<string, ServerPathEntry[]>> => {
+  const res = await api.post("/admin-dashboard/pipeline-config/download-path-config", {
+    version,
+  });
+  return res.data?.data?.downloadPaths ?? {};
+};
+
 const fetchAvailabilityServers = async (): Promise<AvailabilityServer[]> => {
   const res = await api.get("/admin-dashboard/servers");
   return res.data?.data?.servers ?? res.data?.data ?? res.data ?? [];
@@ -142,6 +149,17 @@ const addServerPaths = async (version: string, serverName: string, serverId: str
   return res.data;
 };
 
+const addDownloadPaths = async (version: string, serverId: string, paths: Pick<ServerPathEntry, "outputPath" | "scriptPath" | "logPath">): Promise<any> => {
+  const res = await api.post("/admin-dashboard/pipeline-config/download-path", {
+    version,
+    targetServerId: serverId,
+    outputPath: paths.outputPath,
+    scriptPath: paths.scriptPath,
+    logPath: paths.logPath,
+  });
+  return res.data;
+};
+
 // ─── NEW: Update Server Paths API ─────────────────────────────────────────────
 const updateServerPaths = async (version: string, serverId: string, paths: Omit<ServerPathEntry, "targetServerId">): Promise<any> => {
   const res = await api.patch("/admin-dashboard/pipeline-config/UpdateServer-path", {
@@ -151,6 +169,23 @@ const updateServerPaths = async (version: string, serverId: string, paths: Omit<
     outputPath: paths.outputPath,
     scriptPath: paths.scriptPath,
     backupPath: paths.backupPath,
+    logPath: paths.logPath,
+  });
+  return res.data;
+};
+
+// Update download paths (PATCH). Backend may not have this endpoint in some versions;
+// try it and fall back to optimistic local update if necessary.
+const updateDownloadPaths = async (
+  version: string,
+  serverId: string,
+  paths: Pick<ServerPathEntry, "outputPath" | "scriptPath" | "logPath">
+): Promise<any> => {
+  const res = await api.patch("/admin-dashboard/pipeline-config/UpdateDownload-path", {
+    version,
+    targetServerId: serverId,
+    outputPath: paths.outputPath,
+    scriptPath: paths.scriptPath,
     logPath: paths.logPath,
   });
   return res.data;
@@ -360,9 +395,10 @@ interface PathFormProps {
   onClose: () => void;
   submitLabel: string;
   isEdit?: boolean;
+  mode?: "server" | "download";
 }
 
-const PathFormFields = ({ server, paths, setPaths, submitting, onSubmit, onClose, submitLabel, isEdit = false }: PathFormProps) => {
+const PathFormFields = ({ server, paths, setPaths, submitting, onSubmit, onClose, submitLabel, isEdit = false, mode = "server" }: PathFormProps) => {
   const [browsingField, setBrowsingField] = useState<string | null>(null);
   const [folderList, setFolderList] = useState<string[]>([]);
   const [loadingFolders, setLoadingFolders] = useState(false);
@@ -471,9 +507,11 @@ const PathFormFields = ({ server, paths, setPaths, submitting, onSubmit, onClose
         </svg>
       ),
     },
-  ];
+  ].filter((field) => mode === "server" || ["outputPath", "scriptPath", "logPath"].includes(field.key));
 
-  const isValid = paths.inputPath.trim() && paths.outputPath.trim() && paths.scriptPath.trim() && paths.logPath.trim();
+  const isValid = mode === "download"
+    ? paths.outputPath.trim() && paths.scriptPath.trim() && paths.logPath.trim()
+    : paths.inputPath.trim() && paths.outputPath.trim() && paths.scriptPath.trim() && paths.logPath.trim();
 
   return (
     <div className="p-6 space-y-4 max-h-[70vh] overflow-y-auto">
@@ -598,9 +636,10 @@ interface AddPathModalProps {
   onClose: () => void;
   onSubmit: (paths: Omit<ServerPathEntry, "targetServerId">) => Promise<void>;
   submitting: boolean;
+  mode?: "server" | "download";
 }
 
-const AddPathModal = ({ server, onClose, onSubmit, submitting }: AddPathModalProps) => {
+const AddPathModal = ({ server, onClose, onSubmit, submitting, mode = "server" }: AddPathModalProps) => {
   const [paths, setPaths] = useState({ inputPath: "/home", outputPath: "/home", scriptPath: "/home", backupPath: "/home", logPath: "/home" });
 
   return (
@@ -636,6 +675,7 @@ const AddPathModal = ({ server, onClose, onSubmit, submitting }: AddPathModalPro
           onClose={onClose}
           submitLabel="Save Paths"
           isEdit={false}
+          mode={mode}
         />
       </div>
     </div>
@@ -650,15 +690,27 @@ interface EditPathModalProps {
   onClose: () => void;
   onSubmit: (paths: Omit<ServerPathEntry, "targetServerId">) => Promise<void>;
   submitting: boolean;
+  mode?: "server" | "download";
 }
 
-const EditPathModal = ({ server, existingEntry, onClose, onSubmit, submitting }: EditPathModalProps) => {
-  const [paths, setPaths] = useState({
-    inputPath: existingEntry.inputPath,
-    outputPath: existingEntry.outputPath,
-    scriptPath: existingEntry.scriptPath,
-    backupPath: existingEntry.backupPath,
-    logPath: existingEntry.logPath || "/home", // Fallback for existing entries without logPath
+const EditPathModal = ({ server, existingEntry, onClose, onSubmit, submitting, mode = "server" }: EditPathModalProps) => {
+  const [paths, setPaths] = useState(() => {
+    if (mode === "download") {
+      return {
+        inputPath: "",
+        outputPath: existingEntry.outputPath || "",
+        scriptPath: existingEntry.scriptPath || "",
+        backupPath: "",
+        logPath: existingEntry.logPath || "/home",
+      };
+    }
+    return {
+      inputPath: existingEntry.inputPath,
+      outputPath: existingEntry.outputPath,
+      scriptPath: existingEntry.scriptPath,
+      backupPath: existingEntry.backupPath,
+      logPath: existingEntry.logPath || "/home", // Fallback for existing entries without logPath
+    };
   });
 
   return (
@@ -697,6 +749,7 @@ const EditPathModal = ({ server, existingEntry, onClose, onSubmit, submitting }:
           onClose={onClose}
           submitLabel="Update Paths"
           isEdit={true}
+          mode={mode}
         />
       </div>
     </div>
@@ -710,9 +763,10 @@ interface ViewPathModalProps {
   paths: ServerPathEntry[];
   onClose: () => void;
   onEdit: (entry: ServerPathEntry) => void; // NEW
+  mode?: "server" | "download";
 }
 
-const ViewPathModal = ({ server, paths, onClose, onEdit }: ViewPathModalProps) => (
+const ViewPathModal = ({ server, paths, onClose, onEdit, mode = "server" }: ViewPathModalProps) => (
   <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
     <div className="absolute inset-0 bg-background/70 backdrop-blur-md" onClick={onClose} />
     <div className="relative bg-card w-full max-w-lg rounded-2xl shadow-2xl border border-border overflow-hidden animate-in zoom-in-95 duration-200 max-h-[80vh] flex flex-col">
@@ -745,7 +799,6 @@ const ViewPathModal = ({ server, paths, onClose, onEdit }: ViewPathModalProps) =
                 <span className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Config #{idx + 1}</span>
                 <span className="text-[10px] font-mono text-muted-foreground">Target: {entry.targetServerId.slice(-8)}</span>
               </div>
-              {/* ── Edit Button ─────────────────────────────────────── */}
               <button
                 onClick={() => onEdit(entry)}
                 className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-amber-500/10 hover:bg-amber-500/20 text-amber-500 text-[10px] font-bold border border-amber-500/20 transition-all active:scale-95"
@@ -757,26 +810,30 @@ const ViewPathModal = ({ server, paths, onClose, onEdit }: ViewPathModalProps) =
               </button>
             </div>
             <div className="px-4 py-1">
-              <PathRow
-                label="Input Path"
-                value={entry.inputPath}
-                icon={<svg className="w-3.5 h-3.5 text-sky-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" /></svg>}
-              />
+              {mode === "server" && (
+                <PathRow
+                  label="Input Path"
+                  value={entry.inputPath}
+                  icon={<svg className="w-3.5 h-3.5 text-sky-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" /></svg>}
+                />
+              )}
               <PathRow
                 label="Output Path"
-                value={entry.outputPath}
+                value={entry.outputPath || "Not configured"}
                 icon={<svg className="w-3.5 h-3.5 text-emerald-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>}
               />
               <PathRow
                 label="Script Path"
-                value={entry.scriptPath}
+                value={entry.scriptPath || "Not configured"}
                 icon={<svg className="w-3.5 h-3.5 text-violet-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4" /></svg>}
               />
-              <PathRow
-                label="Backup Path"
-                value={entry.backupPath}
-                icon={<svg className="w-3.5 h-3.5 text-amber-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4" /></svg>}
-              />
+              {mode === "server" && (
+                <PathRow
+                  label="Backup Path"
+                  value={entry.backupPath}
+                  icon={<svg className="w-3.5 h-3.5 text-amber-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4" /></svg>}
+                />
+              )}
               <PathRow
                 label="Log Path"
                 value={entry.logPath || "Not configured"}
@@ -804,6 +861,7 @@ export default function PipelineConfig() {
   const [localAdminList, setLocalAdminList] = useState<Record<string, NotifiedAdmin>>({});
   const [availabilityServers, setAvailabilityServers] = useState<AvailabilityServer[]>([]);
   const [serverPathsMap, setServerPathsMap] = useState<Record<string, ServerPathEntry[]>>({});
+  const [downloadPathsMap, setDownloadPathsMap] = useState<Record<string, ServerPathEntry[]>>({});
   const [version, setVersion] = useState("");
   const [savedVersion, setSavedVersion] = useState("");
 
@@ -822,6 +880,7 @@ export default function PipelineConfig() {
   const [loadingConfigs, setLoadingConfigs] = useState(true);
   const [loadingServers, setLoadingServers] = useState(true);
   const [loadingServerPaths, setLoadingServerPaths] = useState(false);
+  const [loadingDownloadPaths, setLoadingDownloadPaths] = useState(false);
   const [savingVersion, setSavingVersion] = useState(false);
 
   // ── Version Confirmation State ──────────────────────────────────────────
@@ -845,7 +904,7 @@ export default function PipelineConfig() {
   const itemsPerPage = 10;
 
   // Active tab for main section
-  const [activeTab, setActiveTab] = useState<"admins" | "servers" | "rules">("admins");
+  const [activeTab, setActiveTab] = useState<"admins" | "servers" | "downloadConfig" | "rules">("admins");
   const [notifyPanelOpen, setNotifyPanelOpen] = useState(false);
 
   // Validation Rules State
@@ -968,13 +1027,16 @@ export default function PipelineConfig() {
 
   // Server Path Modals
   const [addPathServer, setAddPathServer] = useState<AvailabilityServer | null>(null);
+  const [addPathMode, setAddPathMode] = useState<"server" | "download">("server");
   const [viewPathServer, setViewPathServer] = useState<AvailabilityServer | null>(null);
+  const [viewPathMode, setViewPathMode] = useState<"server" | "download">("server");
   const [submittingPath, setSubmittingPath] = useState(false);
 
   // ── NEW: Edit Path state ──────────────────────────────────────────────────
   const [editPathEntry, setEditPathEntry] = useState<ServerPathEntry | null>(null);
   const [editPathServer, setEditPathServer] = useState<AvailabilityServer | null>(null);
   const [submittingEditPath, setSubmittingEditPath] = useState(false);
+  const [editMode, setEditMode] = useState<"server" | "download">("server");
 
 
 
@@ -1025,6 +1087,20 @@ export default function PipelineConfig() {
     }
   }, [savedVersion]);
 
+  const loadDownloadPathConfig = useCallback(async (versionToLoad = savedVersion) => {
+    if (!versionToLoad) return;
+    setLoadingDownloadPaths(true);
+    try {
+      const downloadPaths = await fetchDownloadPathConfig(versionToLoad);
+      setDownloadPathsMap(normalizeServerPathsByServerId(downloadPaths));
+    } catch (err: any) {
+      setDownloadPathsMap({});
+      showToast(err.response?.data?.message || "Failed to load download path config.", "error");
+    } finally {
+      setLoadingDownloadPaths(false);
+    }
+  }, [savedVersion]);
+
   const loadServers = useCallback(async () => {
     setLoadingServers(true);
     try {
@@ -1052,7 +1128,10 @@ export default function PipelineConfig() {
     if (activeTab === "servers" && savedVersion) {
       loadServerPathConfig(savedVersion);
     }
-  }, [activeTab, loadServerPathConfig, savedVersion]);
+    if (activeTab === "downloadConfig" && savedVersion) {
+      loadDownloadPathConfig(savedVersion);
+    }
+  }, [activeTab, loadDownloadPathConfig, loadServerPathConfig, savedVersion]);
 
   const handleSaveVersion = async () => {
     const cleanVersion = version.trim() || "v1.0";
@@ -1066,6 +1145,9 @@ export default function PipelineConfig() {
         await loadConfigs(cleanVersion);
         if (activeTab === "servers") {
           await loadServerPathConfig(cleanVersion);
+        }
+        if (activeTab === "downloadConfig") {
+          await loadDownloadPathConfig(cleanVersion);
         }
         setIsVersionEditable(false);
 
@@ -1162,6 +1244,36 @@ export default function PipelineConfig() {
     if (!addPathServer) return;
     setSubmittingPath(true);
     try {
+      if (addPathMode === "download") {
+        const response = await addDownloadPaths(savedVersion, addPathServer._id, {
+          outputPath: paths.outputPath,
+          scriptPath: paths.scriptPath,
+          logPath: paths.logPath,
+        });
+        if (response?.success) {
+          setDownloadPathsMap((prev) => ({
+            ...prev,
+            [addPathServer._id]: [
+              ...(prev[addPathServer._id] ?? []),
+              {
+                targetServerId: addPathServer._id,
+                inputPath: "",
+                outputPath: paths.outputPath,
+                scriptPath: paths.scriptPath,
+                backupPath: "",
+                logPath: paths.logPath,
+              },
+            ],
+          }));
+          showToast(`Download paths saved for ${addPathServer.name}.`, "success");
+          setAddPathServer(null);
+          await loadDownloadPathConfig(savedVersion);
+        } else {
+          showToast(response?.message || "Failed to save download paths.", "error");
+        }
+        return;
+      }
+
       const response = await addServerPaths(savedVersion, addPathServer.name.toLowerCase(), addPathServer._id, paths);
       if (response?.success) {
         const updatedConfig = response.data?.config;
@@ -1194,30 +1306,59 @@ export default function PipelineConfig() {
     if (!editPathServer || !editPathEntry) return;
     setSubmittingEditPath(true);
     try {
-      const response = await updateServerPaths(savedVersion, editPathServer._id, paths);
-      if (response?.success) {
-        // Update local state optimistically with the new paths
-        setServerPathsMap((prev) => {
-          const existing = prev[editPathServer._id] ?? [];
-          const updated = existing.map((entry) =>
-            entry.inputPath === editPathEntry.inputPath
-              ? { ...entry, ...paths }
-              : entry
-          );
-          return { ...prev, [editPathServer._id]: updated };
+      if (editMode === "download") {
+        // Try server API for updating download paths
+        const response = await updateDownloadPaths(savedVersion, editPathServer._id, {
+          outputPath: paths.outputPath,
+          scriptPath: paths.scriptPath,
+          logPath: paths.logPath,
         });
-        showToast(`Paths updated for ${editPathServer.name}.`, "success");
-        setEditPathEntry(null);
-        setEditPathServer(null);
-        // Also refresh the view modal's data if it's open for the same server
-        if (viewPathServer?._id === editPathServer._id) {
-          await loadServerPathConfig(savedVersion);
+
+        if (response?.success) {
+          setDownloadPathsMap((prev) => {
+            const existing = prev[editPathServer._id] ?? [];
+            const updated = existing.map((entry) =>
+              entry.targetServerId === editPathEntry.targetServerId
+                ? { ...entry, outputPath: paths.outputPath, scriptPath: paths.scriptPath, logPath: paths.logPath }
+                : entry
+            );
+            return { ...prev, [editPathServer._id]: updated };
+          });
+          showToast(`Download paths updated for ${editPathServer.name}.`, "success");
+          setEditPathEntry(null);
+          setEditPathServer(null);
+          if (viewPathServer?._id === editPathServer._id) {
+            await loadDownloadPathConfig(savedVersion);
+          }
+        } else {
+          showToast(response?.message || "Failed to update download paths.", "error");
         }
       } else {
-        showToast(response?.message || "Failed to update paths.", "error");
+        const response = await updateServerPaths(savedVersion, editPathServer._id, paths);
+        if (response?.success) {
+          // Update local state optimistically with the new paths
+          setServerPathsMap((prev) => {
+            const existing = prev[editPathServer._id] ?? [];
+            const updated = existing.map((entry) =>
+              entry.inputPath === editPathEntry.inputPath
+                ? { ...entry, ...paths }
+                : entry
+            );
+            return { ...prev, [editPathServer._id]: updated };
+          });
+          showToast(`Paths updated for ${editPathServer.name}.`, "success");
+          setEditPathEntry(null);
+          setEditPathServer(null);
+          if (viewPathServer?._id === editPathServer._id) {
+            await loadServerPathConfig(savedVersion);
+          }
+        } else {
+          showToast(response?.message || "Failed to update paths.", "error");
+        }
       }
-    } catch {
-      showToast("Network error. Please try again.", "error");
+    } catch (err: any) {
+      const errMsg = err?.response?.data?.message || "Network error. Please try again.";
+      showToast(errMsg, "error");
     } finally {
       setSubmittingEditPath(false);
     }
@@ -1228,7 +1369,31 @@ export default function PipelineConfig() {
     if (!viewPathServer) return;
     setEditPathEntry(entry);
     setEditPathServer(viewPathServer);
+    setEditMode(viewPathMode || "server");
     // Keep ViewPathModal open in background — EditPathModal has z-[110] so it renders on top
+  };
+
+  const handleOpenServerPath = (server: AvailabilityServer) => {
+    setViewPathMode("server");
+    setViewPathServer(server);
+  };
+
+  const handleOpenDownloadPath = async (server: AvailabilityServer) => {
+    setViewPathMode("download");
+    setViewPathServer(server);
+    if (savedVersion) {
+      await loadDownloadPathConfig(savedVersion);
+    }
+  };
+
+  const handleOpenAddServerPath = (server: AvailabilityServer) => {
+    setAddPathMode("server");
+    setAddPathServer(server);
+  };
+
+  const handleOpenAddDownloadPath = (server: AvailabilityServer) => {
+    setAddPathMode("download");
+    setAddPathServer(server);
   };
 
   const filtered = adminUsers.filter(
@@ -1243,7 +1408,7 @@ export default function PipelineConfig() {
   const totalNotifyPages = Math.ceil(notifiedList.length / itemsPerPage);
   const paginatedNotified = notifiedList.slice((notifyPage - 1) * itemsPerPage, notifyPage * itemsPerPage);
 
-  const configuredServerCount = Object.keys(serverPathsMap).length;
+  const configuredServerCount = Object.keys(activeTab === "downloadConfig" ? downloadPathsMap : serverPathsMap).length;
 
   return (
     <div className="min-h-screen bg-background p-6 lg:p-10">
@@ -1416,6 +1581,12 @@ export default function PipelineConfig() {
               Availability Servers
             </button>
             <button
+              onClick={() => setActiveTab("downloadConfig")}
+              className={`px-5 py-2 rounded-lg text-sm font-semibold transition-all flex items-center gap-2 ${activeTab === "downloadConfig" ? "bg-background shadow-sm text-foreground" : "text-muted-foreground hover:text-foreground"}`}
+            >
+              Download Config
+            </button>
+            <button
               onClick={() => setActiveTab("rules")}
               className={`px-5 py-2 rounded-lg text-sm font-semibold transition-all flex items-center gap-2 ${activeTab === "rules" ? "bg-background shadow-sm text-foreground" : "text-muted-foreground hover:text-foreground"}`}
             >
@@ -1578,10 +1749,69 @@ export default function PipelineConfig() {
                       key={server._id}
                       server={server}
                       serverPaths={serverPathsMap[server._id]}
-                      onAddPath={setAddPathServer}
-                      onViewPath={setViewPathServer}
+                      onAddPath={handleOpenAddServerPath}
+                      onViewPath={handleOpenServerPath}
                     />
                   ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Download Config Tab */}
+          {activeTab === "downloadConfig" && (
+            <div>
+              {loadingServers || loadingDownloadPaths ? (
+                <Spinner />
+              ) : availabilityServers.length === 0 ? (
+                <div className="bg-card rounded-2xl border border-border text-center py-16">
+                  <div className="w-14 h-14 bg-muted rounded-2xl flex items-center justify-center mx-auto mb-4">
+                    <svg className="w-7 h-7 text-muted-foreground" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M5 12h14M5 12a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v4a2 2 0 01-2 2M5 12a2 2 0 00-2 2v4a2 2 0 002 2h14a2 2 0 002-2v-4a2 2 0 00-2-2" />
+                    </svg>
+                  </div>
+                  <p className="text-sm font-semibold text-foreground">No servers available</p>
+                  <p className="text-xs text-muted-foreground mt-1">No download config servers were found.</p>
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  <div className="rounded-2xl border border-border bg-card px-5 py-4">
+                    <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                      <div>
+                        <h2 className="text-base font-semibold text-foreground">Download Config</h2>
+                        <p className="text-xs text-muted-foreground mt-1">
+                          Download paths loaded from version <span className="font-semibold text-foreground">{savedVersion || version || "v1.0"}</span>.
+                        </p>
+                      </div>
+                      <button
+                        onClick={() => loadDownloadPathConfig(savedVersion)}
+                        disabled={loadingDownloadPaths}
+                        className="inline-flex items-center justify-center gap-2 rounded-xl border border-border bg-secondary px-4 py-2 text-xs font-semibold text-secondary-foreground transition-all hover:bg-secondary/80 active:scale-95 disabled:cursor-not-allowed disabled:opacity-60"
+                      >
+                        <svg
+                          className={`w-3.5 h-3.5 ${loadingDownloadPaths ? "animate-spin" : ""}`}
+                          fill="none"
+                          stroke="currentColor"
+                          viewBox="0 0 24 24"
+                        >
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                        </svg>
+                        Refresh Path Config
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    {availabilityServers.map((server) => (
+                      <ServerCard
+                        key={`download-config-${server._id}`}
+                        server={server}
+                        serverPaths={downloadPathsMap[server._id]}
+                        onAddPath={handleOpenAddDownloadPath}
+                        onViewPath={handleOpenDownloadPath}
+                      />
+                    ))}
+                  </div>
                 </div>
               )}
             </div>
@@ -1895,6 +2125,7 @@ export default function PipelineConfig() {
           onClose={() => setAddPathServer(null)}
           onSubmit={handleAddPath}
           submitting={submittingPath}
+          mode={addPathMode}
         />
       )}
 
@@ -1902,9 +2133,10 @@ export default function PipelineConfig() {
       {viewPathServer && (
         <ViewPathModal
           server={viewPathServer}
-          paths={serverPathsMap[viewPathServer._id] ?? []}
+          paths={(viewPathMode === "download" ? downloadPathsMap : serverPathsMap)[viewPathServer._id] ?? []}
           onClose={() => setViewPathServer(null)}
           onEdit={handleOpenEdit}
+          mode={viewPathMode}
         />
       )}
 
@@ -1916,6 +2148,7 @@ export default function PipelineConfig() {
           onClose={() => { setEditPathEntry(null); setEditPathServer(null); }}
           onSubmit={handleEditPath}
           submitting={submittingEditPath}
+          mode={editMode}
         />
       )}
 

@@ -1,0 +1,604 @@
+cd /home/gaaya/Projects/pipeline && bash ./geofabrikDownloader.sh --output 'test'; touch '/tmp/download_sentinel_searchTiles'
+[?2004l
+Processing file: /home/gaaya/Projects/pipeline/geofabrikDownload//california.txt
+Processing file: /home/gaaya/Projects/pipeline/geofabrikDownload//california.txt
+Saving downloads to: test/california
+Downloading: https://download.geofabrik.de/north-america/us/california/norcal-latest.osm.pbf
+--2026-05-29 15:01:47--  https://download.geofabrik.de/north-america/us/california/norcal-latest.osm.pbf
+Resolving download.geofabrik.de (download.geofabrik.de)... 2a01:4f9:2a:3182::2, 2a01:4f9:2b:27d0::2, 2a01:4f9:4a:1767::2, ...
+Connecting to download.geofabrik.de (download.geofabrik.de)|2a01:4f9:2a:3182::2|:443... connected.
+HTTP request sent, awaiting response... 302 Found
+Location: https://download.geofabrik.de/north-america/us/california/norcal-260528.osm.pbf [following]
+--2026-05-29 15:01:48--  https://download.geofabrik.de/north-america/us/california/norcal-260528.osm.pbf
+Reusing existing connection to [download.geofabrik.de]:443.
+HTTP request sent, awaiting response... 200 OK
+Length: 642516838 (613M) [application/octet-stream]
+Saving to: ‘test/california/norcal-latest.osm.pbf.1’
+
+
+norcal-latest.osm.pbf.1                 0%[                                                                         ]       0  --.-KB/s               
+norcal-latest.osm.pbf.1                 0%[                                                                         ]  15.54K  53.3KB/s               
+norcal-latest.osm.pbf.1                 0%[                                                                         ]  43.54K  74.5KB/s               
+norcal-latest.osm.pbf.1                 0%[                                                                         ]  95.54K   109KB/s               
+norcal-latest.osm.pbf.1                 0%[                                                                         ] 207.54K   178KB/s               
+norcal-latest.osm.pbf.1                 0%[                                                                         ] 423.54K   290KB/s               
+norcal-latest.osm.pbf.1                 0%[                                                                         ] 863.54K   493KB/s               
+norcal-latest.osm.pbf.1                 0%[                                                                         ]   1.69M   850KB/s               
+norcal-latest.osm.pbf.1                 0%[                                                                         ]   2.61M  1.16MB/s               
+norcal-latest.osm.pbf.1                 0%[                                                                         ]   3.57M  1.46MB/s               
+norcal-latest.osm.pbf.1                 0%[                                                                         ]   4.53M  1.71MB/s               
+norcal-latest.osm.pbf.1                 0%[                                                                         ]   5.45M  1.92MB/s               
+norcal-latest.osm.pbf.1                 1%[                                                                         ]   6.44M  2.11MB/s    eta 4m 47s 
+norcal-latest.osm.pbf.1                 1%[                                                                         ]   7.47M  2.30MB/s    eta 4m 47s 
+norcal-latest.osm.pbf.1                 1%[>                                                                        ]   8.42M  2.44MB/s    eta 4m 47s 
+norcal-latest.osm.pbf.1                 1%[>                                                                        ]   9.39M  2.57MB/s    eta 4m 47s 
+norcal-latest.osm.pbf.1                 1%[>                                                                        ]  10.34M  2.69MB/s    eta 4m 47s 
+norcal-latest.osm.pbf.1                 1%[>                                                                        ]  11.23M  2.99MB/s    eta 3m 37s 
+norcal-latest.osm.pbf.1                 1%[>                                                                        ]  12.13M  3.30MB/s    eta 3m 37s 
+norcal-latest.osm.pbf.1                 2%[>                                                                        ]  13.01M  3.61MB/s    eta 3m 37s 
+norcal-latest.osm.pbf.1                 2%[>                                                                        ]  13.96M  4.24MB/s    eta 3m 37s 
+norcal-latest.osm.pbf.1                 2%[>                                                                        ]  14.89M  4.53MB/s    eta 3m 37s 
+norcal-latest.osm.pbf.1                 2%[>                                                                        ]  15.87M  4.55MB/s    eta 3m 10s 
+norcal-latest.osm.pbf.1                 2%[=>                                                                       ]  16.96M  4.77MB/s    eta 3m 10s 
+norcal-latest.osm.pbf.1                 2%[=>                                                                       ]  17.95M  4.78MB/s    eta 3m 10s 
+norcal-latest.osm.pbf.1                 3%[=>                                                                       ]  18.89M  4.77MB/s    eta 3m 10s 
+norcal-latest.osm.pbf.1                 3%[=>                                                                       ]  19.88M  4.80MB/s    eta 3m 10s 
+norcal-latest.osm.pbf.1                 3%[=>                                                                       ]  20.81M  4.77MB/s    eta 2m 52s 
+norcal-latest.osm.pbf.1                 3%[=>                                                                       ]  21.68M  4.74MB/s    eta 2m 52s 
+norcal-latest.osm.pbf.1                 3%[=>                                                                       ]  22.54M  4.70MB/s    eta 2m 52s 
+norcal-latest.osm.pbf.1                 3%[=>                                                                       ]  23.39M  4.65MB/s    eta 2m 52s 
+norcal-latest.osm.pbf.1                 3%[=>                                                                       ]  24.25M  4.62MB/s    eta 2m 52s 
+norcal-latest.osm.pbf.1                 4%[=>                                                                       ]  25.10M  4.60MB/s    eta 2m 45s 
+norcal-latest.osm.pbf.1                 4%[==>                                                                      ]  25.94M  4.59MB/s    eta 2m 45s 
+norcal-latest.osm.pbf.1                 4%[==>                                                                      ]  26.79M  4.57MB/s    eta 2m 45s 
+norcal-latest.osm.pbf.1                 4%[==>                                                                      ]  27.70M  4.57MB/s    eta 2m 45s 
+norcal-latest.osm.pbf.1                 4%[==>                                                                      ]  28.66M  4.59MB/s    eta 2m 45s 
+norcal-latest.osm.pbf.1                 4%[==>                                                                      ]  29.60M  4.57MB/s    eta 2m 39s 
+norcal-latest.osm.pbf.1                 4%[==>                                                                      ]  30.51M  4.51MB/s    eta 2m 39s 
+norcal-latest.osm.pbf.1                 5%[==>                                                                      ]  31.35M  4.46MB/s    eta 2m 39s 
+norcal-latest.osm.pbf.1                 5%[==>                                                                      ]  32.18M  4.43MB/s    eta 2m 39s 
+norcal-latest.osm.pbf.1                 5%[==>                                                                      ]  32.94M  4.34MB/s    eta 2m 39s 
+norcal-latest.osm.pbf.1                 5%[===>                                                                     ]  33.73M  4.30MB/s    eta 2m 36s 
+norcal-latest.osm.pbf.1                 5%[===>                                                                     ]  34.53M  4.27MB/s    eta 2m 36s 
+norcal-latest.osm.pbf.1                 5%[===>                                                                     ]  35.29M  4.24MB/s    eta 2m 36s 
+norcal-latest.osm.pbf.1                 5%[===>                                                                     ]  36.15M  4.25MB/s    eta 2m 36s 
+norcal-latest.osm.pbf.1                 6%[===>                                                                     ]  36.96M  4.22MB/s    eta 2m 36s 
+norcal-latest.osm.pbf.1                 6%[===>                                                                     ]  37.72M  4.19MB/s    eta 2m 33s 
+norcal-latest.osm.pbf.1                 6%[===>                                                                     ]  38.47M  4.16MB/s    eta 2m 33s 
+norcal-latest.osm.pbf.1                 6%[===>                                                                     ]  39.26M  4.16MB/s    eta 2m 33s 
+norcal-latest.osm.pbf.1                 6%[===>                                                                     ]  40.12M  4.13MB/s    eta 2m 33s 
+norcal-latest.osm.pbf.1                 6%[===>                                                                     ]  40.92M  4.10MB/s    eta 2m 33s 
+norcal-latest.osm.pbf.1                 6%[===>                                                                     ]  41.76M  4.07MB/s    eta 2m 31s 
+norcal-latest.osm.pbf.1                 6%[====>                                                                    ]  42.58M  4.02MB/s    eta 2m 31s 
+norcal-latest.osm.pbf.1                 7%[====>                                                                    ]  43.37M  3.99MB/s    eta 2m 31s 
+norcal-latest.osm.pbf.1                 7%[====>                                                                    ]  44.23M  4.01MB/s    eta 2m 31s 
+norcal-latest.osm.pbf.1                 7%[====>                                                                    ]  45.08M  4.04MB/s    eta 2m 31s 
+norcal-latest.osm.pbf.1                 7%[====>                                                                    ]  45.99M  4.07MB/s    eta 2m 29s 
+norcal-latest.osm.pbf.1                 7%[====>                                                                    ]  46.88M  4.10MB/s    eta 2m 29s 
+norcal-latest.osm.pbf.1                 7%[====>                                                                    ]  47.84M  4.17MB/s    eta 2m 29s 
+norcal-latest.osm.pbf.1                 7%[====>                                                                    ]  48.76M  4.20MB/s    eta 2m 29s 
+norcal-latest.osm.pbf.1                 8%[====>                                                                    ]  49.67M  4.22MB/s    eta 2m 29s 
+norcal-latest.osm.pbf.1                 8%[=====>                                                                   ]  50.57M  4.26MB/s    eta 2m 25s 
+norcal-latest.osm.pbf.1                 8%[=====>                                                                   ]  51.43M  4.29MB/s    eta 2m 25s 
+norcal-latest.osm.pbf.1                 8%[=====>                                                                   ]  52.30M  4.32MB/s    eta 2m 25s 
+norcal-latest.osm.pbf.1                 8%[=====>                                                                   ]  53.16M  4.34MB/s    eta 2m 25s 
+norcal-latest.osm.pbf.1                 8%[=====>                                                                   ]  53.97M  4.33MB/s    eta 2m 25s 
+norcal-latest.osm.pbf.1                 8%[=====>                                                                   ]  54.76M  4.31MB/s    eta 2m 23s 
+norcal-latest.osm.pbf.1                 9%[=====>                                                                   ]  55.53M  4.30MB/s    eta 2m 23s 
+norcal-latest.osm.pbf.1                 9%[=====>                                                                   ]  56.30M  4.28MB/s    eta 2m 23s 
+norcal-latest.osm.pbf.1                 9%[=====>                                                                   ]  57.11M  4.29MB/s    eta 2m 23s 
+norcal-latest.osm.pbf.1                 9%[=====>                                                                   ]  57.94M  4.28MB/s    eta 2m 23s 
+norcal-latest.osm.pbf.1                 9%[=====>                                                                   ]  58.75M  4.25MB/s    eta 2m 22s 
+norcal-latest.osm.pbf.1                 9%[======>                                                                  ]  59.61M  4.24MB/s    eta 2m 22s 
+norcal-latest.osm.pbf.1                 9%[======>                                                                  ]  60.53M  4.23MB/s    eta 2m 22s 
+norcal-latest.osm.pbf.1                10%[======>                                                                  ]  61.45M  4.23MB/s    eta 2m 22s 
+norcal-latest.osm.pbf.1                10%[======>                                                                  ]  62.40M  4.24MB/s    eta 2m 22s 
+norcal-latest.osm.pbf.1                10%[======>                                                                  ]  63.39M  4.27MB/s    eta 2m 19s 
+norcal-latest.osm.pbf.1                10%[======>                                                                  ]  64.48M  4.34MB/s    eta 2m 19s 
+norcal-latest.osm.pbf.1                10%[======>                                                                  ]  65.56M  4.41MB/s    eta 2m 19s 
+norcal-latest.osm.pbf.1                10%[======>                                                                  ]  66.60M  4.46MB/s    eta 2m 19s 
+norcal-latest.osm.pbf.1                11%[=======>                                                                 ]  67.64M  4.52MB/s    eta 2m 19s 
+norcal-latest.osm.pbf.1                11%[=======>                                                                 ]  68.92M  4.68MB/s    eta 2m 15s 
+norcal-latest.osm.pbf.1                11%[=======>                                                                 ]  70.25M  4.89MB/s    eta 2m 15s 
+norcal-latest.osm.pbf.1                11%[=======>                                                                 ]  71.56M  5.04MB/s    eta 2m 15s 
+norcal-latest.osm.pbf.1                11%[=======>                                                                 ]  72.75M  5.15MB/s    eta 2m 15s 
+norcal-latest.osm.pbf.1                12%[=======>                                                                 ]  73.91M  5.30MB/s    eta 2m 15s 
+norcal-latest.osm.pbf.1                12%[=======>                                                                 ]  75.04M  5.37MB/s    eta 2m 10s 
+norcal-latest.osm.pbf.1                12%[========>                                                                ]  76.06M  5.42MB/s    eta 2m 10s 
+norcal-latest.osm.pbf.1                12%[========>                                                                ]  77.10M  5.50MB/s    eta 2m 10s 
+norcal-latest.osm.pbf.1                12%[========>                                                                ]  78.17M  5.53MB/s    eta 2m 10s 
+norcal-latest.osm.pbf.1                12%[========>                                                                ]  79.21M  5.55MB/s    eta 2m 10s 
+norcal-latest.osm.pbf.1                13%[========>                                                                ]  80.24M  5.59MB/s    eta 2m 7s  
+norcal-latest.osm.pbf.1                13%[========>                                                                ]  81.19M  5.55MB/s    eta 2m 7s  
+norcal-latest.osm.pbf.1                13%[========>                                                                ]  82.15M  5.51MB/s    eta 2m 7s  
+norcal-latest.osm.pbf.1                13%[========>                                                                ]  83.15M  5.49MB/s    eta 2m 7s  
+norcal-latest.osm.pbf.1                13%[=========>                                                               ]  84.28M  5.51MB/s    eta 2m 7s  
+norcal-latest.osm.pbf.1                13%[=========>                                                               ]  85.30M  5.48MB/s    eta 2m 4s  
+norcal-latest.osm.pbf.1                14%[=========>                                                               ]  86.31M  5.35MB/s    eta 2m 4s  
+norcal-latest.osm.pbf.1                14%[=========>                                                               ]  87.35M  5.28MB/s    eta 2m 4s  
+norcal-latest.osm.pbf.1                14%[=========>                                                               ]  88.29M  5.18MB/s    eta 2m 4s  
+norcal-latest.osm.pbf.1                14%[=========>                                                               ]  89.21M  5.08MB/s    eta 2m 4s  
+norcal-latest.osm.pbf.1                14%[=========>                                                               ]  90.11M  5.01MB/s    eta 2m 2s  
+norcal-latest.osm.pbf.1                14%[=========>                                                               ]  91.03M  4.97MB/s    eta 2m 2s  
+norcal-latest.osm.pbf.1                14%[=========>                                                               ]  91.83M  4.89MB/s    eta 2m 2s  
+norcal-latest.osm.pbf.1                15%[==========>                                                              ]  92.65M  4.82MB/s    eta 2m 2s  
+norcal-latest.osm.pbf.1                15%[==========>                                                              ]  93.50M  4.76MB/s    eta 2m 2s  
+norcal-latest.osm.pbf.1                15%[==========>                                                              ]  94.39M  4.70MB/s    eta 2m 1s  
+norcal-latest.osm.pbf.1                15%[==========>                                                              ]  95.24M  4.67MB/s    eta 2m 1s  
+norcal-latest.osm.pbf.1                15%[==========>                                                              ]  96.10M  4.63MB/s    eta 2m 1s  
+norcal-latest.osm.pbf.1                15%[==========>                                                              ]  96.98M  4.60MB/s    eta 2m 1s  
+norcal-latest.osm.pbf.1                15%[==========>                                                              ]  97.91M  4.56MB/s    eta 2m 1s  
+norcal-latest.osm.pbf.1                16%[==========>                                                              ]  99.07M  4.59MB/s    eta 2m 0s  
+norcal-latest.osm.pbf.1                16%[==========>                                                              ] 100.28M  4.65MB/s    eta 2m 0s  
+norcal-latest.osm.pbf.1                16%[===========>                                                             ] 101.55M  4.74MB/s    eta 2m 0s  
+norcal-latest.osm.pbf.1                16%[===========>                                                             ] 102.78M  4.80MB/s    eta 2m 0s  
+norcal-latest.osm.pbf.1                16%[===========>                                                             ] 103.91M  4.88MB/s    eta 2m 0s  
+norcal-latest.osm.pbf.1                17%[===========>                                                             ] 105.01M  4.94MB/s    eta 1m 57s 
+norcal-latest.osm.pbf.1                17%[===========>                                                             ] 106.01M  4.96MB/s    eta 1m 57s 
+norcal-latest.osm.pbf.1                17%[===========>                                                             ] 107.00M  5.03MB/s    eta 1m 57s 
+norcal-latest.osm.pbf.1                17%[===========>                                                             ] 107.98M  5.07MB/s    eta 1m 57s 
+norcal-latest.osm.pbf.1                17%[===========>                                                             ] 108.99M  5.12MB/s    eta 1m 57s 
+norcal-latest.osm.pbf.1                17%[============>                                                            ] 109.99M  5.18MB/s    eta 1m 55s 
+norcal-latest.osm.pbf.1                18%[============>                                                            ] 111.00M  5.21MB/s    eta 1m 55s 
+norcal-latest.osm.pbf.1                18%[============>                                                            ] 112.05M  5.26MB/s    eta 1m 55s 
+norcal-latest.osm.pbf.1                18%[============>                                                            ] 113.11M  5.35MB/s    eta 1m 55s 
+norcal-latest.osm.pbf.1                18%[============>                                                            ] 114.23M  5.41MB/s    eta 1m 55s 
+norcal-latest.osm.pbf.1                18%[============>                                                            ] 115.32M  5.42MB/s    eta 1m 53s 
+norcal-latest.osm.pbf.1                18%[============>                                                            ] 116.40M  5.36MB/s    eta 1m 53s 
+norcal-latest.osm.pbf.1                19%[============>                                                            ] 117.44M  5.31MB/s    eta 1m 53s 
+norcal-latest.osm.pbf.1                19%[=============>                                                           ] 118.44M  5.23MB/s    eta 1m 53s 
+norcal-latest.osm.pbf.1                19%[=============>                                                           ] 119.57M  5.20MB/s    eta 1m 53s 
+norcal-latest.osm.pbf.1                19%[=============>                                                           ] 120.70M  5.21MB/s    eta 1m 51s 
+norcal-latest.osm.pbf.1                19%[=============>                                                           ] 121.79M  5.23MB/s    eta 1m 51s 
+norcal-latest.osm.pbf.1                20%[=============>                                                           ] 122.83M  5.26MB/s    eta 1m 51s 
+norcal-latest.osm.pbf.1                20%[=============>                                                           ] 123.87M  5.27MB/s    eta 1m 51s 
+norcal-latest.osm.pbf.1                20%[=============>                                                           ] 124.87M  5.26MB/s    eta 1m 51s 
+norcal-latest.osm.pbf.1                20%[=============>                                                           ] 125.79M  5.24MB/s    eta 1m 49s 
+norcal-latest.osm.pbf.1                20%[==============>                                                          ] 126.75M  5.23MB/s    eta 1m 49s 
+norcal-latest.osm.pbf.1                20%[==============>                                                          ] 127.75M  5.21MB/s    eta 1m 49s 
+norcal-latest.osm.pbf.1                21%[==============>                                                          ] 128.70M  5.18MB/s    eta 1m 49s 
+norcal-latest.osm.pbf.1                21%[==============>                                                          ] 129.72M  5.15MB/s    eta 1m 49s 
+norcal-latest.osm.pbf.1                21%[==============>                                                          ] 130.69M  5.11MB/s    eta 1m 47s 
+norcal-latest.osm.pbf.1                21%[==============>                                                          ] 131.59M  5.04MB/s    eta 1m 47s 
+norcal-latest.osm.pbf.1                21%[==============>                                                          ] 132.49M  4.99MB/s    eta 1m 47s 
+norcal-latest.osm.pbf.1                21%[==============>                                                          ] 133.38M  4.95MB/s    eta 1m 47s 
+norcal-latest.osm.pbf.1                21%[==============>                                                          ] 134.30M  4.89MB/s    eta 1m 47s 
+norcal-latest.osm.pbf.1                22%[===============>                                                         ] 135.21M  4.82MB/s    eta 1m 46s 
+norcal-latest.osm.pbf.1                22%[===============>                                                         ] 136.15M  4.79MB/s    eta 1m 46s 
+norcal-latest.osm.pbf.1                22%[===============>                                                         ] 137.05M  4.71MB/s    eta 1m 46s 
+norcal-latest.osm.pbf.1                22%[===============>                                                         ] 137.94M  4.68MB/s    eta 1m 46s 
+norcal-latest.osm.pbf.1                22%[===============>                                                         ] 138.87M  4.65MB/s    eta 1m 46s 
+norcal-latest.osm.pbf.1                22%[===============>                                                         ] 139.82M  4.65MB/s    eta 1m 45s 
+norcal-latest.osm.pbf.1                22%[===============>                                                         ] 140.78M  4.66MB/s    eta 1m 45s 
+norcal-latest.osm.pbf.1                23%[===============>                                                         ] 141.86M  4.68MB/s    eta 1m 45s 
+norcal-latest.osm.pbf.1                23%[================>                                                        ] 142.81M  4.68MB/s    eta 1m 45s 
+norcal-latest.osm.pbf.1                23%[================>                                                        ] 143.69M  4.64MB/s    eta 1m 45s 
+norcal-latest.osm.pbf.1                23%[================>                                                        ] 144.61M  4.62MB/s    eta 1m 44s 
+norcal-latest.osm.pbf.1                23%[================>                                                        ] 145.40M  4.57MB/s    eta 1m 44s 
+norcal-latest.osm.pbf.1                23%[================>                                                        ] 146.28M  4.57MB/s    eta 1m 44s 
+norcal-latest.osm.pbf.1                24%[================>                                                        ] 147.15M  4.57MB/s    eta 1m 44s 
+norcal-latest.osm.pbf.1                24%[================>                                                        ] 148.02M  4.55MB/s    eta 1m 44s 
+norcal-latest.osm.pbf.1                24%[================>                                                        ] 148.89M  4.54MB/s    eta 1m 43s 
+norcal-latest.osm.pbf.1                24%[================>                                                        ] 149.75M  4.52MB/s    eta 1m 43s 
+norcal-latest.osm.pbf.1                24%[================>                                                        ] 150.60M  4.49MB/s    eta 1m 43s 
+norcal-latest.osm.pbf.1                24%[=================>                                                       ] 151.42M  4.47MB/s    eta 1m 43s 
+norcal-latest.osm.pbf.1                24%[=================>                                                       ] 152.26M  4.48MB/s    eta 1m 43s 
+norcal-latest.osm.pbf.1                24%[=================>                                                       ] 153.17M  4.44MB/s    eta 1m 42s 
+norcal-latest.osm.pbf.1                25%[=================>                                                       ] 154.15M  4.44MB/s    eta 1m 42s 
+norcal-latest.osm.pbf.1                25%[=================>                                                       ] 155.13M  4.43MB/s    eta 1m 42s 
+norcal-latest.osm.pbf.1                25%[=================>                                                       ] 156.12M  4.42MB/s    eta 1m 42s 
+norcal-latest.osm.pbf.1                25%[=================>                                                       ] 157.10M  4.44MB/s    eta 1m 42s 
+norcal-latest.osm.pbf.1                25%[=================>                                                       ] 157.97M  4.43MB/s    eta 1m 41s 
+norcal-latest.osm.pbf.1                25%[=================>                                                       ] 158.81M  4.43MB/s    eta 1m 41s 
+norcal-latest.osm.pbf.1                26%[==================>                                                      ] 159.65M  4.44MB/s    eta 1m 41s 
+norcal-latest.osm.pbf.1                26%[==================>                                                      ] 160.50M  4.42MB/s    eta 1m 41s 
+norcal-latest.osm.pbf.1                26%[==================>                                                      ] 161.39M  4.43MB/s    eta 1m 41s 
+norcal-latest.osm.pbf.1                26%[==================>                                                      ] 162.33M  4.45MB/s    eta 1m 40s 
+norcal-latest.osm.pbf.1                26%[==================>                                                      ] 163.32M  4.49MB/s    eta 1m 40s 
+norcal-latest.osm.pbf.1                26%[==================>                                                      ] 164.35M  4.54MB/s    eta 1m 40s 
+norcal-latest.osm.pbf.1                26%[==================>                                                      ] 165.38M  4.62MB/s    eta 1m 40s 
+norcal-latest.osm.pbf.1                27%[==================>                                                      ] 166.47M  4.70MB/s    eta 1m 40s 
+norcal-latest.osm.pbf.1                27%[==================>                                                      ] 167.55M  4.76MB/s    eta 99s    
+norcal-latest.osm.pbf.1                27%[===================>                                                     ] 168.67M  4.82MB/s    eta 99s    
+norcal-latest.osm.pbf.1                27%[===================>                                                     ] 169.78M  4.86MB/s    eta 99s    
+norcal-latest.osm.pbf.1                27%[===================>                                                     ] 170.98M  4.93MB/s    eta 99s    
+norcal-latest.osm.pbf.1                28%[===================>                                                     ] 172.22M  5.01MB/s    eta 99s    
+norcal-latest.osm.pbf.1                28%[===================>                                                     ] 173.45M  5.11MB/s    eta 97s    
+norcal-latest.osm.pbf.1                28%[===================>                                                     ] 174.54M  5.17MB/s    eta 97s    
+norcal-latest.osm.pbf.1                28%[===================>                                                     ] 175.58M  5.28MB/s    eta 97s    
+norcal-latest.osm.pbf.1                28%[====================>                                                    ] 176.70M  5.35MB/s    eta 97s    
+norcal-latest.osm.pbf.1                29%[====================>                                                    ] 177.75M  5.39MB/s    eta 97s    
+norcal-latest.osm.pbf.1                29%[====================>                                                    ] 178.76M  5.45MB/s    eta 95s    
+norcal-latest.osm.pbf.1                29%[====================>                                                    ] 179.79M  5.45MB/s    eta 95s    
+norcal-latest.osm.pbf.1                29%[====================>                                                    ] 180.80M  5.45MB/s    eta 95s    
+norcal-latest.osm.pbf.1                29%[====================>                                                    ] 181.75M  5.44MB/s    eta 95s    
+norcal-latest.osm.pbf.1                29%[====================>                                                    ] 182.78M  5.42MB/s    eta 95s    
+norcal-latest.osm.pbf.1                30%[====================>                                                    ] 183.85M  5.42MB/s    eta 94s    
+norcal-latest.osm.pbf.1                30%[=====================>                                                   ] 185.06M  5.44MB/s    eta 94s    
+norcal-latest.osm.pbf.1                30%[=====================>                                                   ] 186.30M  5.50MB/s    eta 94s    
+norcal-latest.osm.pbf.1                30%[=====================>                                                   ] 187.62M  5.54MB/s    eta 94s    
+norcal-latest.osm.pbf.1                30%[=====================>                                                   ] 189.00M  5.58MB/s    eta 94s    
+norcal-latest.osm.pbf.1                31%[=====================>                                                   ] 190.39M  5.64MB/s    eta 91s    
+norcal-latest.osm.pbf.1                31%[=====================>                                                   ] 191.83M  5.74MB/s    eta 91s    
+norcal-latest.osm.pbf.1                31%[======================>                                                  ] 193.23M  5.86MB/s    eta 91s    
+norcal-latest.osm.pbf.1                31%[======================>                                                  ] 194.44M  5.89MB/s    eta 91s    
+norcal-latest.osm.pbf.1                31%[======================>                                                  ] 195.64M  5.92MB/s    eta 91s    
+norcal-latest.osm.pbf.1                32%[======================>                                                  ] 197.02M  6.06MB/s    eta 89s    
+norcal-latest.osm.pbf.1                32%[======================>                                                  ] 198.29M  6.12MB/s    eta 89s    
+norcal-latest.osm.pbf.1                32%[======================>                                                  ] 199.55M  6.18MB/s    eta 89s    
+norcal-latest.osm.pbf.1                32%[======================>                                                  ] 200.85M  6.33MB/s    eta 89s    
+norcal-latest.osm.pbf.1                32%[=======================>                                                 ] 202.05M  6.38MB/s    eta 89s    
+norcal-latest.osm.pbf.1                33%[=======================>                                                 ] 203.32M  6.43MB/s    eta 87s    
+norcal-latest.osm.pbf.1                33%[=======================>                                                 ] 204.55M  6.47MB/s    eta 87s    
+norcal-latest.osm.pbf.1                33%[=======================>                                                 ] 205.69M  6.44MB/s    eta 87s    
+norcal-latest.osm.pbf.1                33%[=======================>                                                 ] 206.89M  6.41MB/s    eta 87s    
+norcal-latest.osm.pbf.1                33%[=======================>                                                 ] 208.10M  6.35MB/s    eta 87s    
+norcal-latest.osm.pbf.1                34%[=======================>                                                 ] 209.37M  6.32MB/s    eta 85s    
+norcal-latest.osm.pbf.1                34%[========================>                                                ] 210.62M  6.28MB/s    eta 85s    
+norcal-latest.osm.pbf.1                34%[========================>                                                ] 211.96M  6.22MB/s    eta 85s    
+norcal-latest.osm.pbf.1                34%[========================>                                                ] 213.36M  6.28MB/s    eta 85s    
+norcal-latest.osm.pbf.1                35%[========================>                                                ] 214.66M  6.30MB/s    eta 85s    
+norcal-latest.osm.pbf.1                35%[========================>                                                ] 215.92M  6.28MB/s    eta 83s    
+norcal-latest.osm.pbf.1                35%[========================>                                                ] 217.12M  6.25MB/s    eta 83s    
+norcal-latest.osm.pbf.1                35%[=========================>                                               ] 218.27M  6.22MB/s    eta 83s    
+norcal-latest.osm.pbf.1                35%[=========================>                                               ] 219.51M  6.20MB/s    eta 83s    
+norcal-latest.osm.pbf.1                36%[=========================>                                               ] 220.81M  6.23MB/s    eta 83s    
+norcal-latest.osm.pbf.1                36%[=========================>                                               ] 222.24M  6.29MB/s    eta 81s    
+norcal-latest.osm.pbf.1                36%[=========================>                                               ] 223.55M  6.30MB/s    eta 81s    
+norcal-latest.osm.pbf.1                36%[=========================>                                               ] 224.81M  6.34MB/s    eta 81s    
+norcal-latest.osm.pbf.1                36%[=========================>                                               ] 226.14M  6.38MB/s    eta 81s    
+norcal-latest.osm.pbf.1                37%[==========================>                                              ] 227.41M  6.41MB/s    eta 81s    
+norcal-latest.osm.pbf.1                37%[==========================>                                              ] 228.64M  6.39MB/s    eta 79s    
+norcal-latest.osm.pbf.1                37%[==========================>                                              ] 229.84M  6.36MB/s    eta 79s    
+norcal-latest.osm.pbf.1                37%[==========================>                                              ] 231.04M  6.34MB/s    eta 79s    
+norcal-latest.osm.pbf.1                37%[==========================>                                              ] 232.32M  6.31MB/s    eta 79s    
+norcal-latest.osm.pbf.1                38%[==========================>                                              ] 233.48M  6.25MB/s    eta 79s    
+norcal-latest.osm.pbf.1                38%[==========================>                                              ] 234.59M  6.20MB/s    eta 78s    
+norcal-latest.osm.pbf.1                38%[===========================>                                             ] 235.63M  6.15MB/s    eta 78s    
+norcal-latest.osm.pbf.1                38%[===========================>                                             ] 236.70M  6.11MB/s    eta 78s    
+norcal-latest.osm.pbf.1                38%[===========================>                                             ] 237.87M  6.11MB/s    eta 78s    
+norcal-latest.osm.pbf.1                39%[===========================>                                             ] 239.27M  6.16MB/s    eta 78s    
+norcal-latest.osm.pbf.1                39%[===========================>                                             ] 240.68M  6.17MB/s    eta 76s    
+norcal-latest.osm.pbf.1                39%[===========================>                                             ] 242.00M  6.13MB/s    eta 76s    
+norcal-latest.osm.pbf.1                39%[===========================>                                             ] 243.23M  6.13MB/s    eta 76s    
+norcal-latest.osm.pbf.1                39%[============================>                                            ] 244.38M  6.08MB/s    eta 76s    
+norcal-latest.osm.pbf.1                40%[============================>                                            ] 245.43M  5.99MB/s    eta 76s    
+norcal-latest.osm.pbf.1                40%[============================>                                            ] 246.51M  5.94MB/s    eta 75s    
+norcal-latest.osm.pbf.1                40%[============================>                                            ] 247.50M  5.88MB/s    eta 75s    
+norcal-latest.osm.pbf.1                40%[============================>                                            ] 248.46M  5.79MB/s    eta 75s    
+norcal-latest.osm.pbf.1                40%[============================>                                            ] 249.43M  5.70MB/s    eta 75s    
+norcal-latest.osm.pbf.1                40%[============================>                                            ] 250.43M  5.63MB/s    eta 75s    
+norcal-latest.osm.pbf.1                41%[============================>                                            ] 251.38M  5.58MB/s    eta 74s    
+norcal-latest.osm.pbf.1                41%[=============================>                                           ] 252.32M  5.53MB/s    eta 74s    
+norcal-latest.osm.pbf.1                41%[=============================>                                           ] 253.23M  5.49MB/s    eta 74s    
+norcal-latest.osm.pbf.1                41%[=============================>                                           ] 254.13M  5.41MB/s    eta 74s    
+norcal-latest.osm.pbf.1                41%[=============================>                                           ] 255.11M  5.29MB/s    eta 74s    
+norcal-latest.osm.pbf.1                41%[=============================>                                           ] 256.01M  5.15MB/s    eta 73s    
+norcal-latest.osm.pbf.1                41%[=============================>                                           ] 256.96M  4.97MB/s    eta 73s    
+norcal-latest.osm.pbf.1                42%[=============================>                                           ] 257.98M  4.92MB/s    eta 73s    
+norcal-latest.osm.pbf.1                42%[=============================>                                           ] 258.90M  4.84MB/s    eta 73s    
+norcal-latest.osm.pbf.1                42%[=============================>                                           ] 259.81M  4.78MB/s    eta 73s    
+norcal-latest.osm.pbf.1                42%[==============================>                                          ] 260.82M  4.77MB/s    eta 72s    
+norcal-latest.osm.pbf.1                42%[==============================>                                          ] 261.99M  4.82MB/s    eta 72s    
+norcal-latest.osm.pbf.1                42%[==============================>                                          ] 263.28M  4.92MB/s    eta 72s    
+norcal-latest.osm.pbf.1                43%[==============================>                                          ] 264.58M  5.03MB/s    eta 72s    
+norcal-latest.osm.pbf.1                43%[==============================>                                          ] 265.75M  5.08MB/s    eta 72s    
+norcal-latest.osm.pbf.1                43%[==============================>                                          ] 266.86M  5.14MB/s    eta 70s    
+norcal-latest.osm.pbf.1                43%[==============================>                                          ] 267.92M  5.17MB/s    eta 70s    
+norcal-latest.osm.pbf.1                43%[===============================>                                         ] 269.01M  5.21MB/s    eta 70s    
+norcal-latest.osm.pbf.1                44%[===============================>                                         ] 270.10M  5.30MB/s    eta 70s    
+norcal-latest.osm.pbf.1                44%[===============================>                                         ] 271.12M  5.31MB/s    eta 70s    
+norcal-latest.osm.pbf.1                44%[===============================>                                         ] 272.18M  5.34MB/s    eta 69s    
+norcal-latest.osm.pbf.1                44%[===============================>                                         ] 273.16M  5.38MB/s    eta 69s    
+norcal-latest.osm.pbf.1                44%[===============================>                                         ] 274.20M  5.38MB/s    eta 69s    
+norcal-latest.osm.pbf.1                44%[===============================>                                         ] 275.39M  5.44MB/s    eta 69s    
+norcal-latest.osm.pbf.1                45%[===============================>                                         ] 276.53M  5.55MB/s    eta 69s    
+norcal-latest.osm.pbf.1                45%[================================>                                        ] 277.54M  5.54MB/s    eta 68s    
+norcal-latest.osm.pbf.1                45%[================================>                                        ] 278.64M  5.55MB/s    eta 68s    
+norcal-latest.osm.pbf.1                45%[================================>                                        ] 279.72M  5.46MB/s    eta 68s    
+norcal-latest.osm.pbf.1                45%[================================>                                        ] 280.81M  5.41MB/s    eta 68s    
+norcal-latest.osm.pbf.1                45%[================================>                                        ] 281.79M  5.35MB/s    eta 68s    
+norcal-latest.osm.pbf.1                46%[================================>                                        ] 282.76M  5.28MB/s    eta 67s    
+norcal-latest.osm.pbf.1                46%[================================>                                        ] 283.75M  5.25MB/s    eta 67s    
+norcal-latest.osm.pbf.1                46%[================================>                                        ] 284.78M  5.24MB/s    eta 67s    
+norcal-latest.osm.pbf.1                46%[=================================>                                       ] 285.80M  5.21MB/s    eta 67s    
+norcal-latest.osm.pbf.1                46%[=================================>                                       ] 286.76M  5.19MB/s    eta 67s    
+norcal-latest.osm.pbf.1                46%[=================================>                                       ] 287.73M  5.16MB/s    eta 66s    
+norcal-latest.osm.pbf.1                47%[=================================>                                       ] 288.73M  5.17MB/s    eta 66s    
+norcal-latest.osm.pbf.1                47%[=================================>                                       ] 289.72M  5.16MB/s    eta 66s    
+norcal-latest.osm.pbf.1                47%[=================================>                                       ] 290.65M  5.10MB/s    eta 66s    
+norcal-latest.osm.pbf.1                47%[=================================>                                       ] 291.61M  5.01MB/s    eta 66s    
+norcal-latest.osm.pbf.1                47%[=================================>                                       ] 292.59M  4.99MB/s    eta 65s    
+norcal-latest.osm.pbf.1                47%[=================================>                                       ] 293.55M  4.96MB/s    eta 65s    
+norcal-latest.osm.pbf.1                48%[==================================>                                      ] 294.48M  4.90MB/s    eta 65s    
+norcal-latest.osm.pbf.1                48%[==================================>                                      ] 295.44M  4.86MB/s    eta 65s    
+norcal-latest.osm.pbf.1                48%[==================================>                                      ] 296.39M  4.84MB/s    eta 65s    
+norcal-latest.osm.pbf.1                48%[==================================>                                      ] 297.35M  4.85MB/s    eta 64s    
+norcal-latest.osm.pbf.1                48%[==================================>                                      ] 298.43M  4.88MB/s    eta 64s    
+norcal-latest.osm.pbf.1                48%[==================================>                                      ] 299.55M  4.92MB/s    eta 64s    
+norcal-latest.osm.pbf.1                49%[==================================>                                      ] 300.68M  4.94MB/s    eta 64s    
+norcal-latest.osm.pbf.1                49%[==================================>                                      ] 301.78M  4.98MB/s    eta 64s    
+norcal-latest.osm.pbf.1                49%[===================================>                                     ] 302.78M  4.99MB/s    eta 63s    
+norcal-latest.osm.pbf.1                49%[===================================>                                     ] 303.79M  5.00MB/s    eta 63s    
+norcal-latest.osm.pbf.1                49%[===================================>                                     ] 304.75M  4.99MB/s    eta 63s    
+norcal-latest.osm.pbf.1                49%[===================================>                                     ] 305.73M  4.99MB/s    eta 63s    
+norcal-latest.osm.pbf.1                50%[===================================>                                     ] 306.71M  5.01MB/s    eta 63s    
+norcal-latest.osm.pbf.1                50%[===================================>                                     ] 307.61M  4.98MB/s    eta 62s    
+norcal-latest.osm.pbf.1                50%[===================================>                                     ] 308.47M  4.95MB/s    eta 62s    
+norcal-latest.osm.pbf.1                50%[===================================>                                     ] 309.33M  4.92MB/s    eta 62s    
+norcal-latest.osm.pbf.1                50%[===================================>                                     ] 310.20M  4.90MB/s    eta 62s    
+norcal-latest.osm.pbf.1                50%[====================================>                                    ] 311.03M  4.85MB/s    eta 62s    
+norcal-latest.osm.pbf.1                50%[====================================>                                    ] 311.94M  4.84MB/s    eta 61s    
+norcal-latest.osm.pbf.1                51%[====================================>                                    ] 312.93M  4.82MB/s    eta 61s    
+norcal-latest.osm.pbf.1                51%[====================================>                                    ] 313.93M  4.80MB/s    eta 61s    
+norcal-latest.osm.pbf.1                51%[====================================>                                    ] 314.98M  4.79MB/s    eta 61s    
+norcal-latest.osm.pbf.1                51%[====================================>                                    ] 316.03M  4.74MB/s    eta 61s    
+norcal-latest.osm.pbf.1                51%[====================================>                                    ] 317.12M  4.76MB/s    eta 60s    
+norcal-latest.osm.pbf.1                51%[====================================>                                    ] 318.26M  4.81MB/s    eta 60s    
+norcal-latest.osm.pbf.1                52%[=====================================>                                   ] 319.41M  4.87MB/s    eta 60s    
+norcal-latest.osm.pbf.1                52%[=====================================>                                   ] 320.55M  4.93MB/s    eta 60s    
+norcal-latest.osm.pbf.1                52%[=====================================>                                   ] 321.69M  4.98MB/s    eta 60s    
+norcal-latest.osm.pbf.1                52%[=====================================>                                   ] 322.78M  5.03MB/s    eta 59s    
+norcal-latest.osm.pbf.1                52%[=====================================>                                   ] 323.81M  5.07MB/s    eta 59s    
+norcal-latest.osm.pbf.1                53%[=====================================>                                   ] 324.87M  5.12MB/s    eta 59s    
+norcal-latest.osm.pbf.1                53%[=====================================>                                   ] 325.98M  5.23MB/s    eta 59s    
+norcal-latest.osm.pbf.1                53%[=====================================>                                   ] 326.97M  5.26MB/s    eta 59s    
+norcal-latest.osm.pbf.1                53%[======================================>                                  ] 328.12M  5.33MB/s    eta 57s    
+norcal-latest.osm.pbf.1                53%[======================================>                                  ] 329.23M  5.41MB/s    eta 57s    
+norcal-latest.osm.pbf.1                53%[======================================>                                  ] 330.33M  5.43MB/s    eta 57s    
+norcal-latest.osm.pbf.1                54%[======================================>                                  ] 331.43M  5.45MB/s    eta 57s    
+norcal-latest.osm.pbf.1                54%[======================================>                                  ] 332.58M  5.49MB/s    eta 57s    
+norcal-latest.osm.pbf.1                54%[======================================>                                  ] 333.73M  5.52MB/s    eta 56s    
+norcal-latest.osm.pbf.1                54%[======================================>                                  ] 334.81M  5.51MB/s    eta 56s    
+norcal-latest.osm.pbf.1                54%[=======================================>                                 ] 335.83M  5.46MB/s    eta 56s    
+norcal-latest.osm.pbf.1                54%[=======================================>                                 ] 336.86M  5.43MB/s    eta 56s    
+norcal-latest.osm.pbf.1                55%[=======================================>                                 ] 337.98M  5.42MB/s    eta 56s    
+norcal-latest.osm.pbf.1                55%[=======================================>                                 ] 339.16M  5.44MB/s    eta 55s    
+norcal-latest.osm.pbf.1                55%[=======================================>                                 ] 340.39M  5.50MB/s    eta 55s    
+norcal-latest.osm.pbf.1                55%[=======================================>                                 ] 341.71M  5.59MB/s    eta 55s    
+norcal-latest.osm.pbf.1                55%[=======================================>                                 ] 342.99M  5.65MB/s    eta 55s    
+norcal-latest.osm.pbf.1                56%[========================================>                                ] 344.32M  5.74MB/s    eta 55s    
+norcal-latest.osm.pbf.1                56%[========================================>                                ] 345.60M  5.81MB/s    eta 54s    
+norcal-latest.osm.pbf.1                56%[========================================>                                ] 346.83M  5.85MB/s    eta 54s    
+norcal-latest.osm.pbf.1                56%[========================================>                                ] 348.01M  5.87MB/s    eta 54s    
+norcal-latest.osm.pbf.1                56%[========================================>                                ] 349.16M  5.88MB/s    eta 54s    
+norcal-latest.osm.pbf.1                57%[========================================>                                ] 350.16M  5.84MB/s    eta 54s    
+norcal-latest.osm.pbf.1                57%[========================================>                                ] 351.14M  5.78MB/s    eta 52s    
+norcal-latest.osm.pbf.1                57%[========================================>                                ] 352.22M  5.76MB/s    eta 52s    
+norcal-latest.osm.pbf.1                57%[=========================================>                               ] 353.27M  5.78MB/s    eta 52s    
+norcal-latest.osm.pbf.1                57%[=========================================>                               ] 354.38M  5.80MB/s    eta 52s    
+norcal-latest.osm.pbf.1                58%[=========================================>                               ] 355.49M  5.81MB/s    eta 52s    
+norcal-latest.osm.pbf.1                58%[=========================================>                               ] 356.55M  5.78MB/s    eta 51s    
+norcal-latest.osm.pbf.1                58%[=========================================>                               ] 357.61M  5.73MB/s    eta 51s    
+norcal-latest.osm.pbf.1                58%[=========================================>                               ] 358.66M  5.66MB/s    eta 51s    
+norcal-latest.osm.pbf.1                58%[=========================================>                               ] 359.84M  5.60MB/s    eta 51s    
+norcal-latest.osm.pbf.1                58%[==========================================>                              ] 361.10M  5.59MB/s    eta 51s    
+norcal-latest.osm.pbf.1                59%[==========================================>                              ] 362.25M  5.56MB/s    eta 50s    
+norcal-latest.osm.pbf.1                59%[==========================================>                              ] 363.32M  5.48MB/s    eta 50s    
+norcal-latest.osm.pbf.1                59%[==========================================>                              ] 364.33M  5.43MB/s    eta 50s    
+norcal-latest.osm.pbf.1                59%[==========================================>                              ] 365.37M  5.40MB/s    eta 50s    
+norcal-latest.osm.pbf.1                59%[==========================================>                              ] 366.37M  5.38MB/s    eta 50s    
+norcal-latest.osm.pbf.1                59%[==========================================>                              ] 367.34M  5.37MB/s    eta 49s    
+norcal-latest.osm.pbf.1                60%[==========================================>                              ] 368.33M  5.34MB/s    eta 49s    
+norcal-latest.osm.pbf.1                60%[==========================================>                              ] 369.29M  5.32MB/s    eta 49s    
+norcal-latest.osm.pbf.1                60%[===========================================>                             ] 370.27M  5.28MB/s    eta 49s    
+norcal-latest.osm.pbf.1                60%[===========================================>                             ] 371.26M  5.25MB/s    eta 49s    
+norcal-latest.osm.pbf.1                60%[===========================================>                             ] 372.26M  5.22MB/s    eta 48s    
+norcal-latest.osm.pbf.1                60%[===========================================>                             ] 373.26M  5.20MB/s    eta 48s    
+norcal-latest.osm.pbf.1                61%[===========================================>                             ] 374.37M  5.22MB/s    eta 48s    
+norcal-latest.osm.pbf.1                61%[===========================================>                             ] 375.59M  5.24MB/s    eta 48s    
+norcal-latest.osm.pbf.1                61%[===========================================>                             ] 376.81M  5.25MB/s    eta 48s    
+norcal-latest.osm.pbf.1                61%[============================================>                            ] 378.05M  5.27MB/s    eta 47s    
+norcal-latest.osm.pbf.1                61%[============================================>                            ] 379.25M  5.29MB/s    eta 47s    
+norcal-latest.osm.pbf.1                62%[============================================>                            ] 380.42M  5.34MB/s    eta 47s    
+norcal-latest.osm.pbf.1                62%[============================================>                            ] 381.69M  5.42MB/s    eta 47s    
+norcal-latest.osm.pbf.1                62%[============================================>                            ] 382.92M  5.49MB/s    eta 47s    
+norcal-latest.osm.pbf.1                62%[============================================>                            ] 384.17M  5.57MB/s    eta 45s    
+norcal-latest.osm.pbf.1                62%[============================================>                            ] 385.36M  5.62MB/s    eta 45s    
+norcal-latest.osm.pbf.1                63%[=============================================>                           ] 386.57M  5.73MB/s    eta 45s    
+norcal-latest.osm.pbf.1                63%[=============================================>                           ] 387.76M  5.79MB/s    eta 45s    
+norcal-latest.osm.pbf.1                63%[=============================================>                           ] 388.97M  5.84MB/s    eta 45s    
+norcal-latest.osm.pbf.1                63%[=============================================>                           ] 390.15M  5.93MB/s    eta 44s    
+norcal-latest.osm.pbf.1                63%[=============================================>                           ] 391.30M  5.98MB/s    eta 44s    
+norcal-latest.osm.pbf.1                64%[=============================================>                           ] 392.48M  6.00MB/s    eta 44s    
+norcal-latest.osm.pbf.1                64%[=============================================>                           ] 393.59M  5.98MB/s    eta 44s    
+norcal-latest.osm.pbf.1                64%[==============================================>                          ] 394.67M  5.93MB/s    eta 44s    
+norcal-latest.osm.pbf.1                64%[==============================================>                          ] 395.67M  5.86MB/s    eta 43s    
+norcal-latest.osm.pbf.1                64%[==============================================>                          ] 396.69M  5.79MB/s    eta 43s    
+norcal-latest.osm.pbf.1                64%[==============================================>                          ] 397.72M  5.75MB/s    eta 43s    
+norcal-latest.osm.pbf.1                65%[==============================================>                          ] 398.71M  5.68MB/s    eta 43s    
+norcal-latest.osm.pbf.1                65%[==============================================>                          ] 399.68M  5.57MB/s    eta 43s    
+norcal-latest.osm.pbf.1                65%[==============================================>                          ] 400.65M  5.49MB/s    eta 42s    
+norcal-latest.osm.pbf.1                65%[==============================================>                          ] 401.64M  5.43MB/s    eta 42s    
+norcal-latest.osm.pbf.1                65%[==============================================>                          ] 402.79M  5.39MB/s    eta 42s    
+norcal-latest.osm.pbf.1                65%[===============================================>                         ] 404.03M  5.41MB/s    eta 42s    
+norcal-latest.osm.pbf.1                66%[===============================================>                         ] 405.30M  5.45MB/s    eta 42s    
+norcal-latest.osm.pbf.1                66%[===============================================>                         ] 406.55M  5.45MB/s    eta 41s    
+norcal-latest.osm.pbf.1                66%[===============================================>                         ] 407.68M  5.44MB/s    eta 41s    
+norcal-latest.osm.pbf.1                66%[===============================================>                         ] 408.78M  5.43MB/s    eta 41s    
+norcal-latest.osm.pbf.1                66%[===============================================>                         ] 409.94M  5.43MB/s    eta 41s    
+norcal-latest.osm.pbf.1                67%[===============================================>                         ] 411.00M  5.43MB/s    eta 41s    
+norcal-latest.osm.pbf.1                67%[================================================>                        ] 412.16M  5.45MB/s    eta 40s    
+norcal-latest.osm.pbf.1                67%[================================================>                        ] 413.22M  5.49MB/s    eta 40s    
+norcal-latest.osm.pbf.1                67%[================================================>                        ] 414.35M  5.51MB/s    eta 40s    
+norcal-latest.osm.pbf.1                67%[================================================>                        ] 415.43M  5.52MB/s    eta 40s    
+norcal-latest.osm.pbf.1                67%[================================================>                        ] 416.51M  5.58MB/s    eta 40s    
+norcal-latest.osm.pbf.1                68%[================================================>                        ] 417.62M  5.61MB/s    eta 38s    
+norcal-latest.osm.pbf.1                68%[================================================>                        ] 418.92M  5.71MB/s    eta 38s    
+norcal-latest.osm.pbf.1                68%[=================================================>                       ] 420.27M  5.80MB/s    eta 38s    
+norcal-latest.osm.pbf.1                68%[=================================================>                       ] 421.62M  5.85MB/s    eta 38s    
+norcal-latest.osm.pbf.1                69%[=================================================>                       ] 422.94M  5.88MB/s    eta 38s    
+norcal-latest.osm.pbf.1                69%[=================================================>                       ] 424.21M  5.86MB/s    eta 37s    
+norcal-latest.osm.pbf.1                69%[=================================================>                       ] 425.51M  5.91MB/s    eta 37s    
+norcal-latest.osm.pbf.1                69%[=================================================>                       ] 426.64M  5.91MB/s    eta 37s    
+norcal-latest.osm.pbf.1                69%[=================================================>                       ] 427.76M  5.92MB/s    eta 37s    
+norcal-latest.osm.pbf.1                70%[==================================================>                      ] 428.96M  5.95MB/s    eta 37s    
+norcal-latest.osm.pbf.1                70%[==================================================>                      ] 430.02M  5.92MB/s    eta 36s    
+norcal-latest.osm.pbf.1                70%[==================================================>                      ] 430.99M  5.90MB/s    eta 36s    
+norcal-latest.osm.pbf.1                70%[==================================================>                      ] 431.96M  5.84MB/s    eta 36s    
+norcal-latest.osm.pbf.1                70%[==================================================>                      ] 432.92M  5.78MB/s    eta 36s    
+norcal-latest.osm.pbf.1                70%[==================================================>                      ] 433.94M  5.79MB/s    eta 36s    
+norcal-latest.osm.pbf.1                71%[==================================================>                      ] 435.07M  5.79MB/s    eta 35s    
+norcal-latest.osm.pbf.1                71%[==================================================>                      ] 436.24M  5.78MB/s    eta 35s    
+norcal-latest.osm.pbf.1                71%[===================================================>                     ] 437.61M  5.76MB/s    eta 35s    
+norcal-latest.osm.pbf.1                71%[===================================================>                     ] 439.02M  5.80MB/s    eta 35s    
+norcal-latest.osm.pbf.1                71%[===================================================>                     ] 440.40M  5.83MB/s    eta 35s    
+norcal-latest.osm.pbf.1                72%[===================================================>                     ] 441.72M  5.82MB/s    eta 33s    
+norcal-latest.osm.pbf.1                72%[===================================================>                     ] 442.96M  5.81MB/s    eta 33s    
+norcal-latest.osm.pbf.1                72%[===================================================>                     ] 444.05M  5.77MB/s    eta 33s    
+norcal-latest.osm.pbf.1                72%[====================================================>                    ] 445.22M  5.80MB/s    eta 33s    
+norcal-latest.osm.pbf.1                72%[====================================================>                    ] 446.33M  5.78MB/s    eta 33s    
+norcal-latest.osm.pbf.1                73%[====================================================>                    ] 447.43M  5.76MB/s    eta 32s    
+norcal-latest.osm.pbf.1                73%[====================================================>                    ] 448.51M  5.82MB/s    eta 32s    
+norcal-latest.osm.pbf.1                73%[====================================================>                    ] 449.54M  5.82MB/s    eta 32s    
+norcal-latest.osm.pbf.1                73%[====================================================>                    ] 450.57M  5.83MB/s    eta 32s    
+norcal-latest.osm.pbf.1                73%[====================================================>                    ] 451.73M  5.91MB/s    eta 32s    
+norcal-latest.osm.pbf.1                73%[====================================================>                    ] 452.92M  5.93MB/s    eta 31s    
+norcal-latest.osm.pbf.1                74%[=====================================================>                   ] 454.05M  5.93MB/s    eta 31s    
+norcal-latest.osm.pbf.1                74%[=====================================================>                   ] 455.16M  5.84MB/s    eta 31s    
+norcal-latest.osm.pbf.1                74%[=====================================================>                   ] 456.39M  5.80MB/s    eta 31s    
+norcal-latest.osm.pbf.1                74%[=====================================================>                   ] 457.72M  5.80MB/s    eta 31s    
+norcal-latest.osm.pbf.1                74%[=====================================================>                   ] 458.89M  5.71MB/s    eta 30s    
+norcal-latest.osm.pbf.1                75%[=====================================================>                   ] 460.00M  5.68MB/s    eta 30s    
+norcal-latest.osm.pbf.1                75%[=====================================================>                   ] 461.09M  5.66MB/s    eta 30s    
+norcal-latest.osm.pbf.1                75%[======================================================>                  ] 462.16M  5.63MB/s    eta 30s    
+norcal-latest.osm.pbf.1                75%[======================================================>                  ] 463.19M  5.60MB/s    eta 30s    
+norcal-latest.osm.pbf.1                75%[======================================================>                  ] 464.17M  5.56MB/s    eta 29s    
+norcal-latest.osm.pbf.1                75%[======================================================>                  ] 465.18M  5.54MB/s    eta 29s    
+norcal-latest.osm.pbf.1                76%[======================================================>                  ] 466.16M  5.52MB/s    eta 29s    
+norcal-latest.osm.pbf.1                76%[======================================================>                  ] 467.39M  5.58MB/s    eta 29s    
+norcal-latest.osm.pbf.1                76%[======================================================>                  ] 468.72M  5.65MB/s    eta 29s    
+norcal-latest.osm.pbf.1                76%[======================================================>                  ] 470.04M  5.69MB/s    eta 28s    
+norcal-latest.osm.pbf.1                76%[=======================================================>                 ] 471.32M  5.73MB/s    eta 28s    
+norcal-latest.osm.pbf.1                77%[=======================================================>                 ] 472.63M  5.81MB/s    eta 28s    
+norcal-latest.osm.pbf.1                77%[=======================================================>                 ] 473.78M  5.78MB/s    eta 28s    
+norcal-latest.osm.pbf.1                77%[=======================================================>                 ] 474.83M  5.71MB/s    eta 28s    
+norcal-latest.osm.pbf.1                77%[=======================================================>                 ] 475.94M  5.66MB/s    eta 27s    
+norcal-latest.osm.pbf.1                77%[=======================================================>                 ] 477.00M  5.66MB/s    eta 27s    
+norcal-latest.osm.pbf.1                78%[=======================================================>                 ] 478.08M  5.63MB/s    eta 27s    
+norcal-latest.osm.pbf.1                78%[========================================================>                ] 479.15M  5.63MB/s    eta 27s    
+norcal-latest.osm.pbf.1                78%[========================================================>                ] 480.18M  5.63MB/s    eta 27s    
+norcal-latest.osm.pbf.1                78%[========================================================>                ] 481.25M  5.64MB/s    eta 26s    
+norcal-latest.osm.pbf.1                78%[========================================================>                ] 482.31M  5.65MB/s    eta 26s    
+norcal-latest.osm.pbf.1                78%[========================================================>                ] 483.35M  5.70MB/s    eta 26s    
+norcal-latest.osm.pbf.1                79%[========================================================>                ] 484.36M  5.67MB/s    eta 26s    
+norcal-latest.osm.pbf.1                79%[========================================================>                ] 485.37M  5.57MB/s    eta 26s    
+norcal-latest.osm.pbf.1                79%[========================================================>                ] 486.50M  5.49MB/s    eta 24s    
+norcal-latest.osm.pbf.1                79%[=========================================================>               ] 487.85M  5.52MB/s    eta 24s    
+norcal-latest.osm.pbf.1                79%[=========================================================>               ] 489.19M  5.54MB/s    eta 24s    
+norcal-latest.osm.pbf.1                80%[=========================================================>               ] 490.52M  5.56MB/s    eta 24s    
+norcal-latest.osm.pbf.1                80%[=========================================================>               ] 491.71M  5.60MB/s    eta 24s    
+norcal-latest.osm.pbf.1                80%[=========================================================>               ] 492.80M  5.59MB/s    eta 23s    
+norcal-latest.osm.pbf.1                80%[=========================================================>               ] 493.94M  5.62MB/s    eta 23s    
+norcal-latest.osm.pbf.1                80%[=========================================================>               ] 495.10M  5.64MB/s    eta 23s    
+norcal-latest.osm.pbf.1                80%[==========================================================>              ] 496.27M  5.66MB/s    eta 23s    
+norcal-latest.osm.pbf.1                81%[==========================================================>              ] 497.41M  5.71MB/s    eta 23s    
+norcal-latest.osm.pbf.1                81%[==========================================================>              ] 498.53M  5.73MB/s    eta 22s    
+norcal-latest.osm.pbf.1                81%[==========================================================>              ] 499.73M  5.76MB/s    eta 22s    
+norcal-latest.osm.pbf.1                81%[==========================================================>              ] 500.91M  5.82MB/s    eta 22s    
+norcal-latest.osm.pbf.1                81%[==========================================================>              ] 502.17M  5.89MB/s    eta 22s    
+norcal-latest.osm.pbf.1                82%[==========================================================>              ] 503.37M  5.93MB/s    eta 22s    
+norcal-latest.osm.pbf.1                82%[===========================================================>             ] 504.53M  5.99MB/s    eta 21s    
+norcal-latest.osm.pbf.1                82%[===========================================================>             ] 505.67M  5.95MB/s    eta 21s    
+norcal-latest.osm.pbf.1                82%[===========================================================>             ] 506.78M  5.88MB/s    eta 21s    
+norcal-latest.osm.pbf.1                82%[===========================================================>             ] 507.85M  5.77MB/s    eta 21s    
+norcal-latest.osm.pbf.1                83%[===========================================================>             ] 508.88M  5.71MB/s    eta 21s    
+norcal-latest.osm.pbf.1                83%[===========================================================>             ] 509.84M  5.65MB/s    eta 20s    
+norcal-latest.osm.pbf.1                83%[===========================================================>             ] 510.79M  5.59MB/s    eta 20s    
+norcal-latest.osm.pbf.1                83%[===========================================================>             ] 511.75M  5.54MB/s    eta 20s    
+norcal-latest.osm.pbf.1                83%[============================================================>            ] 512.80M  5.50MB/s    eta 20s    
+norcal-latest.osm.pbf.1                83%[============================================================>            ] 513.79M  5.44MB/s    eta 20s    
+norcal-latest.osm.pbf.1                84%[============================================================>            ] 514.85M  5.42MB/s    eta 19s    
+norcal-latest.osm.pbf.1                84%[============================================================>            ] 515.85M  5.38MB/s    eta 19s    
+norcal-latest.osm.pbf.1                84%[============================================================>            ] 516.91M  5.32MB/s    eta 19s    
+norcal-latest.osm.pbf.1                84%[============================================================>            ] 518.08M  5.31MB/s    eta 19s    
+norcal-latest.osm.pbf.1                84%[============================================================>            ] 519.25M  5.29MB/s    eta 19s    
+norcal-latest.osm.pbf.1                84%[============================================================>            ] 520.37M  5.26MB/s    eta 18s    
+norcal-latest.osm.pbf.1                85%[=============================================================>           ] 521.49M  5.26MB/s    eta 18s    
+norcal-latest.osm.pbf.1                85%[=============================================================>           ] 522.63M  5.27MB/s    eta 18s    
+norcal-latest.osm.pbf.1                85%[=============================================================>           ] 523.78M  5.29MB/s    eta 18s    
+norcal-latest.osm.pbf.1                85%[=============================================================>           ] 524.95M  5.33MB/s    eta 18s    
+norcal-latest.osm.pbf.1                85%[=============================================================>           ] 526.13M  5.38MB/s    eta 17s    
+norcal-latest.osm.pbf.1                86%[=============================================================>           ] 527.30M  5.48MB/s    eta 17s    
+norcal-latest.osm.pbf.1                86%[=============================================================>           ] 528.44M  5.52MB/s    eta 17s    
+norcal-latest.osm.pbf.1                86%[==============================================================>          ] 529.63M  5.58MB/s    eta 17s    
+norcal-latest.osm.pbf.1                86%[==============================================================>          ] 530.78M  5.64MB/s    eta 17s    
+norcal-latest.osm.pbf.1                86%[==============================================================>          ] 531.95M  5.67MB/s    eta 16s    
+norcal-latest.osm.pbf.1                87%[==============================================================>          ] 533.14M  5.70MB/s    eta 16s    
+norcal-latest.osm.pbf.1                87%[==============================================================>          ] 534.39M  5.81MB/s    eta 16s    
+norcal-latest.osm.pbf.1                87%[==============================================================>          ] 535.62M  5.83MB/s    eta 16s    
+norcal-latest.osm.pbf.1                87%[==============================================================>          ] 536.83M  5.84MB/s    eta 16s    
+norcal-latest.osm.pbf.1                87%[===============================================================>         ] 538.01M  5.86MB/s    eta 14s    
+norcal-latest.osm.pbf.1                87%[===============================================================>         ] 539.10M  5.84MB/s    eta 14s    
+norcal-latest.osm.pbf.1                88%[===============================================================>         ] 540.21M  5.84MB/s    eta 14s    
+norcal-latest.osm.pbf.1                88%[===============================================================>         ] 541.23M  5.80MB/s    eta 14s    
+norcal-latest.osm.pbf.1                88%[===============================================================>         ] 542.19M  5.73MB/s    eta 14s    
+norcal-latest.osm.pbf.1                88%[===============================================================>         ] 543.21M  5.68MB/s    eta 13s    
+norcal-latest.osm.pbf.1                88%[===============================================================>         ] 544.19M  5.61MB/s    eta 13s    
+norcal-latest.osm.pbf.1                88%[===============================================================>         ] 545.17M  5.56MB/s    eta 13s    
+norcal-latest.osm.pbf.1                89%[================================================================>        ] 546.17M  5.51MB/s    eta 13s    
+norcal-latest.osm.pbf.1                89%[================================================================>        ] 547.26M  5.48MB/s    eta 13s    
+norcal-latest.osm.pbf.1                89%[================================================================>        ] 548.37M  5.46MB/s    eta 12s    
+norcal-latest.osm.pbf.1                89%[================================================================>        ] 549.52M  5.46MB/s    eta 12s    
+norcal-latest.osm.pbf.1                89%[================================================================>        ] 550.76M  5.44MB/s    eta 12s    
+norcal-latest.osm.pbf.1                90%[================================================================>        ] 551.91M  5.42MB/s    eta 12s    
+norcal-latest.osm.pbf.1                90%[================================================================>        ] 553.15M  5.44MB/s    eta 12s    
+norcal-latest.osm.pbf.1                90%[=================================================================>       ] 554.42M  5.45MB/s    eta 11s    
+norcal-latest.osm.pbf.1                90%[=================================================================>       ] 555.64M  5.48MB/s    eta 11s    
+norcal-latest.osm.pbf.1                90%[=================================================================>       ] 556.83M  5.52MB/s    eta 11s    
+norcal-latest.osm.pbf.1                91%[=================================================================>       ] 558.00M  5.56MB/s    eta 11s    
+norcal-latest.osm.pbf.1                91%[=================================================================>       ] 559.09M  5.60MB/s    eta 11s    
+norcal-latest.osm.pbf.1                91%[=================================================================>       ] 560.28M  5.64MB/s    eta 10s    
+norcal-latest.osm.pbf.1                91%[=================================================================>       ] 561.44M  5.72MB/s    eta 10s    
+norcal-latest.osm.pbf.1                91%[==================================================================>      ] 562.53M  5.74MB/s    eta 10s    
+norcal-latest.osm.pbf.1                92%[==================================================================>      ] 563.76M  5.81MB/s    eta 10s    
+norcal-latest.osm.pbf.1                92%[==================================================================>      ] 565.06M  5.91MB/s    eta 10s    
+norcal-latest.osm.pbf.1                92%[==================================================================>      ] 566.47M  5.99MB/s    eta 9s     
+norcal-latest.osm.pbf.1                92%[==================================================================>      ] 567.87M  6.08MB/s    eta 9s     
+norcal-latest.osm.pbf.1                92%[==================================================================>      ] 569.16M  6.11MB/s    eta 9s     
+norcal-latest.osm.pbf.1                93%[==================================================================>      ] 570.45M  6.14MB/s    eta 9s     
+norcal-latest.osm.pbf.1                93%[===================================================================>     ] 571.71M  6.16MB/s    eta 9s     
+norcal-latest.osm.pbf.1                93%[===================================================================>     ] 572.72M  6.08MB/s    eta 8s     
+norcal-latest.osm.pbf.1                93%[===================================================================>     ] 573.82M  6.03MB/s    eta 8s     
+norcal-latest.osm.pbf.1                93%[===================================================================>     ] 574.85M  5.98MB/s    eta 8s     
+norcal-latest.osm.pbf.1                93%[===================================================================>     ] 575.91M  5.94MB/s    eta 8s     
+norcal-latest.osm.pbf.1                94%[===================================================================>     ] 576.98M  5.93MB/s    eta 8s     
+norcal-latest.osm.pbf.1                94%[===================================================================>     ] 578.03M  5.89MB/s    eta 7s     
+norcal-latest.osm.pbf.1                94%[===================================================================>     ] 579.13M  5.86MB/s    eta 7s     
+norcal-latest.osm.pbf.1                94%[====================================================================>    ] 580.34M  5.90MB/s    eta 7s     
+norcal-latest.osm.pbf.1                94%[====================================================================>    ] 581.58M  5.93MB/s    eta 7s     
+norcal-latest.osm.pbf.1                95%[====================================================================>    ] 582.76M  5.87MB/s    eta 7s     
+norcal-latest.osm.pbf.1                95%[====================================================================>    ] 583.97M  5.85MB/s    eta 5s     
+norcal-latest.osm.pbf.1                95%[====================================================================>    ] 585.19M  5.79MB/s    eta 5s     
+norcal-latest.osm.pbf.1                95%[====================================================================>    ] 586.37M  5.71MB/s    eta 5s     
+norcal-latest.osm.pbf.1                95%[====================================================================>    ] 587.48M  5.66MB/s    eta 5s     
+norcal-latest.osm.pbf.1                96%[=====================================================================>   ] 588.60M  5.62MB/s    eta 5s     
+norcal-latest.osm.pbf.1                96%[=====================================================================>   ] 589.74M  5.64MB/s    eta 4s     
+norcal-latest.osm.pbf.1                96%[=====================================================================>   ] 590.79M  5.62MB/s    eta 4s     
+norcal-latest.osm.pbf.1                96%[=====================================================================>   ] 591.82M  5.60MB/s    eta 4s     
+norcal-latest.osm.pbf.1                96%[=====================================================================>   ] 592.84M  5.61MB/s    eta 4s     
+norcal-latest.osm.pbf.1                96%[=====================================================================>   ] 593.86M  5.60MB/s    eta 4s     
+norcal-latest.osm.pbf.1                97%[=====================================================================>   ] 594.87M  5.57MB/s    eta 3s     
+norcal-latest.osm.pbf.1                97%[=====================================================================>   ] 595.90M  5.57MB/s    eta 3s     
+norcal-latest.osm.pbf.1                97%[======================================================================>  ] 596.94M  5.52MB/s    eta 3s     
+norcal-latest.osm.pbf.1                97%[======================================================================>  ] 597.96M  5.46MB/s    eta 3s     
+norcal-latest.osm.pbf.1                97%[======================================================================>  ] 599.01M  5.39MB/s    eta 3s     
+norcal-latest.osm.pbf.1                97%[======================================================================>  ] 600.00M  5.33MB/s    eta 2s     
+norcal-latest.osm.pbf.1                98%[======================================================================>  ] 601.09M  5.31MB/s    eta 2s     
+norcal-latest.osm.pbf.1                98%[======================================================================>  ] 602.21M  5.26MB/s    eta 2s     
+norcal-latest.osm.pbf.1                98%[======================================================================>  ] 603.23M  5.23MB/s    eta 2s     
+norcal-latest.osm.pbf.1                98%[======================================================================>  ] 604.31M  5.23MB/s    eta 2s     
+norcal-latest.osm.pbf.1                98%[=======================================================================> ] 605.53M  5.25MB/s    eta 1s     
+norcal-latest.osm.pbf.1                99%[=======================================================================> ] 606.78M  5.30MB/s    eta 1s     
+norcal-latest.osm.pbf.1                99%[=======================================================================> ] 608.00M  5.36MB/s    eta 1s     
+norcal-latest.osm.pbf.1                99%[=======================================================================> ] 609.21M  5.43MB/s    eta 1s     
+norcal-latest.osm.pbf.1                99%[=======================================================================> ] 610.37M  5.47MB/s    eta 1s     
+norcal-latest.osm.pbf.1                99%[=======================================================================> ] 611.57M  5.53MB/s    eta 0s     
+norcal-latest.osm.pbf.1               100%[========================================================================>] 612.75M  5.60MB/s    eta 0s     
+norcal-latest.osm.pbf.1               100%[========================================================================>] 612.75M  5.60MB/s    in 1m 57s  
+
+2026-05-29 15:03:45 (5.25 MB/s) - ‘test/california/norcal-latest.osm.pbf.1’ saved [642516838/642516838]
+
+Completed processing for: california
+All downloads complete. Files saved in 'test'.
+[?2004h[01;32mgaaya@debian[00m:[01;34m~/Projects/pipeline[00m$ 

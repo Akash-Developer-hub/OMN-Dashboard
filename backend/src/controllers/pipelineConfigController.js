@@ -172,7 +172,7 @@ async function normalizePathConfig(raw, index = 0) {
         outputPath: outputPath || null,
         scriptPath,
         backupPath: backupPath || null,
-        logPath 
+        logPath
     };
 }
 
@@ -714,6 +714,201 @@ class PipelineConfigController {
     });
 
     /**
+ * POST /api/v1/admin-dashboard/pipeline-config/download-path
+ *
+ * Adds a download path configuration for a specific server within a specific
+ * pipeline config version.
+ *
+ * Rules (mirrors createConfig logic):
+ *   CASE A — Version already exists:
+ *     a. If the targetServerId is already present in DownloadPaths → reject 400.
+ *     b. If the targetServerId is NOT present → merge the new entry in.
+ *
+ *   CASE B — Version does NOT exist:
+ *     a. Create a brand-new PipelineConfig document with the supplied DownloadPaths.
+ *
+ * Stored fields: outputPath, logPath, scriptPath only.
+ */
+    static PostDownloadPath = asyncHandler(async (req, res) => {
+        const payload = req.body || {};
+        const version = cleanString(payload.version);
+        const targetServerId = cleanString(payload.targetServerId || payload.serverId);
+
+        if (!version) return ApiResponse.error(res, 400, 'version is required.');
+        if (!targetServerId) return ApiResponse.error(res, 400, 'targetServerId is required.');
+
+        // ── Step 1: Validate the server exists ────────────────────────────────
+        let server;
+        try {
+            server = await getServerOrFail(targetServerId, 'targetServerId');
+        } catch (err) {
+            return ApiResponse.error(res, err.statusCode || 400, err.message);
+        }
+
+        // ── Step 2: Build the download path entry ─────────────────────────────
+        const downloadEntry = {
+            targetServerId: server.id,
+            outputPath: cleanString(payload.outputPath || payload.output || payload.targetOutputPath) || null,
+            logPath: cleanString(payload.logPath || payload.logDirectoryPath) || null,
+            scriptPath: cleanString(payload.scriptPath || payload.scriptDisplayPath || payload.scriptDirectoryPath) || null,
+        };
+
+        const serverKey = buildServerKey(server);
+
+        // ── Step 3: Check whether this version already exists in the DB ───────
+        const existingConfig = await findConfigByVersion(version);
+
+        if (existingConfig) {
+            // ── CASE A: Version exists — check for duplicate targetServerId ───
+
+            const existingPaths = existingConfig.DownloadPaths || {};
+            const serverGroup = existingPaths[serverKey] || [];
+
+            const alreadyConfigured = serverGroup.some(
+                (p) => p.targetServerId === server.id
+            );
+
+            if (alreadyConfigured) {
+                return ApiResponse.error(
+                    res,
+                    400,
+                    `Download path for this server is already configured for version ${version}.`
+                );
+            }
+
+            // ── Append the new entry directly under the serverKey ─────────────
+            const updatedDoc = await PipelineConfig.collection.findOneAndUpdate(
+                { _id: existingConfig._id },
+                {
+                    $push: { [`DownloadPaths.${serverKey}`]: downloadEntry },
+                    $set: { updatedAt: new Date() },
+                },
+                { returnDocument: 'after' }
+            );
+
+            const updatedConfig = PipelineConfig.toResponse(updatedDoc);
+
+            logger.audit('PIPELINE_DOWNLOAD_PATH_UPDATED', {
+                configId: updatedConfig.id,
+                version,
+                targetServerId: server.id,
+                updatedBy: req.user?.id,
+            });
+
+            return ApiResponse.success(res, 200, 'Download path added successfully.', {
+                config: updatedConfig,
+            });
+        }
+
+        // ── CASE B: Version not found — create a brand-new document ──────────
+        const created = await PipelineConfig.create({
+            version,
+            status: payload.status || 'added',
+            adminList: payload.adminList || {},
+            serverPaths: {},
+            DownloadPaths: {
+                [serverKey]: [downloadEntry],
+            },
+        });
+
+        logger.audit('PIPELINE_DOWNLOAD_PATH_CREATED', {
+            configId: created.id,
+            version,
+            targetServerId: server.id,
+            createdBy: req.user?.id,
+        });
+
+        return ApiResponse.success(res, 201, 'Download path created successfully.', {
+            config: PipelineConfig.toResponse(created),
+        });
+    });
+
+    /**
+     * PATCH /api/v1/admin-dashboard/pipeline-config/UpdateDownload-path
+     *
+     * Partially updates the download path configuration (output/script/log)
+     * for a specific server within a specific pipeline config version.
+     *
+     * Body:
+     *   version {string} - required
+     *   targetServerId {string} - required
+     *   outputPath {string} - optional
+     *   scriptPath {string} - optional
+     *   logPath {string} - optional
+     */
+    static updateDownloadPath = asyncHandler(async (req, res) => {
+        const payload = req.body || {};
+        const version = cleanString(payload.version);
+        const targetServerId = cleanString(payload.targetServerId || payload.serverId);
+
+        if (!version) return ApiResponse.error(res, 400, 'version is required.');
+        if (!targetServerId) return ApiResponse.error(res, 400, 'targetServerId is required.');
+
+        // Validate server exists
+        let server;
+        try {
+            server = await getServerOrFail(targetServerId, 'targetServerId');
+        } catch (err) {
+            return ApiResponse.error(res, err.statusCode || 400, err.message);
+        }
+
+        // Find config for version
+        const existingConfig = await findConfigByVersion(version);
+        if (!existingConfig) {
+            return ApiResponse.error(res, 404, `No pipeline config found for version "${version}".`);
+        }
+
+        // Normalize current DownloadPaths and find existing entry for this server
+        const currentPaths = normalizeServerPathsForResponse(existingConfig.DownloadPaths || {});
+        const existingEntries = flattenServerPaths(currentPaths);
+
+        const existingEntry = existingEntries.find((p) => matchesServerId(p, server.id));
+
+        if (!existingEntry) {
+            return ApiResponse.error(res, 404, `Download path for server "${server.id}" is not configured in version "${version}".`);
+        }
+
+        const serverKey = buildServerKey(server);
+
+        // Merge incoming fields with existing entry (partial update)
+        const updatedEntry = {
+            targetServerId: server.id,
+            outputPath: cleanString(payload.outputPath) || existingEntry.outputPath || null,
+            scriptPath: cleanString(payload.scriptPath) || existingEntry.scriptPath || null,
+            logPath: cleanString(payload.logPath) || existingEntry.logPath || null,
+        };
+
+        // Rebuild DownloadPaths map for this version: remove old entry and push updated
+        const mergedPaths = { ...currentPaths };
+        mergedPaths[serverKey] = mergedPaths[serverKey]
+            ? mergedPaths[serverKey].filter((p) => !matchesServerId(p, server.id))
+            : [];
+
+        mergedPaths[serverKey].push(updatedEntry);
+
+        // Persist change
+        const updatedDoc = await PipelineConfig.collection.findOneAndUpdate(
+            { _id: existingConfig._id },
+            { $set: { DownloadPaths: mergedPaths, updatedAt: new Date() } },
+            { returnDocument: 'after' }
+        );
+
+        const updatedConfig = PipelineConfig.toResponse(updatedDoc);
+
+        logger.audit('PIPELINE_DOWNLOAD_PATH_UPDATED', {
+            configId: updatedConfig.id,
+            version,
+            targetServerId: server.id,
+            serverKey,
+            updatedBy: req.user?.id,
+        });
+
+        return ApiResponse.success(res, 200, 'Download path updated successfully.', {
+            config: updatedConfig,
+        });
+    });
+
+    /**
      * GET /api/v1/admin-dashboard/pipeline-config/current-version
      * Fetches the latest version string for the 'generation' mode.
      */
@@ -764,6 +959,36 @@ class PipelineConfigController {
         return ApiResponse.success(res, 200, 'Server path config fetched successfully.', {
             version,
             serverPaths: normalizeServerPathsForResponse(config.serverPaths),
+        });
+    });
+
+    /**
+     * POST /api/v1/admin-dashboard/pipeline-config/download-path-config
+     * Fetches download path config for a particular version.
+     * Body: { version: string }
+     */
+    static getDownloadPathConfig = asyncHandler(async (req, res) => {
+        const payload = req.body || {};
+        const version = cleanString(payload.version);
+
+        if (!version) {
+            return ApiResponse.error(res, 400, 'version is required.');
+        }
+
+        const config = await findConfigByVersion(version);
+
+        if (!config) {
+            return ApiResponse.error(res, 404, `No configuration found for version: ${version}`);
+        }
+
+        logger.audit('DOWNLOAD_PATH_CONFIG_FETCHED', {
+            version,
+            requestedBy: req.user?.id,
+        });
+
+        return ApiResponse.success(res, 200, 'Download path config fetched successfully.', {
+            version,
+            downloadPaths: normalizeServerPathsForResponse(config.DownloadPaths || {}),
         });
     });
 

@@ -39,6 +39,19 @@ router.post('/remove', PipelineConfigController.removeAdmin);
 router.patch('/UpdateServer-path', PipelineConfigController.updateServerPath);
 
 /**
+ * @route PATCH /pipeline-config/UpdateDownload-path
+ * @desc Update download path configuration for a specific server in a pipeline config.
+ */
+router.patch('/UpdateDownload-path', PipelineConfigController.updateDownloadPath);
+
+/**
+ * @route POST /pipeline-config/download-path
+ * @desc Add download path configuration for a specific server in a pipeline config.
+ * @body { version, targetServerId, outputPath, logPath, scriptPath }
+ */
+router.post('/download-path', PipelineConfigController.PostDownloadPath);
+
+/**
  * @route GET /pipeline-config/current-version
  * @desc Get the latest pipeline configuration version
  */
@@ -50,6 +63,13 @@ router.get('/current-version', PipelineConfigController.getCurrentVersion);
  * @body { version: string }
  */
 router.post('/server-path', PipelineConfigController.getServerPathConfig);
+
+/**
+ * @route POST /pipeline-config/download-path-config
+ * @desc Get downloadPathConfig for a particular version
+ * @body { version: string }
+ */
+router.post('/download-path-config', PipelineConfigController.getDownloadPathConfig);
 
 router.get('/details', PipelineConfigController.getAdminUsers);
 

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import mockSearchTilesLog from "@/utils/st_z60j63_mpqprzhh.log?raw";
+import mockSearchTilesLog from "@/utils/st_z60j63_mpqprzhh.log.txt";
 import osmJson from "@/utils/osm.json";
 import {
   Folder,
@@ -30,12 +30,16 @@ type JobStatus = "queued" | "running" | "completed" | "failed";
 type WorkflowFormState = {
   targetServerId: string;
   outputPath: string;
+  logPath: string;
+  scriptPath: string;
   addMaxspeedAndTurnlanesToOsm: boolean;
 };
 
 type ServerPathEntry = {
   targetServerId?: string;
   serverId?: string;
+  outputPath?: string;
+  logPath?: string;
   scriptPath?: string;
 };
 
@@ -131,6 +135,8 @@ const workflowCopy: Record<
 const emptyForm = (): WorkflowFormState => ({
   targetServerId: "",
   outputPath: "/home",
+  logPath: "/home/logs",
+  scriptPath: DEFAULT_SEARCH_TILES_SCRIPT_PATH,
   addMaxspeedAndTurnlanesToOsm: true,
 });
 
@@ -873,6 +879,45 @@ export default function Download() {
     return response.data?.data?.version || response.data?.version || "v1.0";
   };
 
+  const fetchDownloadPathForServer = async (serverId: string) => {
+    const version = currentVersion || (await fetchCurrentConfigVersion());
+    const response = await api.post("/admin-dashboard/pipeline-config/download-path-config", {
+      version,
+    });
+    const downloadPaths = response.data?.data?.downloadPaths || response.data?.downloadPaths || {};
+    return flattenServerPaths(downloadPaths).find((path) => (path.targetServerId || path.serverId) === serverId);
+  };
+
+  const handleServerSelection = async (workflow: WorkflowKey, serverId: string) => {
+    updateForm(workflow, { targetServerId: serverId });
+
+    if (!serverId) {
+      updateForm(workflow, { outputPath: "/home", logPath: "/home", scriptPath: DEFAULT_SEARCH_TILES_SCRIPT_PATH });
+      return;
+    }
+
+    try {
+      const pathInfo = await fetchDownloadPathForServer(serverId);
+      const nextOutputPath = normalizeBrowsePath(pathInfo?.outputPath || "/home");
+      const nextLogPath = normalizeBrowsePath(pathInfo?.logPath || "/home");
+      const nextScriptPath = String(pathInfo?.scriptPath || DEFAULT_SEARCH_TILES_SCRIPT_PATH).trim();
+
+      updateForm(workflow, {
+        outputPath: nextOutputPath,
+        logPath: nextLogPath,
+        scriptPath: nextScriptPath,
+      });
+
+      if (!pathInfo) {
+        toast.info("No download path config found for the selected server. Using default /home paths.");
+      }
+    } catch (error) {
+      console.error("Failed to load download path config", error);
+      updateForm(workflow, { outputPath: "/home", logPath: "/home", scriptPath: DEFAULT_SEARCH_TILES_SCRIPT_PATH });
+      toast.error("Failed to load download path config.");
+    }
+  };
+
   const fetchServerPathForServer = async (serverId: string) => {
     const version = await fetchCurrentConfigVersion();
     const response = await api.post("/admin-dashboard/pipeline-config/server-path", { version });
@@ -1089,7 +1134,7 @@ export default function Download() {
                   <select
                     id={`${workflow}-server`}
                     value={form.targetServerId}
-                    onChange={(event) => updateForm(workflow, { targetServerId: event.target.value })}
+                    onChange={(event) => void handleServerSelection(workflow, event.target.value)}
                     className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm shadow-sm outline-none transition focus-visible:ring-2 focus-visible:ring-ring"
                   >
                     <option value="">Select a target server</option>
@@ -1110,6 +1155,36 @@ export default function Download() {
                       value={form.outputPath}
                       onChange={(event) => updateForm(workflow, { outputPath: event.target.value })}
                       placeholder="/home/output"
+                    />
+                    <Button type="button" variant="outline" onClick={() => void openBrowser(workflow)}>
+                      <Folder className="mr-2 h-4 w-4" /> Browse
+                    </Button>
+                  </div>
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor={`${workflow}-log`}>Log path</Label>
+                  <div className="flex gap-2">
+                    <Input
+                      id={`${workflow}-log`}
+                      value={form.logPath}
+                      onChange={(event) => updateForm(workflow, { logPath: event.target.value })}
+                      placeholder="/home/logs"
+                    />
+                    <Button type="button" variant="outline" onClick={() => void openBrowser(workflow)}>
+                      <Folder className="mr-2 h-4 w-4" /> Browse
+                    </Button>
+                  </div>
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor={`${workflow}-script`}>Script path</Label>
+                  <div className="flex gap-2">
+                    <Input
+                      id={`${workflow}-script`}
+                      value={form.scriptPath}
+                      onChange={(event) => updateForm(workflow, { scriptPath: event.target.value })}
+                      placeholder={DEFAULT_SEARCH_TILES_SCRIPT_PATH}
                     />
                     <Button type="button" variant="outline" onClick={() => void openBrowser(workflow)}>
                       <Folder className="mr-2 h-4 w-4" /> Browse
