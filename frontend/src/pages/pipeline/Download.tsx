@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState } from "react";
-import axios from "axios";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import mockSearchTilesLog from "@/utils/st_z60j63_mpqprzhh.log?raw";
 import osmJson from "@/utils/osm.json";
 import {
   Folder,
@@ -36,11 +36,7 @@ type WorkflowFormState = {
 type ServerPathEntry = {
   targetServerId?: string;
   serverId?: string;
-  inputPath?: string;
-  outputPath?: string;
   scriptPath?: string;
-  backupPath?: string;
-  logPath?: string;
 };
 
 type DownloadJob = {
@@ -52,10 +48,42 @@ type DownloadJob = {
   outputPath: string;
   status: JobStatus;
   requestedAt: string;
-  logs: string[];
-  logOffset: number;
-  logComplete: boolean;
   lastError?: string;
+};
+
+type JobLogState = {
+  lines: string[];
+  complete: boolean;
+  lastError?: string;
+  offset: number;
+  source: "static" | "remote" | "empty";
+};
+
+type WorkflowSummary = {
+  totalCount: number;
+  completedCount: number;
+  failedCount: number;
+  processingCount: number;
+  pendingCount: number;
+  completedSubRegionCount: number;
+  totalSubRegionCount: number;
+  downloadCompleted: boolean;
+  processingLabel?: string;
+  source: "static" | "remote" | "empty";
+  validatedStatus: JobStatus;
+  statusFiles: {
+    completed: string[];
+    failed: string[];
+    processing: string[];
+    pending: string[];
+  };
+};
+
+type SummaryStatusKey = "completed" | "failed" | "processing" | "pending";
+
+type SummaryCardSelection = {
+  workflow: WorkflowKey;
+  status: SummaryStatusKey;
 };
 
 type BrowserState = {
@@ -68,13 +96,14 @@ type BrowserState = {
   search: string;
 };
 
-const DOWNLOAD_WEBHOOK_URL = "https://sandbox.vmmaps.com/n8n/webhook-test/omn/download";
+const DOWNLOAD_WEBHOOK_URL = "https://sandbox.vmmaps.com/n8n/webhook/omn/download";
 const LIST_FOLDERS_URL = "https://sandbox.vmmaps.com/n8n/webhook/omn/list-folders";
 const RUN_ID_LOGS_URL = "https://sandbox.vmmaps.com/n8n/webhook/omn/runId-logs";
-const FORM_STORAGE_KEY = "pipeline-download-forms-v2";
-const JOBS_STORAGE_KEY = "pipeline-download-jobs-v2";
-const LOG_POLL_INTERVAL_MS = 4000;
-const LOG_REQUEST_TIMEOUT = 3000;
+const MAX_LOG_LINES = 25000;
+const STATUS_DETAIL_REGIONS_PER_PAGE = 12;
+const LOG_POLL_INTERVAL_MS = 3000;
+const LOG_REQUEST_TIMEOUT_MS = 10000;
+const DEFAULT_SEARCH_TILES_SCRIPT_PATH = "/home/gaaya/Projects/pipeline/";
 
 const workflowCopy: Record<
   WorkflowKey,
@@ -110,33 +139,52 @@ const defaultForms = (): Record<WorkflowKey, WorkflowFormState> => ({
   routing: emptyForm(),
 });
 
-const parseStoredForms = (): Record<WorkflowKey, WorkflowFormState> => {
-  if (typeof window === "undefined") return defaultForms();
+const ANSI_PATTERN = new RegExp(`${String.fromCharCode(27)}\\[[0-?]*[ -/]*[@-~]`, "g");
 
-  try {
-    const raw = window.localStorage.getItem(FORM_STORAGE_KEY);
-    if (!raw) return defaultForms();
-    const parsed = JSON.parse(raw) as Partial<Record<WorkflowKey, Partial<WorkflowFormState>>>;
-    return {
-      searchTiles: { ...emptyForm(), ...parsed.searchTiles },
-      routing: { ...emptyForm(), ...parsed.routing },
-    };
-  } catch {
-    return defaultForms();
-  }
+const stripAnsi = (value: string) => value.replace(ANSI_PATTERN, "");
+
+const sanitizeLogLine = (line: string) => stripAnsi(line).replace(/\s+/g, " ").trim();
+
+const buildStaticLogLines = (rawLog: string) => {
+  const seenProgressPrefixes = new Set<string>();
+
+  return rawLog
+    .split(/\r?\n/)
+    .map(sanitizeLogLine)
+    .filter(Boolean)
+    .filter((line) => !/^[?2004hl]+$/i.test(line))
+    .filter((line) => !/^[a-z0-9_-]+@.+:\/.+\$$/i.test(line))
+    .filter((line) => {
+      const progressMatch = line.match(/^(.*?\.osm\.pbf(?:\.\d+)?)\s+\d+%/i);
+      if (!progressMatch) return true;
+      const key = progressMatch[1];
+      if (seenProgressPrefixes.has(key)) return false;
+      seenProgressPrefixes.add(key);
+      return true;
+    })
+    .slice(-MAX_LOG_LINES);
 };
 
-const parseStoredJobs = (): DownloadJob[] => {
-  if (typeof window === "undefined") return [];
+const STATIC_SEARCH_TILES_LOG_LINES = buildStaticLogLines(mockSearchTilesLog);
 
-  try {
-    const raw = window.localStorage.getItem(JOBS_STORAGE_KEY);
-    if (!raw) return [];
-    const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? parsed : [];
-  } catch {
-    return [];
+const buildEmptyLogState = (): JobLogState => ({
+  lines: [],
+  complete: false,
+  offset: 0,
+  source: "empty",
+});
+
+const buildStaticLogStateForWorkflow = (workflow: WorkflowKey): JobLogState => {
+  if (workflow === "searchTiles") {
+    return {
+      lines: STATIC_SEARCH_TILES_LOG_LINES,
+      complete: false,
+      offset: STATIC_SEARCH_TILES_LOG_LINES.length,
+      source: "static",
+    };
   }
+
+  return buildEmptyLogState();
 };
 
 const makeRunId = (workflow: WorkflowKey) => {
@@ -175,151 +223,303 @@ const flattenServerPaths = (serverPaths: Record<string, ServerPathEntry[]> | Ser
   return Object.values(serverPaths).flat();
 };
 
-const normalizeLogLines = (payload: unknown): string[] => {
-  const wrapper = payload && typeof payload === "object" ? (payload as Record<string, unknown>) : undefined;
-  const body = wrapper?.data ?? payload;
-  const data = body && typeof body === "object" ? (body as Record<string, unknown>) : undefined;
-  const nested = data?.data && typeof data.data === "object" ? (data.data as Record<string, unknown>) : undefined;
-  const candidates = [
-    data?.logs,
-    data?.lines,
-    data?.logLines,
-    nested?.logs,
-    nested?.lines,
-    Array.isArray(body) ? body : null,
-  ];
-  const raw = candidates.find((item) => Array.isArray(item) || typeof item === "string");
+const canonicalizeOsmFileName = (rawFileName: string, parent?: string) => {
+  const normalizedFileName = rawFileName.replace(/\.\d+$/g, "");
+  const stem = normalizedFileName.replace(/\.osm\.pbf$/i, "");
 
-  if (Array.isArray(raw)) {
-    return raw
-      .map((item) => {
-        if (typeof item === "string") return item;
-        if (item && typeof item === "object") {
-          const candidate = (item as Record<string, unknown>).message
-            ?? (item as Record<string, unknown>).line
-            ?? (item as Record<string, unknown>).log;
-          if (typeof candidate === "string") return candidate;
-        }
-        return JSON.stringify(item);
-      })
-      .filter(Boolean);
-  }
+  if (!parent || !Array.isArray(osmJson[parent])) return `${stem}.osm.pbf`;
 
-  if (typeof raw === "string") return raw ? [raw] : [];
-  if (typeof data?.log === "string") return [data.log];
-  if (typeof data?.message === "string") return [data.message];
-  return [];
-};
+  const parentEntries = osmJson[parent] as string[];
+  if (parentEntries.includes(stem)) return `${stem}.osm.pbf`;
 
-const extractNewOffset = (payload: unknown): number | null => {
-  const wrapper = payload && typeof payload === "object" ? (payload as Record<string, unknown>) : undefined;
-  const body = wrapper?.data ?? payload;
-  const data = body && typeof body === "object" ? (body as Record<string, unknown>) : undefined;
-  const nested = data?.data && typeof data.data === "object" ? (data.data as Record<string, unknown>) : undefined;
-  const value = data?.newOffset ?? nested?.newOffset ?? data?.offset ?? nested?.offset;
-  const parsed = Number(value);
-  return Number.isFinite(parsed) ? parsed : null;
-};
+  const latestCandidate = stem.replace(/-\d{6,8}$/i, "-latest");
+  if (parentEntries.includes(latestCandidate)) return `${latestCandidate}.osm.pbf`;
 
-const extractLogCompleted = (payload: unknown): boolean => {
-  const wrapper = payload && typeof payload === "object" ? (payload as Record<string, unknown>) : undefined;
-  const body = wrapper?.data ?? payload;
-  const data = body && typeof body === "object" ? (body as Record<string, unknown>) : undefined;
-  const nested = data?.data && typeof data.data === "object" ? (data.data as Record<string, unknown>) : undefined;
-  const value = data?.completed ?? data?.complete ?? data?.done ?? data?.finished ?? nested?.completed ?? nested?.complete ?? nested?.done ?? nested?.finished;
-  return value === true || String(value).toLowerCase() === "true";
+  return `${stem}.osm.pbf`;
 };
 
 const normalizeOsmFilePath = (rawValue: string): string | null => {
-  const cleaned = String(rawValue || "").trim().replace(/[‘’“”'"\u2018\u2019\u201c\u201d]/g, "").replace(/\\/g, "/");
+  const cleaned = String(rawValue || "")
+    .trim()
+    .replace(/[‘’“”'"\u2018\u2019\u201c\u201d]/g, "")
+    .replace(/\\/g, "/")
+    .replace(/\.osm\.pbf\.\d+$/i, ".osm.pbf");
   const urlMatch = cleaned.match(/https?:\/\/[^/]+(\/.*)/i);
   const pathValue = urlMatch ? urlMatch[1] : cleaned;
   const segments = pathValue.split("/").filter(Boolean);
-  const fileIndex = segments.findIndex((segment) => segment.toLowerCase().endsWith(".osm.pbf"));
+  const fileIndex = segments.findIndex((segment) => segment.toLowerCase().includes(".osm.pbf"));
   if (fileIndex < 0) return null;
-  const fileName = segments[fileIndex];
-  if (fileIndex === 0) return `/${fileName}`;
-  const parent = segments[fileIndex - 1];
+  const parent = fileIndex === 0 ? undefined : segments[fileIndex - 1];
+  const fileName = canonicalizeOsmFileName(segments[fileIndex], parent);
+  if (!parent) return `/${fileName}`;
   return `/${parent}/${fileName}`;
 };
 
 const extractOsmFilePathFromLog = (line: string): string | null => {
   const downloadingMatch = line.match(/Downloading:\s*(\S+)/i);
-  if (downloadingMatch) {
-    return normalizeOsmFilePath(downloadingMatch[1]);
-  }
+  if (downloadingMatch) return normalizeOsmFilePath(downloadingMatch[1]);
 
-  const savedMatch = line.match(/[‘“"']?(.+?\.osm\.pbf)[’”"']?\s*saved/i);
-  if (savedMatch) {
-    return normalizeOsmFilePath(savedMatch[1]);
-  }
+  const savedMatch = line.match(/[‘“"']?(.+?\.osm\.pbf(?:\.\d+)?)[’”"']?\s*saved/i);
+  if (savedMatch) return normalizeOsmFilePath(savedMatch[1]);
 
-  const anyPathMatch = line.match(/([\w\-\/\.]+\.osm\.pbf)/i);
-  if (anyPathMatch) {
-    return normalizeOsmFilePath(anyPathMatch[1]);
-  }
+  const anyPathMatch = line.match(/([\w\-/.]+\.osm\.pbf(?:\.\d+)?)/i);
+  if (anyPathMatch) return normalizeOsmFilePath(anyPathMatch[1]);
 
   return null;
 };
 
-const isFailureLogLine = (line: string): boolean => /failed|error|abort|timeout|not found|permission|denied|403|404/i.test(line);
+const extractReferenceKeys = (lines: string[]) => {
+  const keys = new Set<string>();
 
-const getSearchTilesJobSummary = (job: DownloadJob) => {
+  lines.forEach((line) => {
+    const txtMatch = line.match(/\/([a-z-]+)\.txt/i);
+    if (txtMatch && osmJson[txtMatch[1]]) keys.add(txtMatch[1]);
+
+    const saveMatch = line.match(/Saving downloads to:\s*\S+\/([a-z-]+)/i);
+    if (saveMatch && osmJson[saveMatch[1]]) keys.add(saveMatch[1]);
+
+    const urlMatch = line.match(/download\.geofabrik\.de\/[\w-/]+\/([a-z-]+)\/[a-z0-9-]+\.osm\.pbf/i);
+    if (urlMatch && osmJson[urlMatch[1]]) keys.add(urlMatch[1]);
+  });
+
+  return Array.from(keys);
+};
+
+const extractCompletedSubRegions = (lines: string[]) => {
+  const completed = new Set<string>();
+
+  lines.forEach((line) => {
+    const match = line.match(/Completed processing for:\s*([a-z-]+)/i);
+    if (match) completed.add(match[1].toLowerCase());
+  });
+
+  return completed;
+};
+
+const hasDownloadCompletedLine = (lines: string[]) => lines.some((line) => /All downloads complete\./i.test(line));
+
+const extractObservedOsmFilePaths = (lines: string[]) => {
+  const paths = new Set<string>();
+
+  lines.forEach((line) => {
+    const normalizedPath = extractOsmFilePathFromLog(line);
+    if (normalizedPath) paths.add(normalizedPath);
+  });
+
+  return paths;
+};
+
+const extractReferenceKeysFromObservedPaths = (paths: Iterable<string>) => {
+  const keys = new Set<string>();
+
+  Array.from(paths).forEach((path) => {
+    const parts = path.split("/").filter(Boolean);
+    if (parts.length < 2) return;
+
+    const parentKey = parts[parts.length - 2]?.toLowerCase();
+    if (parentKey && osmJson[parentKey]) keys.add(parentKey);
+  });
+
+  return Array.from(keys);
+};
+
+const buildAllConfiguredExpectedFilePaths = () =>
+  new Set(
+    Object.entries(osmJson).flatMap(([key, fileNames]) =>
+      (Array.isArray(fileNames) ? fileNames : []).map((fileName) => `/${key}/${String(fileName)}.osm.pbf`),
+    ),
+  );
+
+const buildExpectedFilePaths = (lines: string[]) => {
+  if (lines.length > 0) return buildAllConfiguredExpectedFilePaths();
+
+  const observedPaths = extractObservedOsmFilePaths(lines);
+  const keys = Array.from(new Set([...extractReferenceKeys(lines), ...extractReferenceKeysFromObservedPaths(observedPaths)]));
+
+  if (keys.length > 0) {
+    return new Set(keys.flatMap((key) => (osmJson[key] ?? []).map((fileName) => `/${key}/${fileName}.osm.pbf`)));
+  }
+
+  return observedPaths;
+};
+
+const normalizeLogLines = (payload: unknown): string[] => {
+  const body = (payload as { data?: unknown })?.data ?? payload;
+  const record = body as Record<string, unknown>;
+  const candidates = [record?.logs, record?.lines, record?.logLines, (record?.data as Record<string, unknown> | undefined)?.logs, (record?.data as Record<string, unknown> | undefined)?.lines, Array.isArray(body) ? body : null];
+  const raw = candidates.find((candidate) => Array.isArray(candidate) || typeof candidate === "string");
+
+  if (Array.isArray(raw)) {
+    return buildStaticLogLines(
+      raw
+        .map((item) => (typeof item === "string" ? item : typeof item === "object" && item ? String((item as Record<string, unknown>).message ?? (item as Record<string, unknown>).line ?? (item as Record<string, unknown>).log ?? JSON.stringify(item)) : String(item)))
+        .join("\n"),
+    );
+  }
+
+  if (typeof raw === "string") return buildStaticLogLines(raw);
+  if (typeof record?.log === "string") return buildStaticLogLines(record.log);
+  if (typeof record?.message === "string") return buildStaticLogLines(record.message);
+  return [];
+};
+
+const extractNewOffset = (payload: unknown): number | null => {
+  const body = (payload as { data?: unknown })?.data ?? payload;
+  const record = body as Record<string, unknown>;
+  const nested = record?.data as Record<string, unknown> | undefined;
+  const value = record?.newOffset ?? nested?.newOffset ?? record?.offset ?? nested?.offset;
+  const nextOffset = Number(value);
+  return Number.isFinite(nextOffset) ? nextOffset : null;
+};
+
+const extractLogCompleted = (payload: unknown): boolean => {
+  const body = (payload as { data?: unknown })?.data ?? payload;
+  const record = body as Record<string, unknown>;
+  const nested = record?.data as Record<string, unknown> | undefined;
+  const value = record?.completed ?? record?.complete ?? record?.done ?? record?.finished ?? record?.isComplete ?? nested?.completed ?? nested?.complete ?? nested?.done ?? nested?.finished ?? nested?.isComplete;
+  return value === true || String(value).toLowerCase() === "true";
+};
+
+const pathToFileKey = (path: string) => path.split("/").filter(Boolean).pop()?.replace(/\.osm\.pbf$/i, "") ?? path;
+
+const pathToRegionKey = (path: string) => path.split("/").filter(Boolean).at(-2) ?? "-";
+
+const sortPathsByFileKey = (paths: Iterable<string>) =>
+  Array.from(new Set(paths)).sort((left, right) => pathToFileKey(left).localeCompare(pathToFileKey(right)));
+
+const groupPathsByRegion = (paths: string[]) => {
+  const grouped = paths.reduce<Record<string, string[]>>((accumulator, path) => {
+    const region = pathToRegionKey(path);
+    accumulator[region] = accumulator[region] ? [...accumulator[region], path] : [path];
+    return accumulator;
+  }, {});
+
+  return Object.entries(grouped)
+    .map(([region, regionPaths]) => ({ region, paths: sortPathsByFileKey(regionPaths) }))
+    .sort((left, right) => left.region.localeCompare(right.region));
+};
+
+const isFailureLogLine = (line: string): boolean => {
+  const normalized = line.trim();
+  if (!normalized) return false;
+
+  return /(\bfailed\b|\berror\b|\babort(?:ed)?\b|\btimeout\b|\bnot found\b|\bpermission\b|\bdenied\b|\b(?:http|status|response|code)\b[^\n]*\b(?:403|404|500)\b|\b(?:403|404|500)\b\s+(?:forbidden|not found|internal server error)\b)/i.test(
+    normalized,
+  );
+};
+
+const getSearchTilesSummary = (job: DownloadJob | null, logState?: JobLogState, fallbackSummary?: WorkflowSummary | null): WorkflowSummary => {
+  if (!job || !logState || logState.lines.length === 0) {
+    if (job && fallbackSummary) {
+      return fallbackSummary;
+    }
+
+    return {
+      totalCount: 0,
+      completedCount: 0,
+      failedCount: 0,
+      processingCount: 0,
+      pendingCount: 0,
+      completedSubRegionCount: 0,
+      totalSubRegionCount: 0,
+      downloadCompleted: false,
+      source: "empty",
+      validatedStatus: job?.status ?? "queued",
+      statusFiles: {
+        completed: [],
+        failed: [],
+        processing: [],
+        pending: [],
+      },
+    };
+  }
+
   const completedPaths = new Set<string>();
   const failedPaths = new Set<string>();
   const downloadingPaths = new Set<string>();
-  const allPathCandidates = new Set<string>();
 
-  job.logs.forEach((line) => {
+  logState.lines.forEach((line) => {
     const normalizedPath = extractOsmFilePathFromLog(line);
-    if (normalizedPath) {
-      allPathCandidates.add(normalizedPath);
-      if (/Downloading:/i.test(line)) {
-        downloadingPaths.add(normalizedPath);
-      }
-      if (/saved/i.test(line)) {
-        completedPaths.add(normalizedPath);
-      }
-      if (isFailureLogLine(line)) {
-        failedPaths.add(normalizedPath);
-      }
-    } else if (isFailureLogLine(line)) {
-      failedPaths.add("__unknown__");
+    if (!normalizedPath) {
+      if (isFailureLogLine(line)) failedPaths.add("__unknown__");
+      return;
     }
+
+    if (/Downloading:/i.test(line)) downloadingPaths.add(normalizedPath);
+    if (/saved/i.test(line)) completedPaths.add(normalizedPath);
+    if (isFailureLogLine(line)) failedPaths.add(normalizedPath);
   });
 
-  const countryKeys = new Set<string>();
-  Array.from(allPathCandidates).forEach((path) => {
-    const segments = path.split("/").filter(Boolean);
-    const candidate = segments.length > 1 && osmJson[segments[0]] ? segments[0] : segments.length > 1 && osmJson[segments[1]] ? segments[1] : segments[0];
-    if (candidate && osmJson[candidate]) {
-      countryKeys.add(candidate);
-    }
-  });
+  const referenceKeys = extractReferenceKeys(logState.lines);
+  const completedSubRegions = extractCompletedSubRegions(logState.lines);
+  const downloadCompleted = hasDownloadCompletedLine(logState.lines);
+  const expectedPaths = buildExpectedFilePaths(logState.lines);
+  const completedFilePaths = sortPathsByFileKey(
+    expectedPaths.size > 0 ? Array.from(completedPaths).filter((path) => expectedPaths.has(path)) : completedPaths,
+  );
+  const failedFilePaths = sortPathsByFileKey(
+    expectedPaths.size > 0 ? Array.from(failedPaths).filter((path) => path !== "__unknown__" && expectedPaths.has(path)) : Array.from(failedPaths).filter((path) => path !== "__unknown__"),
+  );
+  const processingPaths = sortPathsByFileKey(
+    Array.from(downloadingPaths).filter((path) => !completedPaths.has(path) && !failedPaths.has(path) && (!expectedPaths.size || expectedPaths.has(path))),
+  );
+  const pendingPaths = sortPathsByFileKey(
+    expectedPaths.size
+      ? Array.from(expectedPaths).filter((path) => !completedPaths.has(path) && !failedPaths.has(path) && !processingPaths.includes(path))
+      : [],
+  );
+  const pendingCount = pendingPaths.length;
+  const failedCount = failedFilePaths.length;
+  const totalCount = expectedPaths.size;
 
-  const knownFilePaths = new Set<string>();
-  countryKeys.forEach((key) => {
-    osmJson[key].forEach((fileName) => knownFilePaths.add(`/${key}/${fileName}`));
-  });
-
-  const processingPaths = Array.from(downloadingPaths).filter((path) => !completedPaths.has(path) && !failedPaths.has(path));
-  const pendingCount = knownFilePaths.size
-    ? Array.from(knownFilePaths).filter((path) => !completedPaths.has(path) && !failedPaths.has(path) && !processingPaths.includes(path)).length
-    : Math.max(0, Array.from(allPathCandidates).length - completedPaths.size - failedPaths.size - processingPaths.length);
+  let validatedStatus: JobStatus = "queued";
+  if (failedCount > 0) validatedStatus = "failed";
+  else if (downloadCompleted) validatedStatus = "completed";
+  else if (totalCount > 0 && completedFilePaths.length >= totalCount) validatedStatus = "completed";
+  else if (processingPaths.length > 0 || completedFilePaths.length > 0) validatedStatus = "running";
 
   return {
-    totalCount: knownFilePaths.size || allPathCandidates.size,
-    completedCount: completedPaths.size,
-    failedCount: failedPaths.has("__unknown__") ? failedPaths.size - 1 : failedPaths.size,
-    processingFile: processingPaths.length > 0 ? processingPaths[processingPaths.length - 1] : undefined,
+    totalCount,
+    completedCount: completedFilePaths.length,
+    failedCount,
+    processingCount: processingPaths.length,
     pendingCount,
+    completedSubRegionCount: completedSubRegions.size,
+    totalSubRegionCount: referenceKeys.length,
+    downloadCompleted,
+    processingLabel: processingPaths[processingPaths.length - 1],
+    source: logState.source,
+    validatedStatus,
+    statusFiles: {
+      completed: completedFilePaths,
+      failed: failedFilePaths,
+      processing: processingPaths,
+      pending: pendingPaths,
+    },
   };
 };
 
-const formatTime = (value: string) => {
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "-";
-  return date.toLocaleString();
+const getRoutingSummary = (job: DownloadJob | null, logState?: JobLogState): WorkflowSummary => {
+  const status = job?.status ?? "queued";
+  return {
+    totalCount: job ? 1 : 0,
+    completedCount: status === "completed" ? 1 : 0,
+    failedCount: status === "failed" ? 1 : 0,
+    processingCount: status === "running" ? 1 : 0,
+    pendingCount: status === "queued" ? 1 : 0,
+    completedSubRegionCount: 0,
+    totalSubRegionCount: 0,
+    downloadCompleted: status === "completed",
+    processingLabel: status === "running" ? `Run ${job?.runId}` : undefined,
+    source: logState?.source ?? "empty",
+    validatedStatus: status,
+    statusFiles: {
+      completed: status === "completed" && job ? [job.runId] : [],
+      failed: status === "failed" && job ? [job.runId] : [],
+      processing: status === "running" && job ? [job.runId] : [],
+      pending: status === "queued" && job ? [job.runId] : [],
+    },
+  };
 };
 
 const statusTone = (status: JobStatus) => {
@@ -333,6 +533,12 @@ const statusTone = (status: JobStatus) => {
     default:
       return "text-sky-600 border-sky-500/20 bg-sky-500/10";
   }
+};
+
+const formatTime = (value: string) => {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "-";
+  return date.toLocaleString();
 };
 
 function FolderBrowserModal({
@@ -366,7 +572,7 @@ function FolderBrowserModal({
             <Folder className="h-5 w-5 text-amber-600" />
             <h3 className="text-base font-semibold">Browse Output Folder</h3>
           </div>
-          <button type="button" onClick={onClose} className="rounded-md p-1 text-muted-foreground transition hover:bg-muted hover:text-foreground">
+          <button type="button" title="Close browser" aria-label="Close browser" onClick={onClose} className="rounded-md p-1 text-muted-foreground transition hover:bg-muted hover:text-foreground">
             <X className="h-5 w-5" />
           </button>
         </div>
@@ -435,19 +641,20 @@ function FolderBrowserModal({
 export default function Download() {
   const [servers, setServers] = useState<Server[]>([]);
   const [loadingServers, setLoadingServers] = useState(true);
-  const [forms, setForms] = useState<Record<WorkflowKey, WorkflowFormState>>(() => parseStoredForms());
-  const [jobs, setJobs] = useState<DownloadJob[]>(() => parseStoredJobs());
+  const [forms, setForms] = useState<Record<WorkflowKey, WorkflowFormState>>(() => defaultForms());
+  const [jobs, setJobs] = useState<Record<WorkflowKey, DownloadJob | null>>({ searchTiles: null, routing: null });
+  const [jobLogs, setJobLogs] = useState<Record<WorkflowKey, JobLogState>>({
+    searchTiles: buildEmptyLogState(),
+    routing: buildEmptyLogState(),
+  });
   const [submitting, setSubmitting] = useState<Record<WorkflowKey, boolean>>({ searchTiles: false, routing: false });
   const [refreshing, setRefreshing] = useState(false);
   const [browserState, setBrowserState] = useState<BrowserState | null>(null);
-
-  useEffect(() => {
-    window.localStorage.setItem(FORM_STORAGE_KEY, JSON.stringify(forms));
-  }, [forms]);
-
-  useEffect(() => {
-    window.localStorage.setItem(JOBS_STORAGE_KEY, JSON.stringify(jobs));
-  }, [jobs]);
+  const [selectedSummaryCard, setSelectedSummaryCard] = useState<SummaryCardSelection | null>(null);
+  const [selectedSummaryPage, setSelectedSummaryPage] = useState(1);
+  const [currentVersion, setCurrentVersion] = useState("");
+  const [storedSummaries, setStoredSummaries] = useState<Record<WorkflowKey, WorkflowSummary | null>>({ searchTiles: null, routing: null });
+  const persistSignatureRef = useRef<Record<WorkflowKey, string>>({ searchTiles: "", routing: "" });
 
   useEffect(() => {
     const fetchServers = async () => {
@@ -467,13 +674,187 @@ export default function Download() {
     void fetchServers();
   }, []);
 
-  const jobsByWorkflow = useMemo(() => ({
-    searchTiles: jobs.filter((job) => job.workflow === "searchTiles").sort((a, b) => Date.parse(b.requestedAt) - Date.parse(a.requestedAt)),
-    routing: jobs.filter((job) => job.workflow === "routing").sort((a, b) => Date.parse(b.requestedAt) - Date.parse(a.requestedAt)),
-  }), [jobs]);
+  useEffect(() => {
+    const hydrateDownloadStatuses = async () => {
+      try {
+        const versionResponse = await api.get("/admin-dashboard/pipeline-config/current-version");
+        const version = String(versionResponse.data?.data?.version || versionResponse.data?.version || "v1.0");
+        setCurrentVersion(version);
 
-  const latestSearchTilesJob = jobsByWorkflow.searchTiles[0] ?? null;
-  const searchTilesJobSummary = latestSearchTilesJob ? getSearchTilesJobSummary(latestSearchTilesJob) : null;
+        const statusResponse = await api.get("/admin-dashboard/download-status", { params: { version } });
+        const statuses = statusResponse.data?.data?.statuses ?? statusResponse.data?.statuses ?? [];
+        if (!Array.isArray(statuses) || statuses.length === 0) return;
+
+        const nextJobs: Record<WorkflowKey, DownloadJob | null> = { searchTiles: null, routing: null };
+        const nextSummaries: Record<WorkflowKey, WorkflowSummary | null> = { searchTiles: null, routing: null };
+        const nextLogs: Record<WorkflowKey, JobLogState> = { searchTiles: buildEmptyLogState(), routing: buildEmptyLogState() };
+
+        statuses.forEach((entry) => {
+          const workflow = entry?.workflow as WorkflowKey | undefined;
+          if (!workflow || (workflow !== "searchTiles" && workflow !== "routing")) return;
+
+          if (entry?.job) nextJobs[workflow] = entry.job as DownloadJob;
+          if (entry?.summary) nextSummaries[workflow] = entry.summary as WorkflowSummary;
+          if (entry?.logState) {
+            nextLogs[workflow] = {
+              ...buildEmptyLogState(),
+              complete: Boolean(entry.logState.complete),
+              lastError: typeof entry.logState.lastError === "string" ? entry.logState.lastError : undefined,
+              offset: Number(entry.logState.offset) || 0,
+              source: entry.logState.source === "remote" ? "remote" : entry.logState.source === "static" ? "static" : "empty",
+            };
+          }
+        });
+
+        setJobs((current) => ({
+          searchTiles: current.searchTiles ?? nextJobs.searchTiles,
+          routing: current.routing ?? nextJobs.routing,
+        }));
+        setStoredSummaries(nextSummaries);
+        setJobLogs((current) => ({
+          searchTiles: current.searchTiles.lines.length > 0 ? current.searchTiles : nextLogs.searchTiles,
+          routing: current.routing.lines.length > 0 ? current.routing : nextLogs.routing,
+        }));
+      } catch (error) {
+        console.error("Failed to hydrate download statuses", error);
+      }
+    };
+
+    void hydrateDownloadStatuses();
+  }, []);
+
+  const searchTilesSummary = useMemo(
+    () => getSearchTilesSummary(jobs.searchTiles, jobLogs.searchTiles, storedSummaries.searchTiles),
+    [jobs.searchTiles, jobLogs.searchTiles, storedSummaries.searchTiles],
+  );
+
+  const routingSummary = useMemo(
+    () => getRoutingSummary(jobs.routing, jobLogs.routing),
+    [jobs.routing, jobLogs.routing],
+  );
+
+  const pollWorkflowLogs = useCallback(async (workflow: WorkflowKey) => {
+    const job = jobs[workflow];
+    if (!job?.runId) return;
+
+    const currentLogState = jobLogs[workflow];
+
+    try {
+      const response = await fetch(RUN_ID_LOGS_URL, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          runId: job.runId,
+          workflow,
+          offset: currentLogState.offset,
+        }),
+        signal: AbortSignal.timeout(LOG_REQUEST_TIMEOUT_MS),
+      });
+
+      const data = await response.json().catch(() => null);
+      if (!response.ok) {
+        const message = typeof data?.message === "string" ? data.message : `Failed to fetch ${workflowCopy[workflow].label} logs.`;
+        throw new Error(message);
+      }
+
+      const newLines = normalizeLogLines(data);
+      const nextOffset = extractNewOffset(data);
+      const mergedLines = nextOffset !== null && nextOffset >= currentLogState.offset
+        ? buildStaticLogLines([...currentLogState.lines, ...newLines].join("\n"))
+        : newLines.length > 0
+          ? buildStaticLogLines(newLines.join("\n"))
+          : currentLogState.lines;
+      const completed = extractLogCompleted(data) || hasDownloadCompletedLine(mergedLines);
+
+      setJobLogs((current) => ({
+        ...current,
+        [workflow]: {
+          lines: mergedLines,
+          complete: completed,
+          offset: nextOffset ?? current[workflow].offset,
+          lastError: undefined,
+          source: "remote",
+        },
+      }));
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Failed to fetch logs.";
+      setJobLogs((current) => ({
+        ...current,
+        [workflow]: {
+          ...current[workflow],
+          lastError: message,
+          source: current[workflow].source === "empty" ? "remote" : current[workflow].source,
+        },
+      }));
+    }
+  }, [jobLogs, jobs]);
+
+  useEffect(() => {
+    const activeWorkflows = (["searchTiles", "routing"] as WorkflowKey[]).filter((workflow) => {
+      const job = jobs[workflow];
+      const logState = jobLogs[workflow];
+      return Boolean(job?.runId) && !logState.complete;
+    });
+
+    if (activeWorkflows.length === 0) return;
+
+    activeWorkflows.forEach((workflow) => {
+      void pollWorkflowLogs(workflow);
+    });
+
+    const intervalId = window.setInterval(() => {
+      activeWorkflows.forEach((workflow) => {
+        void pollWorkflowLogs(workflow);
+      });
+    }, LOG_POLL_INTERVAL_MS);
+
+    return () => window.clearInterval(intervalId);
+  }, [jobs, jobLogs, pollWorkflowLogs]);
+
+  useEffect(() => {
+    if (!currentVersion) return;
+
+    const persistStatuses = async () => {
+      const summaries: Record<WorkflowKey, WorkflowSummary> = {
+        searchTiles: searchTilesSummary,
+        routing: routingSummary,
+      };
+
+      for (const workflow of ["searchTiles", "routing"] as WorkflowKey[]) {
+        const job = jobs[workflow];
+        if (!job) continue;
+
+        const payload = {
+          version: currentVersion,
+          workflow,
+          runId: job.runId,
+          status: summaries[workflow].validatedStatus,
+          job,
+          summary: summaries[workflow],
+          logState: {
+            complete: jobLogs[workflow].complete,
+            lastError: jobLogs[workflow].lastError,
+            offset: jobLogs[workflow].offset,
+            source: jobLogs[workflow].source,
+          },
+        };
+
+        const signature = JSON.stringify(payload);
+        if (persistSignatureRef.current[workflow] === signature) continue;
+
+        persistSignatureRef.current[workflow] = signature;
+        setStoredSummaries((current) => ({ ...current, [workflow]: summaries[workflow] }));
+
+        try {
+          await api.put("/admin-dashboard/download-status", payload);
+        } catch (error) {
+          console.error(`Failed to persist ${workflow} download status`, error);
+        }
+      }
+    };
+
+    void persistStatuses();
+  }, [currentVersion, jobs, jobLogs, searchTilesSummary, routingSummary]);
 
   const updateForm = (workflow: WorkflowKey, patch: Partial<WorkflowFormState>) => {
     setForms((current) => ({
@@ -496,8 +877,7 @@ export default function Download() {
     const version = await fetchCurrentConfigVersion();
     const response = await api.post("/admin-dashboard/pipeline-config/server-path", { version });
     const serverPaths = response.data?.data?.serverPaths || response.data?.serverPaths || {};
-    const pathInfo = flattenServerPaths(serverPaths).find((path) => (path.targetServerId || path.serverId) === serverId);
-    return pathInfo;
+    return flattenServerPaths(serverPaths).find((path) => (path.targetServerId || path.serverId) === serverId);
   };
 
   const fetchServerFolders = async (server: Server, path: string) => {
@@ -555,70 +935,17 @@ export default function Download() {
 
   const selectBrowserItem = async (item: string) => {
     if (!browserState) return;
-    const nextPath = buildBrowserPath(browserState.basePath, item);
-    await navigateBrowser(nextPath);
+    await navigateBrowser(buildBrowserPath(browserState.basePath, item));
   };
-
-  const shouldStopPollingLogs = (currentOffset: number, nextOffset: number | null) => {
-    return nextOffset !== null && nextOffset === currentOffset;
-  };
-
-  const pollJobLogs = async (job: DownloadJob) => {
-    try {
-      const response = await axios.post(
-        RUN_ID_LOGS_URL,
-        {
-          runId: job.runId,
-          sId: job.runId,
-          targetServer: job.serverName,
-          offset: job.logOffset,
-        },
-        { timeout: LOG_REQUEST_TIMEOUT },
-      );
-
-      const nextLines = normalizeLogLines(response.data);
-      const nextOffset = extractNewOffset(response.data);
-      const completed = extractLogCompleted(response.data);
-      const offsetStable = shouldStopPollingLogs(job.logOffset, nextOffset);
-      const jobComplete = completed || offsetStable;
-
-      return {
-        ...job,
-        status: jobComplete ? "completed" : job.status === "queued" ? "running" : job.status,
-        logOffset: nextOffset ?? job.logOffset,
-        logComplete: jobComplete,
-        logs: nextLines.length > 0 ? [...job.logs, ...nextLines].slice(-400) : job.logs,
-      };
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "Failed to load logs.";
-      return {
-        ...job,
-        lastError: message,
-        status: job.status === "queued" ? "running" : job.status,
-        logs: [...job.logs, `${new Date().toLocaleTimeString()} ${message}`].slice(-400),
-      };
-    }
-  };
-
-  useEffect(() => {
-    const pendingJobs = jobs.filter((job) => !job.logComplete && job.status !== "failed");
-    if (pendingJobs.length === 0) return undefined;
-
-    const intervalId = window.setInterval(() => {
-      void (async () => {
-        const updates = await Promise.all(pendingJobs.map((job) => pollJobLogs(job)));
-        setJobs((current) => current.map((job) => updates.find((update) => update.id === job.id) ?? job));
-      })();
-    }, LOG_POLL_INTERVAL_MS);
-
-    return () => window.clearInterval(intervalId);
-  }, [jobs]);
 
   const refreshLogs = async () => {
     setRefreshing(true);
     try {
-      const updates = await Promise.all(jobs.map((job) => pollJobLogs(job)));
-      setJobs((current) => current.map((job) => updates.find((update) => update.id === job.id) ?? job));
+      await Promise.all(
+        (["searchTiles", "routing"] as WorkflowKey[])
+          .filter((workflow) => Boolean(jobs[workflow]?.runId))
+          .map((workflow) => pollWorkflowLogs(workflow)),
+      );
     } finally {
       setRefreshing(false);
     }
@@ -646,19 +973,23 @@ export default function Download() {
       workflowLabel: workflowCopy[workflow].label,
       serverName: server.name,
       outputPath: normalizeBrowsePath(form.outputPath),
-      status: "queued",
+      status: workflow === "searchTiles" ? "running" : "queued",
       requestedAt: new Date().toISOString(),
-      logs: [`${new Date().toLocaleTimeString()} Run created: ${runId}`],
-      logOffset: 0,
-      logComplete: false,
     };
 
     setSubmitting((current) => ({ ...current, [workflow]: true }));
-    setJobs((current) => [provisionalJob, ...current]);
+    setJobs((current) => ({ ...current, [workflow]: provisionalJob }));
+    setStoredSummaries((current) => ({ ...current, [workflow]: null }));
+    setJobLogs((current) => ({
+      ...current,
+      [workflow]: workflow === "searchTiles"
+        ? { ...buildEmptyLogState(), source: "remote" }
+        : { ...buildEmptyLogState(), source: "remote" },
+    }));
 
     try {
       const pathInfo = await fetchServerPathForServer(server._id || server.id);
-      const scriptPath = String(pathInfo?.scriptPath || "").trim();
+      const scriptPath = String(pathInfo?.scriptPath || (workflow === "searchTiles" ? DEFAULT_SEARCH_TILES_SCRIPT_PATH : "")).trim();
 
       if (!scriptPath) {
         throw new Error("No script path is configured for the selected server.");
@@ -697,31 +1028,23 @@ export default function Download() {
         throw new Error(message);
       }
 
-      const responseLines = normalizeLogLines(data);
-      setJobs((current) => current.map((job) => {
-        if (job.id !== provisionalJob.id) return job;
-        return {
-          ...job,
-          status: "running",
-          logs: [
-            ...job.logs,
-            `${new Date().toLocaleTimeString()} Download request submitted`,
-            ...responseLines,
-          ].slice(-400),
-        };
+      setJobs((current) => ({
+        ...current,
+        [workflow]: current[workflow] ? { ...current[workflow], status: "running", lastError: undefined } : current[workflow],
       }));
       toast.success(`${workflowCopy[workflow].label} download started.`);
     } catch (error) {
       const message = error instanceof Error ? error.message : "Failed to start download.";
-      setJobs((current) => current.map((job) => {
-        if (job.id !== provisionalJob.id) return job;
-        return {
-          ...job,
-          status: "failed",
+      setJobs((current) => ({
+        ...current,
+        [workflow]: current[workflow] ? { ...current[workflow], status: "failed", lastError: message } : current[workflow],
+      }));
+      setJobLogs((current) => ({
+        ...current,
+        [workflow]: {
+          ...current[workflow],
           lastError: message,
-          logComplete: true,
-          logs: [...job.logs, `${new Date().toLocaleTimeString()} ${message}`].slice(-400),
-        };
+        },
       }));
       toast.error(message);
     } finally {
@@ -735,7 +1058,7 @@ export default function Download() {
         <div className="space-y-2">
           <h1 className="text-3xl font-semibold tracking-tight text-foreground">Search & Tiles and Routing downloads</h1>
           <p className="max-w-3xl text-sm leading-6 text-muted-foreground">
-            Select a server, browse the destination folder, start the download, and monitor logs from the generated runId.
+            Select a server, browse the destination folder, start the download, and validate the output against the static log and static OSM configuration.
           </p>
         </div>
       </section>
@@ -819,48 +1142,176 @@ export default function Download() {
         })}
       </section>
 
+      <section className="grid gap-6 xl:grid-cols-2">
+        {([
+          ["searchTiles", jobs.searchTiles, searchTilesSummary],
+          ["routing", jobs.routing, routingSummary],
+        ] as const).map(([workflow, latestJob, summary]) => (
+          <Card key={`${workflow}-summary`} className="border-border/60 shadow-sm">
+            <CardHeader>
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <CardTitle>{workflowCopy[workflow].label} activity</CardTitle>
+                  <CardDescription>{latestJob ? `Latest run ${latestJob.runId}` : "No run started yet."}</CardDescription>
+                </div>
+                {summary.source === "static" ? <Badge variant="secondary">Static log</Badge> : null}
+                {summary.source === "remote" ? <Badge variant="secondary">Live log</Badge> : null}
+              </div>
+            </CardHeader>
+            <CardContent>
+              {latestJob ? (
+                <div className="grid gap-3 sm:grid-cols-4">
+                  {([
+                    ["completed", "Completed", summary.completedCount, undefined],
+                    ["failed", "Failed", summary.failedCount, undefined],
+                    ["processing", "Processing", summary.processingCount, summary.processingLabel ?? "No active item"],
+                    ["pending", "Pending", summary.pendingCount, undefined],
+                  ] as const).map(([statusKey, label, value, helperText]) => {
+                    const isSelected = selectedSummaryCard?.workflow === workflow && selectedSummaryCard.status === statusKey;
+                    const hasFiles = summary.statusFiles[statusKey].length > 0;
+
+                    return (
+                      <button
+                        key={`${workflow}-${statusKey}`}
+                        type="button"
+                        onClick={() => {
+                          setSelectedSummaryCard(isSelected ? null : { workflow, status: statusKey });
+                          setSelectedSummaryPage(1);
+                        }}
+                        className={`rounded-2xl border border-border/70 bg-slate-950/80 p-4 text-left transition ${hasFiles ? "hover:border-primary/50 hover:bg-slate-900" : "cursor-default"} ${isSelected ? "border-primary/60 ring-1 ring-primary/40" : ""}`}
+                      >
+                        <p className="text-xs uppercase tracking-[0.18em] text-slate-400">{label}</p>
+                        <p className="mt-3 text-2xl font-semibold text-white">{value}</p>
+                        <p className="mt-1 break-words text-xs text-slate-300">{helperText ?? (hasFiles ? "Click to inspect files" : "No files in this state")}</p>
+                      </button>
+                    );
+                  })}
+                </div>
+              ) : (
+                <div className="rounded-2xl border border-dashed border-border/70 bg-muted/30 p-8 text-center text-sm text-muted-foreground">
+                  No summary available yet.
+                </div>
+              )}
+              {latestJob && selectedSummaryCard?.workflow === workflow ? (
+                (() => {
+                  const groupedFiles = groupPathsByRegion(summary.statusFiles[selectedSummaryCard.status]);
+                  const totalPages = Math.max(1, Math.ceil(groupedFiles.length / STATUS_DETAIL_REGIONS_PER_PAGE));
+                  const currentPage = Math.min(selectedSummaryPage, totalPages);
+                  const pageStart = (currentPage - 1) * STATUS_DETAIL_REGIONS_PER_PAGE;
+                  const visibleGroups = groupedFiles.slice(pageStart, pageStart + STATUS_DETAIL_REGIONS_PER_PAGE);
+
+                  return (
+                    <div className="mt-4 rounded-2xl border border-border/60 bg-muted/20 p-4">
+                      <div className="flex flex-wrap items-center justify-between gap-3">
+                        <div>
+                          <p className="text-sm font-medium capitalize">{selectedSummaryCard.status} files</p>
+                          <p className="text-xs text-muted-foreground">Grouped by region with paginated results.</p>
+                        </div>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <Badge variant="outline">Files: {summary.statusFiles[selectedSummaryCard.status].length}</Badge>
+                          <Badge variant="outline">Regions: {groupedFiles.length}</Badge>
+                        </div>
+                      </div>
+                      <div className="mt-3 overflow-hidden rounded-xl border border-border/60 bg-background">
+                        <ScrollArea className="max-h-[32rem]">
+                          {visibleGroups.length > 0 ? (
+                            <div className="divide-y divide-border/50">
+                              {visibleGroups.map((group) => (
+                                <div key={`${selectedSummaryCard.status}-${group.region}`} className="p-4">
+                                  <div className="mb-3 flex items-center justify-between gap-3">
+                                    <div>
+                                      <p className="font-medium">{group.region}</p>
+                                      <p className="text-xs text-muted-foreground">{group.paths.length} files</p>
+                                    </div>
+                                    <Badge variant="secondary">{group.paths.length}</Badge>
+                                  </div>
+                                  <table className="w-full text-left text-sm">
+                                    <thead>
+                                      <tr className="border-b border-border/60">
+                                        <th className="px-4 py-3 font-medium text-muted-foreground">File</th>
+                                        <th className="px-4 py-3 font-medium text-muted-foreground">Path</th>
+                                      </tr>
+                                    </thead>
+                                    <tbody>
+                                      {group.paths.map((path) => (
+                                        <tr key={`${group.region}-${path}`} className="border-b border-border/40 last:border-b-0">
+                                          <td className="px-4 py-3 align-top font-medium">{pathToFileKey(path)}</td>
+                                          <td className="px-4 py-3 align-top font-mono text-xs text-muted-foreground">{path}</td>
+                                        </tr>
+                                      ))}
+                                    </tbody>
+                                  </table>
+                                </div>
+                              ))}
+                            </div>
+                          ) : (
+                            <div className="px-4 py-6 text-center text-sm text-muted-foreground">No files in this state.</div>
+                          )}
+                        </ScrollArea>
+                      </div>
+                      {groupedFiles.length > STATUS_DETAIL_REGIONS_PER_PAGE ? (
+                        <div className="mt-3 flex items-center justify-between gap-3">
+                          <p className="text-xs text-muted-foreground">
+                            Page {currentPage} of {totalPages}
+                          </p>
+                          <div className="flex items-center gap-2">
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              onClick={() => setSelectedSummaryPage((page) => Math.max(1, page - 1))}
+                              disabled={currentPage === 1}
+                            >
+                              Previous
+                            </Button>
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              onClick={() => setSelectedSummaryPage((page) => Math.min(totalPages, page + 1))}
+                              disabled={currentPage === totalPages}
+                            >
+                              Next
+                            </Button>
+                          </div>
+                        </div>
+                      ) : null}
+                    </div>
+                  );
+                })()
+              ) : null}
+              {latestJob ? (
+                <div className="mt-4 flex flex-wrap items-center gap-2 text-sm">
+                  <Badge variant="outline">Log status: {summary.validatedStatus}</Badge>
+                  {summary.totalCount > 0 ? <Badge variant="outline">Expected files: {summary.totalCount}</Badge> : null}
+                  {workflow === "searchTiles" ? <Badge variant="outline">Completed files: {summary.completedCount}</Badge> : null}
+                  {workflow === "searchTiles" && summary.totalSubRegionCount > 0 ? <Badge variant="outline">Sub-regions: {summary.completedSubRegionCount}/{summary.totalSubRegionCount}</Badge> : null}
+                  {workflow === "searchTiles" && summary.downloadCompleted ? <Badge variant="outline">Download completed</Badge> : null}
+                </div>
+              ) : null}
+            </CardContent>
+          </Card>
+        ))}
+      </section>
+
       <section className="flex items-center justify-between">
         <div>
-          <h2 className="text-lg font-semibold">Run activity</h2>
-          <p className="text-sm text-muted-foreground">Search & Tiles counts appear above the log panels.</p>
+          <h2 className="text-lg font-semibold">Run logs</h2>
+          <p className="text-sm text-muted-foreground">Only the latest run per workflow is shown. Logs are polled from the runId log webhook.</p>
         </div>
-        <Button variant="outline" onClick={() => void refreshLogs()} disabled={refreshing || jobs.length === 0}>
+        <Button variant="outline" onClick={() => void refreshLogs()} disabled={refreshing || !jobs.searchTiles}>
           {refreshing ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RefreshCw className="mr-2 h-4 w-4" />}
           Refresh logs
         </Button>
       </section>
 
       <section className="rounded-3xl border border-border/60 bg-card p-4 shadow-sm">
-        {searchTilesJobSummary ? (
-          <div className="grid gap-3 sm:grid-cols-4">
-            <div className="rounded-2xl border border-border/70 bg-slate-950/80 p-4">
-              <p className="text-xs uppercase tracking-[0.18em] text-slate-400">Completed</p>
-              <p className="mt-3 text-2xl font-semibold text-white">{searchTilesJobSummary.completedCount}</p>
-            </div>
-            <div className="rounded-2xl border border-border/70 bg-slate-950/80 p-4">
-              <p className="text-xs uppercase tracking-[0.18em] text-slate-400">Failed</p>
-              <p className="mt-3 text-2xl font-semibold text-white">{searchTilesJobSummary.failedCount}</p>
-            </div>
-            <div className="rounded-2xl border border-border/70 bg-slate-950/80 p-4">
-              <p className="text-xs uppercase tracking-[0.18em] text-slate-400">Processing</p>
-              <p className="mt-3 break-words text-sm font-medium text-white">
-                {searchTilesJobSummary.processingFile ?? "No active download"}
-              </p>
-            </div>
-            <div className="rounded-2xl border border-border/70 bg-slate-950/80 p-4">
-              <p className="text-xs uppercase tracking-[0.18em] text-slate-400">Pending</p>
-              <p className="mt-3 text-2xl font-semibold text-white">{searchTilesJobSummary.pendingCount}</p>
-            </div>
-          </div>
-        ) : (
-          <div className="rounded-2xl border border-dashed border-border/70 bg-muted/30 p-8 text-center text-sm text-muted-foreground">
-            No Search & Tiles summary available yet.
-          </div>
-        )}
-
-        <div className="mt-6 grid gap-6 xl:grid-cols-2">
+        <div className="grid gap-6 xl:grid-cols-2">
           {(["searchTiles", "routing"] as WorkflowKey[]).map((workflow) => {
-            const workflowJobs = jobsByWorkflow[workflow];
+            const job = jobs[workflow];
+            const logState = jobLogs[workflow];
+            const displayStatus = workflow === "searchTiles" ? searchTilesSummary.validatedStatus : routingSummary.validatedStatus;
+
             return (
               <Card key={`${workflow}-logs`} className="border-border/60 shadow-sm">
                 <CardHeader>
@@ -868,42 +1319,41 @@ export default function Download() {
                     <TerminalSquare className="h-4 w-4 text-muted-foreground" />
                     <CardTitle>{workflowCopy[workflow].label} logs</CardTitle>
                   </div>
-                  <CardDescription>Logs are keyed by the generated runId.</CardDescription>
+                  <CardDescription>Latest run only.</CardDescription>
                 </CardHeader>
                 <CardContent>
-                  {workflowJobs.length === 0 ? (
+                  {!job ? (
                     <div className="rounded-2xl border border-dashed border-border/70 bg-muted/30 p-8 text-center text-sm text-muted-foreground">
-                      No runs started yet.
+                      No run started yet.
                     </div>
                   ) : (
-                    <div className="space-y-4">
-                      {workflowJobs.map((job) => (
-                        <div key={job.id} className="rounded-2xl border border-border/60 bg-background">
-                          <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border/60 px-4 py-3">
-                            <div className="flex flex-wrap items-center gap-2">
-                              <Badge variant="outline">{job.runId}</Badge>
-                              <span className={`inline-flex items-center rounded-full border px-2.5 py-1 text-xs font-medium ${statusTone(job.status)}`}>
-                                {job.status}
-                              </span>
-                            </div>
-                            <div className="text-xs text-muted-foreground">
-                              {job.serverName} · {formatTime(job.requestedAt)}
-                            </div>
-                          </div>
-                          <ScrollArea className="h-64 bg-slate-950 text-slate-100">
-                            <div className="space-y-2 p-4 font-mono text-xs leading-6">
-                              {job.logs.length === 0 ? (
-                                <p className="text-slate-400">Waiting for logs...</p>
-                              ) : (
-                                job.logs.map((line, index) => (
-                                  <p key={`${job.id}-${index}`} className="break-words text-slate-200">{line}</p>
-                                ))
-                              )}
-                              {job.lastError ? <p className="text-rose-300">{job.lastError}</p> : null}
-                            </div>
-                          </ScrollArea>
+                    <div className="rounded-2xl border border-border/60 bg-background">
+                      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border/60 px-4 py-3">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <Badge variant="outline">{job.runId}</Badge>
+                          <span className={`inline-flex items-center rounded-full border px-2.5 py-1 text-xs font-medium ${statusTone(displayStatus)}`}>
+                            {displayStatus}
+                          </span>
+                          {logState.source === "static" ? <Badge variant="secondary">Static</Badge> : null}
+                          {logState.source === "remote" ? <Badge variant="secondary">Live</Badge> : null}
                         </div>
-                      ))}
+                        <div className="text-xs text-muted-foreground">
+                          {job.serverName} · {formatTime(job.requestedAt)}
+                        </div>
+                      </div>
+                      <ScrollArea className="h-64 bg-slate-950 text-slate-100">
+                        <div className="space-y-2 p-4 font-mono text-xs leading-6">
+                          {logState.lines.length === 0 ? (
+                            <p className="text-slate-400">No log output available for this workflow yet.</p>
+                          ) : (
+                            logState.lines.map((line, index) => (
+                              <p key={`${workflow}-${index}`} className="break-words text-slate-200">{line}</p>
+                            ))
+                          )}
+                          {job.lastError ? <p className="text-rose-300">{job.lastError}</p> : null}
+                          {logState.lastError ? <p className="text-rose-300">{logState.lastError}</p> : null}
+                        </div>
+                      </ScrollArea>
                     </div>
                   )}
                 </CardContent>

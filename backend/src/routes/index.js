@@ -10,6 +10,7 @@ const serverRoutes = require('./serverRoutes');
 const generationRoutes = require('./generationRoutes');
 const dataPipelineRoutes = require('./dataPipelineRoutes');
 const pipelineConfigRoutes = require('./pipelineConfigRoutes');
+const downloadStatusRoutes = require('./downloadStatusRoutes');
 const adminDashboardAuthRoutes = require('./adminDashboardAuthRoutes');
 const adminDashboardUserRoutes = require('./adminDashboardUserRoutes');
 const contributionRoutes = require('./contributionRoutes');
@@ -30,6 +31,7 @@ router.use('/servers', serverRoutes);
 router.use('/generations', generationRoutes);
 router.use('/data-pipeline', dataPipelineRoutes);
 router.use('/pipeline-config', pipelineConfigRoutes);
+router.use('/download-status', downloadStatusRoutes);
 router.use('/validation', validationRoutes);
 router.use('/service-health', serviceHealthRoutes);
 
