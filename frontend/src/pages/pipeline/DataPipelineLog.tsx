@@ -799,8 +799,6 @@ export default function DataPipelineLog({ runId }: { runId?: string }) {
                         <div className="text-xs text-muted-foreground mt-0.5">{formatDate(created)}</div>
                         <div className="text-xs text-muted-foreground">{timeAgo(created)}</div>
                       </div>
-                      {/* ★ Idea 1: overall status badge on each run item */}
-                      <StatusPill status={status} size="sm" />
                     </div>
                   </button>
                 );

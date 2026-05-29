@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import axios from "axios";
+import osmJson from "@/utils/osm.json";
 import {
   Folder,
   Home,
@@ -226,6 +227,92 @@ const extractLogCompleted = (payload: unknown): boolean => {
   return value === true || String(value).toLowerCase() === "true";
 };
 
+const normalizeOsmFilePath = (rawValue: string): string | null => {
+  const cleaned = String(rawValue || "").trim().replace(/[‘’“”'"\u2018\u2019\u201c\u201d]/g, "").replace(/\\/g, "/");
+  const urlMatch = cleaned.match(/https?:\/\/[^/]+(\/.*)/i);
+  const pathValue = urlMatch ? urlMatch[1] : cleaned;
+  const segments = pathValue.split("/").filter(Boolean);
+  const fileIndex = segments.findIndex((segment) => segment.toLowerCase().endsWith(".osm.pbf"));
+  if (fileIndex < 0) return null;
+  const fileName = segments[fileIndex];
+  if (fileIndex === 0) return `/${fileName}`;
+  const parent = segments[fileIndex - 1];
+  return `/${parent}/${fileName}`;
+};
+
+const extractOsmFilePathFromLog = (line: string): string | null => {
+  const downloadingMatch = line.match(/Downloading:\s*(\S+)/i);
+  if (downloadingMatch) {
+    return normalizeOsmFilePath(downloadingMatch[1]);
+  }
+
+  const savedMatch = line.match(/[‘“"']?(.+?\.osm\.pbf)[’”"']?\s*saved/i);
+  if (savedMatch) {
+    return normalizeOsmFilePath(savedMatch[1]);
+  }
+
+  const anyPathMatch = line.match(/([\w\-\/\.]+\.osm\.pbf)/i);
+  if (anyPathMatch) {
+    return normalizeOsmFilePath(anyPathMatch[1]);
+  }
+
+  return null;
+};
+
+const isFailureLogLine = (line: string): boolean => /failed|error|abort|timeout|not found|permission|denied|403|404/i.test(line);
+
+const getSearchTilesJobSummary = (job: DownloadJob) => {
+  const completedPaths = new Set<string>();
+  const failedPaths = new Set<string>();
+  const downloadingPaths = new Set<string>();
+  const allPathCandidates = new Set<string>();
+
+  job.logs.forEach((line) => {
+    const normalizedPath = extractOsmFilePathFromLog(line);
+    if (normalizedPath) {
+      allPathCandidates.add(normalizedPath);
+      if (/Downloading:/i.test(line)) {
+        downloadingPaths.add(normalizedPath);
+      }
+      if (/saved/i.test(line)) {
+        completedPaths.add(normalizedPath);
+      }
+      if (isFailureLogLine(line)) {
+        failedPaths.add(normalizedPath);
+      }
+    } else if (isFailureLogLine(line)) {
+      failedPaths.add("__unknown__");
+    }
+  });
+
+  const countryKeys = new Set<string>();
+  Array.from(allPathCandidates).forEach((path) => {
+    const segments = path.split("/").filter(Boolean);
+    const candidate = segments.length > 1 && osmJson[segments[0]] ? segments[0] : segments.length > 1 && osmJson[segments[1]] ? segments[1] : segments[0];
+    if (candidate && osmJson[candidate]) {
+      countryKeys.add(candidate);
+    }
+  });
+
+  const knownFilePaths = new Set<string>();
+  countryKeys.forEach((key) => {
+    osmJson[key].forEach((fileName) => knownFilePaths.add(`/${key}/${fileName}`));
+  });
+
+  const processingPaths = Array.from(downloadingPaths).filter((path) => !completedPaths.has(path) && !failedPaths.has(path));
+  const pendingCount = knownFilePaths.size
+    ? Array.from(knownFilePaths).filter((path) => !completedPaths.has(path) && !failedPaths.has(path) && !processingPaths.includes(path)).length
+    : Math.max(0, Array.from(allPathCandidates).length - completedPaths.size - failedPaths.size - processingPaths.length);
+
+  return {
+    totalCount: knownFilePaths.size || allPathCandidates.size,
+    completedCount: completedPaths.size,
+    failedCount: failedPaths.has("__unknown__") ? failedPaths.size - 1 : failedPaths.size,
+    processingFile: processingPaths.length > 0 ? processingPaths[processingPaths.length - 1] : undefined,
+    pendingCount,
+  };
+};
+
 const formatTime = (value: string) => {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return "-";
@@ -382,6 +469,9 @@ export default function Download() {
     routing: jobs.filter((job) => job.workflow === "routing").sort((a, b) => Date.parse(b.requestedAt) - Date.parse(a.requestedAt)),
   }), [jobs]);
 
+  const latestSearchTilesJob = jobsByWorkflow.searchTiles[0] ?? null;
+  const searchTilesJobSummary = latestSearchTilesJob ? getSearchTilesJobSummary(latestSearchTilesJob) : null;
+
   const updateForm = (workflow: WorkflowKey, patch: Partial<WorkflowFormState>) => {
     setForms((current) => ({
       ...current,
@@ -466,6 +556,10 @@ export default function Download() {
     await navigateBrowser(nextPath);
   };
 
+  const shouldStopPollingLogs = (currentOffset: number, nextOffset: number | null) => {
+    return nextOffset !== null && nextOffset === currentOffset;
+  };
+
   const pollJobLogs = async (job: DownloadJob) => {
     try {
       const response = await axios.post(
@@ -482,12 +576,14 @@ export default function Download() {
       const nextLines = normalizeLogLines(response.data);
       const nextOffset = extractNewOffset(response.data);
       const completed = extractLogCompleted(response.data);
+      const offsetStable = shouldStopPollingLogs(job.logOffset, nextOffset);
+      const jobComplete = completed || offsetStable;
 
       return {
         ...job,
-        status: completed ? "completed" : job.status === "queued" ? "running" : job.status,
+        status: jobComplete ? "completed" : job.status === "queued" ? "running" : job.status,
         logOffset: nextOffset ?? job.logOffset,
-        logComplete: completed,
+        logComplete: jobComplete,
         logs: nextLines.length > 0 ? [...job.logs, ...nextLines].slice(-400) : job.logs,
       };
     } catch (error) {
@@ -705,8 +801,8 @@ export default function Download() {
 
       <section className="flex items-center justify-between">
         <div>
-          <h2 className="text-lg font-semibold">Run logs</h2>
-          <p className="text-sm text-muted-foreground">Each download creates a runId and streams logs into the matching panel below.</p>
+          <h2 className="text-lg font-semibold">Run activity</h2>
+          <p className="text-sm text-muted-foreground">Search & Tiles counts appear above the log panels.</p>
         </div>
         <Button variant="outline" onClick={() => void refreshLogs()} disabled={refreshing || jobs.length === 0}>
           {refreshing ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RefreshCw className="mr-2 h-4 w-4" />}
@@ -714,58 +810,87 @@ export default function Download() {
         </Button>
       </section>
 
-      <section className="grid gap-6 xl:grid-cols-2">
-        {(["searchTiles", "routing"] as WorkflowKey[]).map((workflow) => {
-          const workflowJobs = jobsByWorkflow[workflow];
-          return (
-            <Card key={`${workflow}-logs`} className="border-border/60 shadow-sm">
-              <CardHeader>
-                <div className="flex items-center gap-2">
-                  <TerminalSquare className="h-4 w-4 text-muted-foreground" />
-                  <CardTitle>{workflowCopy[workflow].label} logs</CardTitle>
-                </div>
-                <CardDescription>Logs are keyed by the generated runId.</CardDescription>
-              </CardHeader>
-              <CardContent>
-                {workflowJobs.length === 0 ? (
-                  <div className="rounded-2xl border border-dashed border-border/70 bg-muted/30 p-8 text-center text-sm text-muted-foreground">
-                    No runs started yet.
+      <section className="rounded-3xl border border-border/60 bg-card p-4 shadow-sm">
+        {searchTilesJobSummary ? (
+          <div className="grid gap-3 sm:grid-cols-4">
+            <div className="rounded-2xl border border-border/70 bg-slate-950/80 p-4">
+              <p className="text-xs uppercase tracking-[0.18em] text-slate-400">Completed</p>
+              <p className="mt-3 text-2xl font-semibold text-white">{searchTilesJobSummary.completedCount}</p>
+            </div>
+            <div className="rounded-2xl border border-border/70 bg-slate-950/80 p-4">
+              <p className="text-xs uppercase tracking-[0.18em] text-slate-400">Failed</p>
+              <p className="mt-3 text-2xl font-semibold text-white">{searchTilesJobSummary.failedCount}</p>
+            </div>
+            <div className="rounded-2xl border border-border/70 bg-slate-950/80 p-4">
+              <p className="text-xs uppercase tracking-[0.18em] text-slate-400">Processing</p>
+              <p className="mt-3 break-words text-sm font-medium text-white">
+                {searchTilesJobSummary.processingFile ?? "No active download"}
+              </p>
+            </div>
+            <div className="rounded-2xl border border-border/70 bg-slate-950/80 p-4">
+              <p className="text-xs uppercase tracking-[0.18em] text-slate-400">Pending</p>
+              <p className="mt-3 text-2xl font-semibold text-white">{searchTilesJobSummary.pendingCount}</p>
+            </div>
+          </div>
+        ) : (
+          <div className="rounded-2xl border border-dashed border-border/70 bg-muted/30 p-8 text-center text-sm text-muted-foreground">
+            No Search & Tiles summary available yet.
+          </div>
+        )}
+
+        <div className="mt-6 grid gap-6 xl:grid-cols-2">
+          {(["searchTiles", "routing"] as WorkflowKey[]).map((workflow) => {
+            const workflowJobs = jobsByWorkflow[workflow];
+            return (
+              <Card key={`${workflow}-logs`} className="border-border/60 shadow-sm">
+                <CardHeader>
+                  <div className="flex items-center gap-2">
+                    <TerminalSquare className="h-4 w-4 text-muted-foreground" />
+                    <CardTitle>{workflowCopy[workflow].label} logs</CardTitle>
                   </div>
-                ) : (
-                  <div className="space-y-4">
-                    {workflowJobs.map((job) => (
-                      <div key={job.id} className="rounded-2xl border border-border/60 bg-background">
-                        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border/60 px-4 py-3">
-                          <div className="flex flex-wrap items-center gap-2">
-                            <Badge variant="outline">{job.runId}</Badge>
-                            <span className={`inline-flex items-center rounded-full border px-2.5 py-1 text-xs font-medium ${statusTone(job.status)}`}>
-                              {job.status}
-                            </span>
+                  <CardDescription>Logs are keyed by the generated runId.</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  {workflowJobs.length === 0 ? (
+                    <div className="rounded-2xl border border-dashed border-border/70 bg-muted/30 p-8 text-center text-sm text-muted-foreground">
+                      No runs started yet.
+                    </div>
+                  ) : (
+                    <div className="space-y-4">
+                      {workflowJobs.map((job) => (
+                        <div key={job.id} className="rounded-2xl border border-border/60 bg-background">
+                          <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border/60 px-4 py-3">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <Badge variant="outline">{job.runId}</Badge>
+                              <span className={`inline-flex items-center rounded-full border px-2.5 py-1 text-xs font-medium ${statusTone(job.status)}`}>
+                                {job.status}
+                              </span>
+                            </div>
+                            <div className="text-xs text-muted-foreground">
+                              {job.serverName} · {formatTime(job.requestedAt)}
+                            </div>
                           </div>
-                          <div className="text-xs text-muted-foreground">
-                            {job.serverName} · {formatTime(job.requestedAt)}
-                          </div>
+                          <ScrollArea className="h-64 bg-slate-950 text-slate-100">
+                            <div className="space-y-2 p-4 font-mono text-xs leading-6">
+                              {job.logs.length === 0 ? (
+                                <p className="text-slate-400">Waiting for logs...</p>
+                              ) : (
+                                job.logs.map((line, index) => (
+                                  <p key={`${job.id}-${index}`} className="break-words text-slate-200">{line}</p>
+                                ))
+                              )}
+                              {job.lastError ? <p className="text-rose-300">{job.lastError}</p> : null}
+                            </div>
+                          </ScrollArea>
                         </div>
-                        <ScrollArea className="h-64 bg-slate-950 text-slate-100">
-                          <div className="space-y-2 p-4 font-mono text-xs leading-6">
-                            {job.logs.length === 0 ? (
-                              <p className="text-slate-400">Waiting for logs...</p>
-                            ) : (
-                              job.logs.map((line, index) => (
-                                <p key={`${job.id}-${index}`} className="break-words text-slate-200">{line}</p>
-                              ))
-                            )}
-                            {job.lastError ? <p className="text-rose-300">{job.lastError}</p> : null}
-                          </div>
-                        </ScrollArea>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-          );
-        })}
+                      ))}
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            );
+          })}
+        </div>
       </section>
 
       <FolderBrowserModal

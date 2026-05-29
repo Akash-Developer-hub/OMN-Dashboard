@@ -6,7 +6,7 @@ import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { toast } from "@/hooks/use-toast";
 import { Eye, EyeOff } from "lucide-react";
-import omnLogo from "@/omn_logo.png";
+import omnLogo from "@/Logo.png";
 
 const sidebarRouteOrder: Array<{ permission: string; path: string }> = [
   { permission: "data-pipeline", path: "/pipeline" },

@@ -6,9 +6,7 @@ import {
   ChevronDown,
   ChevronRight as ChevronSub,
 } from "lucide-react";
-import omnLogo from "@/omn_logo.png";
-import mobilityLogo from "@/mobility_log.webp";
-import spaceLogo from "@/space_logo.svg";
+import omnLogo from "@/Logo.png";
 import { navSections, type NavSection } from "./navSections.ts";
 
 export function AppSidebar() {
@@ -54,14 +52,13 @@ export function AppSidebar() {
       >
         {!collapsed ? (
           <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 flex items-center justify-center">
-            {/* <div className="w-20 h-14  items-center justify-center shadow-sm ">
+            <div className="w-20 h-14 items-center justify-center shadow-sm">
               <img src={omnLogo} alt="OMN" className="w-full h-full object-contain rounded-lg" />
-            </div> */}
-            {/* <span className="font-semibold text-white tracking-tight">Admin</span> */}
+            </div>
           </div>
         ) : (
           <div className="w-8 h-8 rounded-lg p-1 flex items-center justify-center shadow-sm">
-            {/* <img src={omnLogo} alt="OMN" className="w-full h-full object-contain rounded-lg" /> */}
+            <img src={omnLogo} alt="OMN" className="w-full h-full object-contain rounded-lg" />
           </div>
         )}
 
