@@ -204,6 +204,8 @@ const normalizeBrowsePath = (path: string) => {
   return value.startsWith("/") ? value : `/${value}`;
 };
 
+const normalizeOutputPath = (path: string) => String(path || "").trim() || "/home";
+
 const buildBrowserPath = (basePath: string, item: string) => {
   if (!item) return basePath;
   if (item.startsWith("/")) return item;
@@ -1017,7 +1019,7 @@ export default function Download() {
       workflow,
       workflowLabel: workflowCopy[workflow].label,
       serverName: server.name,
-      outputPath: normalizeBrowsePath(form.outputPath),
+      outputPath: normalizeOutputPath(form.outputPath),
       status: workflow === "searchTiles" ? "running" : "queued",
       requestedAt: new Date().toISOString(),
     };
@@ -1355,7 +1357,7 @@ export default function Download() {
                   );
                 })()
               ) : null}
-              {latestJob ? (
+              {/* {latestJob ? (
                 <div className="mt-4 flex flex-wrap items-center gap-2 text-sm">
                   <Badge variant="outline">Log status: {summary.validatedStatus}</Badge>
                   {summary.totalCount > 0 ? <Badge variant="outline">Expected files: {summary.totalCount}</Badge> : null}
@@ -1363,7 +1365,7 @@ export default function Download() {
                   {workflow === "searchTiles" && summary.totalSubRegionCount > 0 ? <Badge variant="outline">Sub-regions: {summary.completedSubRegionCount}/{summary.totalSubRegionCount}</Badge> : null}
                   {workflow === "searchTiles" && summary.downloadCompleted ? <Badge variant="outline">Download completed</Badge> : null}
                 </div>
-              ) : null}
+              ) : null} */}
             </CardContent>
           </Card>
         ))}
