@@ -106,7 +106,9 @@ const RUN_ID_LOGS_URL = "https://sandbox.vmmaps.com/n8n/webhook/omn/runId-logs";
 const MAX_LOG_LINES = 25000;
 const STATUS_DETAIL_REGIONS_PER_PAGE = 12;
 const LOG_POLL_INTERVAL_MS = 3000;
-const LOG_REQUEST_TIMEOUT_MS = 10000;
+const LOG_REQUEST_TIMEOUT_MS = 60000;
+const DOWNLOAD_REQUEST_TIMEOUT_MS = 30 * 60 * 1000;
+const MAX_LOG_POLL_DURATION_MS = 6 * 60 * 60 * 1000;
 const DEFAULT_SEARCH_TILES_SCRIPT_PATH = "/home/gaaya/Projects/pipeline/";
 
 const workflowCopy: Record<
@@ -662,7 +664,10 @@ export default function Download() {
   const [selectedSummaryPage, setSelectedSummaryPage] = useState(1);
   const [currentVersion, setCurrentVersion] = useState("");
   const [storedSummaries, setStoredSummaries] = useState<Record<WorkflowKey, WorkflowSummary | null>>({ searchTiles: null, routing: null });
+  const [autoPollEnabled, setAutoPollEnabled] = useState<Record<WorkflowKey, boolean>>({ searchTiles: false, routing: false });
   const persistSignatureRef = useRef<Record<WorkflowKey, string>>({ searchTiles: "", routing: "" });
+  const logPollInFlightRef = useRef<Record<WorkflowKey, boolean>>({ searchTiles: false, routing: false });
+  const lastLogPollAtRef = useRef<Record<WorkflowKey, number>>({ searchTiles: 0, routing: 0 });
 
   useEffect(() => {
     const fetchServers = async () => {
@@ -741,11 +746,18 @@ export default function Download() {
     [jobs.routing, jobLogs.routing],
   );
 
-  const pollWorkflowLogs = useCallback(async (workflow: WorkflowKey) => {
+  const pollWorkflowLogs = useCallback(async (workflow: WorkflowKey, force = false) => {
     const job = jobs[workflow];
     if (!job?.runId) return;
 
+    if (logPollInFlightRef.current[workflow]) return;
+
+    const now = Date.now();
+    if (!force && now - lastLogPollAtRef.current[workflow] < LOG_POLL_INTERVAL_MS) return;
+
     const currentLogState = jobLogs[workflow];
+    logPollInFlightRef.current[workflow] = true;
+    lastLogPollAtRef.current[workflow] = now;
 
     try {
       const response = await fetch(RUN_ID_LOGS_URL, {
@@ -794,6 +806,8 @@ export default function Download() {
           source: current[workflow].source === "empty" ? "remote" : current[workflow].source,
         },
       }));
+    } finally {
+      logPollInFlightRef.current[workflow] = false;
     }
   }, [jobLogs, jobs]);
 
@@ -801,7 +815,24 @@ export default function Download() {
     const activeWorkflows = (["searchTiles", "routing"] as WorkflowKey[]).filter((workflow) => {
       const job = jobs[workflow];
       const logState = jobLogs[workflow];
-      return Boolean(job?.runId) && !logState.complete;
+      if (!autoPollEnabled[workflow] || !job?.runId || logState.complete) return false;
+
+      const requestedAt = new Date(job.requestedAt).getTime();
+      if (Number.isNaN(requestedAt)) return true;
+
+      const isWithinPollingWindow = Date.now() - requestedAt <= MAX_LOG_POLL_DURATION_MS;
+      if (!isWithinPollingWindow) {
+        setJobLogs((current) => ({
+          ...current,
+          [workflow]: {
+            ...current[workflow],
+            complete: true,
+            lastError: "Log polling stopped after the maximum execution window. Use Refresh logs to fetch the latest output.",
+          },
+        }));
+      }
+
+      return isWithinPollingWindow;
     });
 
     if (activeWorkflows.length === 0) return;
@@ -817,7 +848,7 @@ export default function Download() {
     }, LOG_POLL_INTERVAL_MS);
 
     return () => window.clearInterval(intervalId);
-  }, [jobs, jobLogs, pollWorkflowLogs]);
+  }, [autoPollEnabled, jobs, jobLogs, pollWorkflowLogs]);
 
   useEffect(() => {
     if (!currentVersion) return;
@@ -991,7 +1022,7 @@ export default function Download() {
       await Promise.all(
         (["searchTiles", "routing"] as WorkflowKey[])
           .filter((workflow) => Boolean(jobs[workflow]?.runId))
-          .map((workflow) => pollWorkflowLogs(workflow)),
+          .map((workflow) => pollWorkflowLogs(workflow, true)),
       );
     } finally {
       setRefreshing(false);
@@ -1025,6 +1056,8 @@ export default function Download() {
     };
 
     setSubmitting((current) => ({ ...current, [workflow]: true }));
+    setAutoPollEnabled((current) => ({ ...current, [workflow]: true }));
+    lastLogPollAtRef.current[workflow] = 0;
     setJobs((current) => ({ ...current, [workflow]: provisionalJob }));
     setStoredSummaries((current) => ({ ...current, [workflow]: null }));
     setJobLogs((current) => ({
@@ -1066,6 +1099,7 @@ export default function Download() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
+        signal: AbortSignal.timeout(DOWNLOAD_REQUEST_TIMEOUT_MS),
       });
 
       const data = await response.json().catch(() => null);
@@ -1082,6 +1116,7 @@ export default function Download() {
       toast.success(`${workflowCopy[workflow].label} download started.`);
     } catch (error) {
       const message = error instanceof Error ? error.message : "Failed to start download.";
+      setAutoPollEnabled((current) => ({ ...current, [workflow]: false }));
       setJobs((current) => ({
         ...current,
         [workflow]: current[workflow] ? { ...current[workflow], status: "failed", lastError: message } : current[workflow],
@@ -1209,7 +1244,7 @@ export default function Download() {
                   </div>
                 ) : null}
 
-                <Button className="w-full" size="lg" onClick={() => void triggerWorkflow(workflow)} disabled={isBusy}>
+                <Button type="button" className="w-full" size="lg" onClick={() => void triggerWorkflow(workflow)} disabled={isBusy}>
                   {isBusy ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Play className="mr-2 h-4 w-4" />}
                   {config.buttonLabel}
                 </Button>
