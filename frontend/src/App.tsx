@@ -8,6 +8,7 @@ import Login from "@/pages/Auth/login";
 import Dashboard from "@/pages/Dashboard";
 import ServiceHealth from "@/pages/health/ServiceHealth";
 import DataPipeline from "@/pages/pipeline/DataPipeline";
+import Download from "@/pages/pipeline/Download";
 import ITCValidation from "@/pages/pipeline/ITC_Validation";
 import ContributionInbox from "@/pages/contributions/ContributionInbox";
 import ContributionAnalytics from "@/pages/contributions/ContributionAnalytics";
@@ -57,6 +58,7 @@ const App = () => (
               <Route path="/contributions/insights" element={<ContributionInsights />} />
               <Route path="/contributions/generation" element={<ContributionGeneration />} />
               <Route path="/pipeline" element={<DataPipeline />} />
+              <Route path="/pipeline/download" element={<Download />} />
               <Route path="/pipeline/validation" element={<ITCValidation />} />
               <Route path='/pipeline/log' element={<DataPipelineLog />} />
               <Route path="/pipeline/config" element={<PipelineConfig />} />
