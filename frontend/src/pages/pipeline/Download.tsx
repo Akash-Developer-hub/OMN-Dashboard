@@ -16,6 +16,7 @@ import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -28,6 +29,7 @@ type JobStatus = "queued" | "running" | "completed" | "failed";
 type WorkflowFormState = {
   targetServerId: string;
   outputPath: string;
+  addMaxspeedAndTurnlanesToOsm: boolean;
 };
 
 type ServerPathEntry = {
@@ -99,6 +101,7 @@ const workflowCopy: Record<
 const emptyForm = (): WorkflowFormState => ({
   targetServerId: "",
   outputPath: "/home",
+  addMaxspeedAndTurnlanesToOsm: true,
 });
 
 const defaultForms = (): Record<WorkflowKey, WorkflowFormState> => ({
@@ -573,6 +576,9 @@ export default function Download() {
         outputPath: provisionalJob.outputPath,
         downloadType: workflow === "searchTiles" ? "search_tiles" : "routing",
         scriptPath,
+        ...(workflow === "routing"
+          ? { addMaxspeedAndTurnlanesToOsm: form.addMaxspeedAndTurnlanesToOsm }
+          : {}),
         targetServer: {
           id: server._id || server.id,
           name: server.name,
@@ -629,9 +635,8 @@ export default function Download() {
 
   return (
     <div className="space-y-6 p-6">
-      <section className="rounded-3xl border border-border/60 bg-card p-6 shadow-sm">
+      <section className="rounded-3xl p-6">
         <div className="space-y-2">
-          <Badge variant="outline" className="border-sky-500/30 bg-sky-500/10 text-sky-700">OSM Data Download Management</Badge>
           <h1 className="text-3xl font-semibold tracking-tight text-foreground">Search & Tiles and Routing downloads</h1>
           <p className="max-w-3xl text-sm leading-6 text-muted-foreground">
             Select a server, browse the destination folder, start the download, and monitor logs from the generated runId.
@@ -692,6 +697,21 @@ export default function Download() {
                     </Button>
                   </div>
                 </div>
+
+                {workflow === "routing" ? (
+                  <div className="space-y-3 rounded-xl border border-border/60 bg-muted/20 p-4">
+                    <label htmlFor={`${workflow}-maxspeed-toggle`} className="flex cursor-pointer items-center gap-3 rounded-lg border border-border/60 bg-background px-3 py-3 text-sm transition hover:border-primary/40">
+                      <Checkbox
+                        id={`${workflow}-maxspeed-toggle`}
+                        checked={form.addMaxspeedAndTurnlanesToOsm}
+                        onCheckedChange={(checked) => updateForm(workflow, { addMaxspeedAndTurnlanesToOsm: checked === true })}
+                      />
+                      <div className="space-y-0.5">
+                        <span className="block font-medium">Add maxspeed and turnlanes to OSM</span>
+                      </div>
+                    </label>
+                  </div>
+                ) : null}
 
                 <Button className="w-full" size="lg" onClick={() => void triggerWorkflow(workflow)} disabled={isBusy}>
                   {isBusy ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Play className="mr-2 h-4 w-4" />}
