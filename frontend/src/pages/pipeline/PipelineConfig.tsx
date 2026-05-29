@@ -22,6 +22,7 @@ import {
 interface AdminUser {
   id: string;
   name: string;
+  fullName?: string;
   email: string;
   role: string;
   isActive: boolean;
@@ -182,7 +183,7 @@ const listFolders = async (path: string, serverUser: string): Promise<string[]> 
     const formattedUser = serverUser?.toUpperCase() || "ZEUS";
     console.log(`Fetching folders for user: ${formattedUser}, path: ${path}`);
 
-    const response = await fetch('https://sandbox.vmmaps.com/n8n/webhook/list-folders', {
+    const response = await fetch('https://sandbox.vmmaps.com/n8n/webhook/omn/list-folders', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -273,69 +274,59 @@ const ServerCard = ({ server, serverPaths, onAddPath, onViewPath }: ServerCardPr
   const isOnline = server.status === "online" || server.status === "active" || server.status === "connected";
 
   return (
-    <div className="group relative bg-card rounded-2xl border border-border hover:border-primary/30 hover:shadow-lg hover:shadow-primary/5 transition-all duration-300 overflow-hidden flex flex-col">
-      {/* Top accent bar */}
-      <div className={`h-1 w-full ${hasPath ? "bg-gradient-to-r from-emerald-500 to-teal-400" : "bg-gradient-to-r from-muted to-muted/40"}`} />
-
-      <div className="p-5 flex flex-col h-full">
-        {/* Server Header */}
-        <div className="flex items-start justify-between mb-4">
-          <div className="flex items-center gap-3">
-            <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${hasPath ? "bg-emerald-500/10" : "bg-muted"} transition-colors`}>
-              <svg className={`w-5 h-5 ${hasPath ? "text-emerald-500" : "text-muted-foreground"}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+    <div className="group relative bg-card rounded-3xl border border-border/80 shadow-sm hover:border-primary/40 hover:shadow-xl transition-all duration-300 overflow-hidden">
+      <div className={`h-1 w-full ${hasPath ? "bg-gradient-to-r from-emerald-500 to-teal-400" : "bg-gradient-to-r from-slate-300 to-slate-200"}`} />
+      <div className="p-5 flex flex-col h-full space-y-5">
+        <div className="flex items-start justify-between gap-4">
+          <div className="flex items-start gap-3">
+            <div className={`w-11 h-11 rounded-2xl flex items-center justify-center border ${hasPath ? "border-emerald-200 bg-emerald-500/10 text-emerald-500" : "border-slate-200 bg-muted text-muted-foreground"}`}>
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M5 12h14M5 12a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v4a2 2 0 01-2 2M5 12a2 2 0 00-2 2v4a2 2 0 002 2h14a2 2 0 002-2v-4a2 2 0 00-2-2m-2-4h.01M17 16h.01" />
               </svg>
             </div>
-            <div>
-              <h3 className="font-bold text-foreground capitalize text-sm tracking-wide">{server.name}</h3>
+            <div className="min-w-0">
+              <h3 className="font-semibold text-sm text-foreground capitalize tracking-tight">{server.name}</h3>
               {server.host && (
-                <p className="text-xs text-muted-foreground font-mono mt-0.5">{server.host}{server.port ? `:${server.port}` : ""}</p>
+                <p className="text-xs text-muted-foreground font-mono mt-1 truncate">{server.host}{server.port ? `:${server.port}` : ""}</p>
               )}
             </div>
           </div>
-          <div className="flex flex-col items-end gap-1.5">
-            <div className="flex items-center gap-1.5">
-              <span className={`w-1.5 h-1.5 rounded-full ${isOnline ? "bg-emerald-500 animate-pulse" : "bg-muted-foreground/40"}`} />
-              <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                {isOnline ? "Online" : server.status ?? "—"}
-              </span>
-            </div>
-            <div className="flex items-center gap-1.5">
-              <span className={`w-1.5 h-1.5 rounded-full ${server.isActive ? "bg-emerald-500" : "bg-rose-500"}`} />
-              <span className={`text-[9px] font-bold uppercase tracking-wider ${server.isActive ? "text-emerald-500" : "text-rose-500"}`}>
+          <span className={`inline-flex items-center gap-2 rounded-full px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.25em] ${isOnline ? "bg-emerald-500/10 text-emerald-500" : "bg-rose-500/10 text-rose-500"}`}>
+            <span className={`w-2.5 h-2.5 rounded-full ${isOnline ? "bg-emerald-500 animate-pulse" : "bg-rose-500"}`} />
+            {isOnline ? "Live" : "Offline"}
+          </span>
+        </div>
+
+        <div className="grid grid-cols-2 gap-3">
+          <div className="rounded-3xl border border-border/70 bg-muted/70 p-4 col-span-2">
+            <p className="text-[10px] uppercase tracking-[0.24em] text-muted-foreground">Environment</p>
+            <p className={`mt-3 text-sm font-semibold ${server.environment === "production" ? "text-rose-500" : server.environment === "staging" ? "text-amber-500" : "text-sky-500"}`}>
+              {server.environment ? server.environment.charAt(0).toUpperCase() + server.environment.slice(1) : "Development"}
+            </p>
+          </div>
+          <div className="rounded-3xl border border-border/70 bg-muted/70 p-4 col-span-2">
+            <p className="text-[10px] uppercase tracking-[0.24em] text-muted-foreground">Status</p>
+            <div className="mt-3 flex flex-wrap items-center gap-2">
+              <span className={`inline-flex items-center rounded-full px-2.5 py-1 text-[10px] font-semibold ${server.isActive ? "bg-emerald-500/10 text-emerald-500 border border-emerald-500/20" : "bg-rose-500/10 text-rose-500 border border-rose-500/20"}`}>
                 {server.isActive ? "Active" : "Inactive"}
               </span>
+              {server.status && (
+                <span className="inline-flex items-center rounded-full px-2.5 py-1 text-[10px] font-semibold bg-primary/10 text-primary border border-primary/20">
+                  {server.status}
+                </span>
+              )}
             </div>
           </div>
         </div>
 
-        {/* Environment Badge */}
-        <div className="mb-4">
-          <span className={`inline-flex items-center px-2 py-0.5 rounded-lg text-[10px] font-bold uppercase tracking-wider border ${server.environment === "production"
-            ? "bg-rose-500/10 text-rose-500 border-rose-500/20"
-            : server.environment === "staging"
-              ? "bg-amber-500/10 text-amber-500 border-amber-500/20"
-              : "bg-sky-500/10 text-sky-500 border-sky-500/20"
-            }`}>
-            <svg className="w-2.5 h-2.5 mr-1.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
-            </svg>
-            {server.environment || "Development"}
-          </span>
-        </div>
-
-        {/* Server ID */}
         <div className="mt-auto">
-          <p className="text-[10px] font-mono text-muted-foreground/60 mb-4 truncate">ID: {server._id}</p>
-
-          {/* Actions */}
-          <div className="flex gap-2">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <button
               onClick={() => onAddPath(server)}
               disabled={hasPath}
-              className="flex-1 inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl bg-primary hover:bg-primary/90 text-primary-foreground text-xs font-bold transition-all active:scale-95 shadow-sm shadow-primary/20 disabled:opacity-40 disabled:cursor-not-allowed disabled:active:scale-100"
+              className="inline-flex items-center justify-center gap-2 px-4 py-2 rounded-2xl bg-gradient-to-r from-sky-500 to-cyan-500 text-white text-xs font-bold transition-all active:scale-95 shadow-lg shadow-sky-500/20 disabled:opacity-40 disabled:cursor-not-allowed"
             >
-              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M12 4v16m8-8H4" />
               </svg>
               Add Path
@@ -343,9 +334,9 @@ const ServerCard = ({ server, serverPaths, onAddPath, onViewPath }: ServerCardPr
             <button
               onClick={() => onViewPath(server)}
               disabled={!hasPath}
-              className="flex-1 inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl bg-secondary hover:bg-secondary/80 text-secondary-foreground text-xs font-bold transition-all active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed"
+              className="inline-flex items-center justify-center gap-2 px-4 py-2 rounded-2xl bg-slate-900 text-white text-xs font-bold transition-all active:scale-95 shadow-sm shadow-slate-900/10 disabled:opacity-40 disabled:cursor-not-allowed"
             >
-              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
               </svg>
@@ -855,6 +846,7 @@ export default function PipelineConfig() {
 
   // Active tab for main section
   const [activeTab, setActiveTab] = useState<"admins" | "servers" | "rules">("admins");
+  const [notifyPanelOpen, setNotifyPanelOpen] = useState(false);
 
   // Validation Rules State
   const [activeRuleTab, setActiveRuleTab] = useState<"osm" | "sqlite">("osm");
@@ -1467,13 +1459,16 @@ export default function PipelineConfig() {
                         <TableHead className="px-6">User</TableHead>
                         <TableHead className="px-6">Email</TableHead>
                         <TableHead className="px-6">Role</TableHead>
+                        <TableHead className="px-6">Status</TableHead>
+                        <TableHead className="px-6">Added</TableHead>
                         <TableHead className="px-6">Method</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
                       {paginatedAdmins.map((user) => {
-                        const isNotified = !!localAdminList[user.name];
-                        const notifiedUser = localAdminList[user.name];
+                        const displayName = user.fullName || user.name;
+                        const isNotified = !!localAdminList[displayName];
+                        const notifiedUser = localAdminList[displayName];
                         const currentMethod = typeof notifiedUser?.method === 'string' ? notifiedUser.method : "to";
 
                         return (
@@ -1488,15 +1483,17 @@ export default function PipelineConfig() {
                             </TableCell>
                             <TableCell className="px-6 py-4">
                               <div className="flex items-center gap-3">
-                                <Avatar name={user.name} />
-                                <div>
-                                  <p className="font-semibold text-foreground">{user.name}</p>
+                                <Avatar name={displayName} />
+                                <div className="min-w-0">
+                                  <p className="text-sm font-semibold text-foreground whitespace-normal">{displayName}</p>
                                   <p className="text-xs text-muted-foreground">ID: {user.id.slice(-8)}</p>
                                 </div>
                               </div>
                             </TableCell>
-                            <TableCell className="px-6 py-4 text-muted-foreground">{user.email}</TableCell>
+                            <TableCell className="px-6 py-4 text-muted-foreground text-sm break-words">{user.email}</TableCell>
                             <TableCell className="px-6 py-4"><Badge label={user.role} variant="role" /></TableCell>
+                            <TableCell className="px-6 py-4"><Badge label={user.isActive ? "Active" : "Inactive"} variant={user.isActive ? "online" : "offline"} /></TableCell>
+                            <TableCell className="px-6 py-4 text-xs text-muted-foreground">{new Date(user.createdAt).toLocaleDateString()}</TableCell>
                             <TableCell className="px-6 py-4">
                               <select
                                 value={currentMethod}
@@ -1754,103 +1751,135 @@ export default function PipelineConfig() {
         {activeTab === "admins" && (
           <div className="xl:col-span-1 xl:pt-[60px]">
             <div className="bg-card rounded-2xl shadow-sm border border-border overflow-hidden sticky top-6">
-              <div className="px-5 py-4 border-b border-border flex items-center justify-between">
+              <button
+                type="button"
+                onClick={() => setNotifyPanelOpen((prev) => !prev)}
+                className="w-full px-5 py-4 border-b border-border flex items-center justify-between gap-3 hover:bg-muted/50 transition-colors"
+              >
                 <div>
                   <h2 className="text-base font-semibold text-foreground flex items-center gap-2">
                     <span className="w-2 h-2 bg-primary rounded-full inline-block animate-pulse" />
                     Notify Users
                   </h2>
+                  <p className="text-xs text-muted-foreground mt-1">Current version: <span className="text-foreground font-semibold">{savedVersion || version || "v1.0"}</span></p>
                 </div>
-              </div>
+                <span className={`inline-flex items-center justify-center w-10 h-10 rounded-2xl ${notifyPanelOpen ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground"}`}>
+                  <svg className={`w-4 h-4 transition-transform duration-200 ${notifyPanelOpen ? "rotate-180" : "rotate-0"}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                  </svg>
+                </span>
+              </button>
 
-              {loadingConfigs ? <Spinner /> : notifiedList.length === 0 ? (
-                <div className="text-center py-12 px-6">
-                  <div className="w-12 h-12 bg-muted rounded-xl flex items-center justify-center mx-auto mb-3">
-                    <svg className="w-6 h-6 text-muted-foreground" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
-                    </svg>
+              {!notifyPanelOpen ? (
+                <div className="p-6 space-y-4">
+                  <div className="rounded-3xl bg-muted/50 p-4 border border-border">
+                    <div className="grid grid-cols-2 gap-4">
+                      <div className="rounded-2xl bg-background/70 p-3">
+                        <p className="text-[10px] uppercase tracking-[0.24em] text-muted-foreground">Notified</p>
+                        <p className="mt-3 text-2xl font-semibold text-emerald-500">{notifiedList.length}</p>
+                      </div>
+                      <div className="rounded-2xl bg-background/70 p-3">
+                        <p className="text-[10px] uppercase tracking-[0.24em] text-muted-foreground">Selected</p>
+                        <p className="mt-3 text-2xl font-semibold text-primary">{Object.keys(localAdminList).length}</p>
+                      </div>
+                    </div>
                   </div>
-                  <p className="text-sm font-medium text-foreground">No notified users yet</p>
-                  <p className="text-xs text-muted-foreground mt-1">Add users from the table to include them.</p>
+                  <div className="rounded-3xl bg-muted/30 p-4 border border-border text-sm text-muted-foreground">
+                    Click the header to expand and manage the notification list.
+                  </div>
                 </div>
               ) : (
-                <div className="overflow-x-auto">
-                  <Table>
-                    <TableHeader>
-                      <TableRow className="bg-muted/50">
-                        <TableHead className="px-4 py-3">User</TableHead>
-                        <TableHead className="px-4 py-3 text-right">Action</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {paginatedNotified.map((admin) => {
-                        const isRemoving = notifyingId === admin.id;
-                        return (
-                          <TableRow key={admin.id} className="hover:bg-muted/30 transition-colors">
-                            <TableCell className="px-4 py-3">
-                              <div className="flex items-center gap-3">
-                                <Avatar name={admin.name} />
-                                <div className="min-w-0">
-                                  <div className="flex items-center gap-2">
-                                    <p className="text-sm font-semibold text-foreground truncate">{admin.name}</p>
-                                    {admin.method && (
-                                      <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-md bg-primary/10 text-primary uppercase border border-primary/20">
-                                        {admin.method}
-                                      </span>
-                                    )}
-                                  </div>
-                                  <p className="text-xs text-muted-foreground truncate">{admin.email}</p>
-                                </div>
-                              </div>
-                            </TableCell>
-                            <TableCell className="px-4 py-3 text-right">
-                              <button
-                                onClick={() => handleRemoveNotify(admin)}
-                                disabled={isRemoving}
-                                className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-destructive/10 hover:bg-destructive/20 text-destructive text-xs font-semibold border border-destructive/20 transition-colors disabled:opacity-50"
-                              >
-                                {isRemoving ? (
-                                  <div className="w-3 h-3 border-2 border-destructive/40 border-t-destructive rounded-full animate-spin" />
-                                ) : (
-                                  <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                                  </svg>
-                                )}
-                                Remove
-                              </button>
-                            </TableCell>
+                <>
+                  {loadingConfigs ? <Spinner /> : notifiedList.length === 0 ? (
+                    <div className="text-center py-12 px-6">
+                      <div className="w-12 h-12 bg-muted rounded-xl flex items-center justify-center mx-auto mb-3">
+                        <svg className="w-6 h-6 text-muted-foreground" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
+                        </svg>
+                      </div>
+                      <p className="text-sm font-medium text-foreground">No notified users yet</p>
+                      <p className="text-xs text-muted-foreground mt-1">Add users from the table to include them.</p>
+                    </div>
+                  ) : (
+                    <div className="overflow-x-auto">
+                      <Table>
+                        <TableHeader>
+                          <TableRow className="bg-muted/50">
+                            <TableHead className="px-4 py-3">User</TableHead>
+                            <TableHead className="px-4 py-3 text-right">Action</TableHead>
                           </TableRow>
-                        );
-                      })}
-                    </TableBody>
-                  </Table>
-                  {totalNotifyPages > 1 && (
-                    <div className="px-4 py-3 border-t border-border">
-                      <Pagination>
-                        <PaginationContent>
-                          <PaginationItem>
-                            <PaginationPrevious onClick={() => setNotifyPage((p) => Math.max(1, p - 1))} className={notifyPage === 1 ? "pointer-events-none opacity-50" : "cursor-pointer"} />
-                          </PaginationItem>
-                          <PaginationItem>
-                            <span className="text-xs text-muted-foreground px-2">Page {notifyPage} of {totalNotifyPages}</span>
-                          </PaginationItem>
-                          <PaginationItem>
-                            <PaginationNext onClick={() => setNotifyPage((p) => Math.min(totalNotifyPages, p + 1))} className={notifyPage === totalNotifyPages ? "pointer-events-none opacity-50" : "cursor-pointer"} />
-                          </PaginationItem>
-                        </PaginationContent>
-                      </Pagination>
+                        </TableHeader>
+                        <TableBody>
+                          {paginatedNotified.map((admin) => {
+                            const isRemoving = notifyingId === admin.id;
+                            return (
+                              <TableRow key={admin.id} className="hover:bg-muted/30 transition-colors">
+                                <TableCell className="px-4 py-3">
+                                  <div className="flex items-center gap-3">
+                                    <Avatar name={admin.name} />
+                                    <div className="min-w-0">
+                                      <div className="flex items-center gap-2">
+                                        <p className="text-sm font-semibold text-foreground truncate">{admin.name}</p>
+                                        {admin.method && (
+                                          <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-md bg-primary/10 text-primary uppercase border border-primary/20">
+                                            {admin.method}
+                                          </span>
+                                        )}
+                                      </div>
+                                      <p className="text-xs text-muted-foreground truncate">{admin.email}</p>
+                                    </div>
+                                  </div>
+                                </TableCell>
+                                <TableCell className="px-4 py-3 text-right">
+                                  <button
+                                    onClick={() => handleRemoveNotify(admin)}
+                                    disabled={isRemoving}
+                                    className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-destructive/10 hover:bg-destructive/20 text-destructive text-xs font-semibold border border-destructive/20 transition-colors disabled:opacity-50"
+                                  >
+                                    {isRemoving ? (
+                                      <div className="w-3 h-3 border-2 border-destructive/40 border-t-destructive rounded-full animate-spin" />
+                                    ) : (
+                                      <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                                      </svg>
+                                    )}
+                                    Remove
+                                  </button>
+                                </TableCell>
+                              </TableRow>
+                            );
+                          })}
+                        </TableBody>
+                      </Table>
+                      {totalNotifyPages > 1 && (
+                        <div className="px-4 py-3 border-t border-border">
+                          <Pagination>
+                            <PaginationContent>
+                              <PaginationItem>
+                                <PaginationPrevious onClick={() => setNotifyPage((p) => Math.max(1, p - 1))} className={notifyPage === 1 ? "pointer-events-none opacity-50" : "cursor-pointer"} />
+                              </PaginationItem>
+                              <PaginationItem>
+                                <span className="text-xs text-muted-foreground px-2">Page {notifyPage} of {totalNotifyPages}</span>
+                              </PaginationItem>
+                              <PaginationItem>
+                                <PaginationNext onClick={() => setNotifyPage((p) => Math.min(totalNotifyPages, p + 1))} className={notifyPage === totalNotifyPages ? "pointer-events-none opacity-50" : "cursor-pointer"} />
+                              </PaginationItem>
+                            </PaginationContent>
+                          </Pagination>
+                        </div>
+                      )}
                     </div>
                   )}
-                </div>
-              )}
 
-              {!loadingConfigs && notifiedList.length > 0 && (
-                <div className="px-5 py-3 border-t border-border bg-muted/20">
-                  <p className="text-xs text-muted-foreground">
-                    <span className="font-semibold text-primary">{notifiedList.length}</span>{" "}
-                    user{notifiedList.length !== 1 ? "s" : ""} will receive pipeline notifications
-                  </p>
-                </div>
+                  {!loadingConfigs && notifiedList.length > 0 && (
+                    <div className="px-5 py-3 border-t border-border bg-muted/20">
+                      <p className="text-xs text-muted-foreground">
+                        <span className="font-semibold text-primary">{notifiedList.length}</span>{" "}
+                        user{notifiedList.length !== 1 ? "s" : ""} will receive pipeline notifications
+                      </p>
+                    </div>
+                  )}
+                </>
               )}
             </div>
           </div>

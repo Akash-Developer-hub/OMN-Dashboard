@@ -8,7 +8,7 @@ import { Info } from "lucide-react";
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
-const N8N_WEBHOOK_URL = "https://sandbox.vmmaps.com/n8n/webhook";
+const N8N_WEBHOOK_URL = "https://sandbox.vmmaps.com/n8n/webhook/omn";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
