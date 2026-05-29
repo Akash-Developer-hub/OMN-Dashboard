@@ -5,57 +5,110 @@ import { api } from "@/utils/api";
 import {
   Loader2, Copy, Download, CheckCircle2, AlertCircle,
   Clock, Eye, RefreshCw, ChevronLeft, ChevronRight, ArrowLeft, X,
+  Search, ChevronsUpDown, ChevronDown, ChevronUp, Server, Terminal,
+  Moon, Sun,
 } from "lucide-react";
 
-const SERVICE_TAG_COLOR: Record<string, string> = {
-  search: "bg-blue-500/10 text-blue-600 border-blue-500/20",
-  routing: "bg-emerald-500/10 text-emerald-600 border-emerald-500/20",
-  tile: "bg-purple-500/10 text-purple-600 border-purple-500/20",
+// ─── Constants ──────────────────────────────────────────────────────────────
+
+const SERVICE_COLORS: Record<string, { tab: string; badge: string }> = {
+  search:  { tab: "text-blue-600",   badge: "bg-blue-500/10 text-blue-600 border-blue-500/20" },
+  routing: { tab: "text-emerald-600", badge: "bg-emerald-500/10 text-emerald-600 border-emerald-500/20" },
+  tile:    { tab: "text-purple-600",  badge: "bg-purple-500/10 text-purple-600 border-purple-500/20" },
 };
 
-const RUNS_PER_PAGE = 10;
-const RUN_ID_LOGS_URL = "https://sandbox.vmmaps.com/n8n/webhook/runId-logs";
-const REMOVE_LOG_URL = "https://sandbox.vmmaps.com/n8n/webhook/remove-log";
-const LOG_POLL_DELAY = 500;
-const LOG_REQUEST_TIMEOUT = 3000;
-const MAX_LOG_RETRIES = 3;
+const RUNS_PER_PAGE              = 10;
+const RUN_ID_LOGS_URL            = "https://sandbox.vmmaps.com/n8n/webhook/omn/runId-logs";
+const REMOVE_LOG_URL             = "https://sandbox.vmmaps.com/n8n/webhook/omn/remove-log";
+const LOG_POLL_DELAY             = 500;
+const LOG_REQUEST_TIMEOUT        = 3000;
+const MAX_LOG_RETRIES            = 3;
 const MAX_IDLE_POLLS_WHILE_RUNNING = 600;
-const MAX_IDLE_POLLS_AFTER_FINISH = 3;
+const MAX_IDLE_POLLS_AFTER_FINISH  = 3;
 
-type PipelinePayload = Record<string, any>;
-type ServiceLogState = {
-  log: string;
-  loading: boolean;
-  error: string | null;
+// ─── Types ───────────────────────────────────────────────────────────────────
+
+type PipelinePayload  = Record<string, any>;
+type ServiceLogState  = { log: string; loading: boolean; error: string | null };
+type ServerPathEntry  = { targetServerId?: string; serverId?: string; logPath?: string };
+
+// ─── Log-line parser ─────────────────────────────────────────────────────────
+//
+// Tries to detect a log level in every line so we can colour it.
+// Pattern accepted: anything like "INFO", "[WARN]", "ERROR:" etc.
+//
+
+type LogLevel = "info" | "warn" | "error" | "debug" | "plain";
+
+interface ParsedLine {
+  timestamp: string;
+  level: LogLevel;
+  message: string;
+  raw: string;
+}
+
+const LEVEL_RE = /\b(ERROR|ERR|FATAL|WARN|WARNING|INFO|DEBUG|TRACE)\b/i;
+
+function parseLogLine(raw: string): ParsedLine {
+  // Grab leading timestamp-like token (up to first space after date/time chars)
+  const tsMatch = raw.match(/^(\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}(?:[.,]\d+)?(?:Z|[+-]\d{2}:?\d{2})?)\s*/);
+  let timestamp = "";
+  let rest = raw;
+  if (tsMatch) {
+    // Shorten to HH:MM:SS for display
+    const full = tsMatch[1];
+    const timeOnly = full.match(/(\d{2}:\d{2}:\d{2})/);
+    timestamp = timeOnly ? timeOnly[1] : full.slice(0, 8);
+    rest = raw.slice(tsMatch[0].length);
+  }
+
+  const lvlMatch = rest.match(LEVEL_RE);
+  let level: LogLevel = "plain";
+  if (lvlMatch) {
+    const v = lvlMatch[1].toUpperCase();
+    if (v === "ERROR" || v === "ERR" || v === "FATAL") level = "error";
+    else if (v === "WARN" || v === "WARNING")           level = "warn";
+    else if (v === "INFO")                              level = "info";
+    else if (v === "DEBUG" || v === "TRACE")            level = "debug";
+  }
+
+  return { timestamp, level, message: rest.trim() || raw, raw };
+}
+
+const LEVEL_STYLES: Record<LogLevel, string> = {
+  error: "text-red-400",
+  warn:  "text-amber-400",
+  info:  "text-blue-400",
+  debug: "text-zinc-500",
+  plain: "text-zinc-400",
 };
-type ServerPathEntry = {
-  targetServerId?: string;
-  serverId?: string;
-  logPath?: string;
+
+const LEVEL_LABEL: Record<LogLevel, string> = {
+  error: "ERR",
+  warn:  "WRN",
+  info:  "INF",
+  debug: "DBG",
+  plain: "   ",
 };
+
+// ─── Pipeline-data helpers (unchanged logic) ─────────────────────────────────
 
 function extractPipelineRuns(payload: any): PipelinePayload[] {
   const body = payload?.data ?? payload;
-
   if (Array.isArray(body)) return body;
   if (Array.isArray(body?.data)) return body.data;
   if (Array.isArray(body?.runs)) return body.runs;
   if (Array.isArray(body?.pipelineRuns)) return body.pipelineRuns;
-
   return body && typeof body === "object" ? [body] : [];
 }
 
 function servicesFor(run?: PipelinePayload | null) {
   if (!run) return [];
   if (Array.isArray(run.servicesList)) return run.servicesList;
-  if (run.services && !Array.isArray(run.services) && typeof run.services === "object") {
+  if (run.services && !Array.isArray(run.services) && typeof run.services === "object")
     return Object.keys(run.services);
-  }
-  if (Array.isArray(run.services)) {
-    return run.services
-      .map((item: any) => item?.service ?? item?.name)
-      .filter(Boolean);
-  }
+  if (Array.isArray(run.services))
+    return run.services.map((i: any) => i?.service ?? i?.name).filter(Boolean);
   return ["search", "routing", "tile"];
 }
 
@@ -66,66 +119,42 @@ function statusFor(service: string, payload: PipelinePayload) {
   if (!raw) return { status: "pending", log };
   const v = String(raw).toLowerCase();
   if (v === "success" || v === "completed") return { status: "success", log };
-  if (v === "failed" || v === "error") return { status: "failed", log };
+  if (v === "failed"  || v === "error")     return { status: "failed",  log };
   return { status: "pending", log };
 }
 
 function getServiceData(run: PipelinePayload | null, service: string | null) {
   if (!run || !service) return null;
-  if (run.services && !Array.isArray(run.services) && typeof run.services === "object") {
+  if (run.services && !Array.isArray(run.services) && typeof run.services === "object")
     return run.services[service] ?? null;
-  }
-  if (Array.isArray(run.services)) {
-    return run.services.find((item: any) => item?.service === service || item?.name === service) ?? null;
-  }
+  if (Array.isArray(run.services))
+    return run.services.find((i: any) => i?.service === service || i?.name === service) ?? null;
   return run[service] ?? null;
 }
 
 function pickFirstString(...values: any[]) {
-  const found = values.find((value) => typeof value === "string" && value.trim());
+  const found = values.find((v) => typeof v === "string" && v.trim());
   return found ? String(found).trim() : "";
 }
 
 function targetServerFor(run: PipelinePayload | null, service: string | null) {
-  const svcData = getServiceData(run, service);
-  return pickFirstString(
-    svcData?.targetServer,
-    svcData?.target_server,
-    svcData?.targetServerName,
-    svcData?.devServerName,
-    svcData?.server,
-    run?.targetServer,
-    run?.target_server,
-    run?.targetServerName,
-    run?.devServerName,
-    run?.server,
-  );
+  const d = getServiceData(run, service);
+  return pickFirstString(d?.targetServer, d?.target_server, d?.targetServerName,
+    d?.devServerName, d?.server, run?.targetServer, run?.target_server,
+    run?.targetServerName, run?.devServerName, run?.server);
 }
 
 function sIdFor(run: PipelinePayload | null, service: string | null) {
-  const svcData = getServiceData(run, service);
-  return pickFirstString(
-    svcData?.sId,
-    svcData?.sid,
-    svcData?.sessionId,
-    svcData?.executionId,
-    run?.[`${service}SId`],
-    run?.[`${service}_sId`],
-  );
+  const d = getServiceData(run, service);
+  return pickFirstString(d?.sId, d?.sid, d?.sessionId, d?.executionId,
+    run?.[`${service}SId`], run?.[`${service}_sId`]);
 }
 
 function targetServerIdFor(run: PipelinePayload | null, service: string | null) {
-  const svcData = getServiceData(run, service);
-  return pickFirstString(
-    svcData?.targetServerId,
-    svcData?.target_server_id,
-    svcData?.serverId,
-    run?.[`${service}TargetServerId`],
-    run?.[`${service}_targetServerId`],
-    run?.targetServerId,
-    run?.target_server_id,
-    run?.serverId,
-  );
+  const d = getServiceData(run, service);
+  return pickFirstString(d?.targetServerId, d?.target_server_id, d?.serverId,
+    run?.[`${service}TargetServerId`], run?.[`${service}_targetServerId`],
+    run?.targetServerId, run?.target_server_id, run?.serverId);
 }
 
 function flattenServerPaths(serverPaths: Record<string, ServerPathEntry[]> | ServerPathEntry[] | undefined): ServerPathEntry[] {
@@ -135,34 +164,15 @@ function flattenServerPaths(serverPaths: Record<string, ServerPathEntry[]> | Ser
 }
 
 function joinLogPath(basePath: string, fileName: string) {
-  const normalizedBase = basePath.trim().replace(/\/+$/, "");
-  return `${normalizedBase}/${fileName}`;
+  return `${basePath.trim().replace(/\/+$/, "")}/${fileName}`;
 }
 
 function normalizeLogLines(payload: any): string[] {
   const body = payload?.data ?? payload;
-  const candidates = [
-    body?.logs,
-    body?.lines,
-    body?.logLines,
-    body?.data?.logs,
-    body?.data?.lines,
-    Array.isArray(body) ? body : null,
-  ];
-  const raw = candidates.find((item) => Array.isArray(item) || typeof item === "string");
-
-  if (Array.isArray(raw)) {
-    return raw
-      .map((item) => {
-        if (typeof item === "string") return item;
-        if (item?.message) return String(item.message);
-        if (item?.line) return String(item.line);
-        if (item?.log) return String(item.log);
-        return JSON.stringify(item);
-      })
-      .filter(Boolean);
-  }
-
+  const candidates = [body?.logs, body?.lines, body?.logLines, body?.data?.logs, body?.data?.lines, Array.isArray(body) ? body : null];
+  const raw = candidates.find((i) => Array.isArray(i) || typeof i === "string");
+  if (Array.isArray(raw))
+    return raw.map((i) => typeof i === "string" ? i : i?.message ? String(i.message) : i?.line ? String(i.line) : i?.log ? String(i.log) : JSON.stringify(i)).filter(Boolean);
   if (typeof raw === "string") return raw ? [raw] : [];
   if (typeof body?.log === "string") return [body.log];
   if (typeof body?.message === "string") return [body.message];
@@ -171,75 +181,266 @@ function normalizeLogLines(payload: any): string[] {
 
 function extractNewOffset(payload: any): number | null {
   const body = payload?.data ?? payload;
-  const value =
-    body?.newOffset ??
-    body?.data?.newOffset ??
-    body?.offset ??
-    body?.data?.offset;
-  const numberValue = Number(value);
-  return Number.isFinite(numberValue) ? numberValue : null;
+  const value = body?.newOffset ?? body?.data?.newOffset ?? body?.offset ?? body?.data?.offset;
+  const n = Number(value);
+  return Number.isFinite(n) ? n : null;
 }
 
 function extractLogCompleted(payload: any): boolean {
   const body = payload?.data ?? payload;
-  const value =
-    body?.completed ??
-    body?.complete ??
-    body?.done ??
-    body?.finished ??
-    body?.isComplete ??
-    body?.data?.completed ??
-    body?.data?.complete ??
-    body?.data?.done ??
-    body?.data?.finished ??
-    body?.data?.isComplete;
-
+  const value = body?.completed ?? body?.complete ?? body?.done ?? body?.finished ?? body?.isComplete
+    ?? body?.data?.completed ?? body?.data?.complete ?? body?.data?.done ?? body?.data?.finished ?? body?.data?.isComplete;
   return value === true || String(value).toLowerCase() === "true";
 }
 
-function StatusPill({ status }: { status: string }) {
+// ─── Small UI components ─────────────────────────────────────────────────────
+
+function StatusPill({ status, size = "md" }: { status: string; size?: "sm" | "md" }) {
+  const px = size === "sm" ? "px-1.5 py-0.5 text-[10px]" : "px-2 py-0.5 text-xs";
   if (status === "success")
     return (
-      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium text-emerald-600 border border-emerald-500/20 bg-emerald-500/10">
+      <span className={`inline-flex items-center gap-1 ${px} rounded-full font-medium text-emerald-600 border border-emerald-500/20 bg-emerald-500/10`}>
         <CheckCircle2 className="w-3 h-3" /> Success
       </span>
     );
   if (status === "failed")
     return (
-      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium text-destructive border border-destructive/20 bg-destructive/10">
+      <span className={`inline-flex items-center gap-1 ${px} rounded-full font-medium text-destructive border border-destructive/20 bg-destructive/10`}>
         <AlertCircle className="w-3 h-3" /> Failed
       </span>
     );
   return (
-    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium text-amber-600 border border-amber-500/20 bg-amber-500/10">
+    <span className={`inline-flex items-center gap-1 ${px} rounded-full font-medium text-amber-600 border border-amber-500/20 bg-amber-500/10`}>
       <Clock className="w-3 h-3" /> Pending
     </span>
   );
 }
 
+function StatusDot({ status }: { status: string }) {
+  if (status === "success") return <span className="inline-block w-1.5 h-1.5 rounded-full bg-emerald-500 shrink-0" />;
+  if (status === "failed")  return <span className="inline-block w-1.5 h-1.5 rounded-full bg-destructive shrink-0" />;
+  return <span className="inline-block w-1.5 h-1.5 rounded-full bg-amber-400 shrink-0" />;
+}
+
+// ─── JSON Payload Viewer ─────────────────────────────────────────────────────
+
+function JsonNode({ data, depth = 0 }: { data: any; depth?: number }) {
+  const [collapsed, setCollapsed] = useState(depth > 1);
+
+  if (data === null) return <span className="text-zinc-500 font-mono text-xs">null</span>;
+  if (typeof data === "boolean") return <span className="text-amber-400 font-mono text-xs">{String(data)}</span>;
+  if (typeof data === "number") return <span className="text-blue-400 font-mono text-xs">{data}</span>;
+  if (typeof data === "string") return <span className="text-emerald-400 font-mono text-xs">"{data}"</span>;
+
+  if (Array.isArray(data)) {
+    if (data.length === 0) return <span className="text-zinc-500 font-mono text-xs">[]</span>;
+    return (
+      <span>
+        <button onClick={() => setCollapsed(!collapsed)} className="text-zinc-400 hover:text-zinc-200 font-mono text-xs focus:outline-none">
+          {collapsed ? <ChevronDown className="w-3 h-3 inline" /> : <ChevronUp className="w-3 h-3 inline" />}
+          {collapsed ? ` [ ${data.length} items ]` : " ["}
+        </button>
+        {!collapsed && (
+          <div style={{ marginLeft: 16 }}>
+            {data.map((item, i) => (
+              <div key={i} className="font-mono text-xs">
+                <span className="text-zinc-600">{i}: </span>
+                <JsonNode data={item} depth={depth + 1} />
+                {i < data.length - 1 && <span className="text-zinc-600">,</span>}
+              </div>
+            ))}
+            <div className="text-zinc-400 font-mono text-xs">]</div>
+          </div>
+        )}
+      </span>
+    );
+  }
+
+  if (typeof data === "object") {
+    const keys = Object.keys(data);
+    if (keys.length === 0) return <span className="text-zinc-500 font-mono text-xs">{"{}"}</span>;
+    return (
+      <span>
+        <button onClick={() => setCollapsed(!collapsed)} className="text-zinc-400 hover:text-zinc-200 font-mono text-xs focus:outline-none">
+          {collapsed ? <ChevronDown className="w-3 h-3 inline" /> : <ChevronUp className="w-3 h-3 inline" />}
+          {collapsed ? ` { ${keys.length} keys }` : " {"}
+        </button>
+        {!collapsed && (
+          <div style={{ marginLeft: 16 }}>
+            {keys.map((key, i) => (
+              <div key={key} className="font-mono text-xs leading-relaxed">
+                <span className="text-sky-400">"{key}"</span>
+                <span className="text-zinc-500">: </span>
+                <JsonNode data={data[key]} depth={depth + 1} />
+                {i < keys.length - 1 && <span className="text-zinc-600">,</span>}
+              </div>
+            ))}
+            <div className="text-zinc-400 font-mono text-xs">{"}"}</div>
+          </div>
+        )}
+      </span>
+    );
+  }
+
+  return <span className="text-zinc-300 font-mono text-xs">{String(data)}</span>;
+}
+
+function PayloadViewer({ data }: { data: any }) {
+  const [search, setSearch] = useState("");
+  const [collapseAll, setCollapseAll] = useState(false);
+
+  // For search, we fall back to plain JSON string highlighting
+  const jsonText = JSON.stringify(data, null, 2);
+
+  const filteredLines = search.trim()
+    ? jsonText.split("\n").filter((l) => l.toLowerCase().includes(search.toLowerCase()))
+    : null;
+
+  return (
+    <div className="flex flex-col h-full">
+      {/* Toolbar */}
+      <div className="flex items-center gap-2 px-4 py-2 border-b border-zinc-700 bg-zinc-900 shrink-0">
+        <Search className="w-3.5 h-3.5 text-zinc-500 shrink-0" />
+        <input
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder="Search keys or values…"
+          className="flex-1 bg-transparent text-xs text-zinc-300 placeholder-zinc-600 focus:outline-none"
+        />
+        {search && (
+          <button onClick={() => setSearch("")} className="text-zinc-500 hover:text-zinc-300">
+            <X className="w-3 h-3" />
+          </button>
+        )}
+        <div className="w-px h-4 bg-zinc-700" />
+        <button
+          onClick={() => setCollapseAll(!collapseAll)}
+          className="flex items-center gap-1 text-xs text-zinc-400 hover:text-zinc-200 px-2 py-1 rounded hover:bg-zinc-800 transition-colors"
+        >
+          <ChevronsUpDown className="w-3 h-3" />
+          {collapseAll ? "Expand all" : "Collapse all"}
+        </button>
+      </div>
+
+      {/* Content */}
+      <div className="flex-1 overflow-auto p-4 bg-[#0d1117]">
+        {search.trim() ? (
+          /* Search results — plain filtered lines */
+          filteredLines && filteredLines.length > 0 ? (
+            <div>
+              <p className="text-xs text-zinc-500 mb-3">{filteredLines.length} matching lines</p>
+              <pre className="text-xs font-mono text-zinc-300 whitespace-pre-wrap break-words leading-relaxed">
+                {filteredLines.map((line, i) => {
+                  const idx = line.toLowerCase().indexOf(search.toLowerCase());
+                  if (idx === -1) return <span key={i}>{line}{"\n"}</span>;
+                  return (
+                    <span key={i}>
+                      {line.slice(0, idx)}
+                      <mark className="bg-amber-400/30 text-amber-200 rounded-sm">{line.slice(idx, idx + search.length)}</mark>
+                      {line.slice(idx + search.length)}
+                      {"\n"}
+                    </span>
+                  );
+                })}
+              </pre>
+            </div>
+          ) : (
+            <p className="text-xs text-zinc-500 mt-4 text-center">No results for "{search}"</p>
+          )
+        ) : (
+          /* Interactive tree */
+          <div key={String(collapseAll)} className="font-mono text-xs text-zinc-300 leading-relaxed">
+            <JsonNode data={data} depth={0} />
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ─── Terminal Log Viewer ──────────────────────────────────────────────────────
+
+function TerminalLog({
+  logText,
+  loading,
+  error,
+  theme,
+}: {
+  logText: string;
+  loading: boolean;
+  error: string | null;
+  theme: "dark" | "light";
+}) {
+  const lines: ParsedLine[] = logText
+    ? logText.split("\n").map(parseLogLine)
+    : [];
+  const isDark = theme === "dark";
+  const shellClass = isDark ? "bg-[#0d1117] text-zinc-300" : "bg-white text-slate-800";
+  const mutedClass = isDark ? "text-zinc-500" : "text-slate-500";
+  const emptyClass = isDark ? "text-zinc-600" : "text-slate-400";
+  const timestampClass = isDark ? "text-zinc-600" : "text-slate-400";
+  const rowClass = isDark ? "hover:bg-white/[0.03]" : "hover:bg-slate-100";
+  const lineTextClass = (level: LogLevel) =>
+    level === "plain"
+      ? isDark ? "text-zinc-300" : "text-slate-700"
+      : isDark ? "text-zinc-200" : "text-slate-800";
+
+  return (
+    <div className={`h-full font-mono text-xs leading-relaxed overflow-auto p-3 rounded-b-lg ${shellClass}`}>
+      {loading && !logText ? (
+        <span className={`inline-flex items-center gap-2 ${mutedClass}`}>
+          <Loader2 className="w-3.5 h-3.5 animate-spin" /> Fetching logs…
+        </span>
+      ) : error ? (
+        <span className="text-red-400">{error}</span>
+      ) : lines.length > 0 ? (
+        lines.map((line, i) => (
+          <div key={i} className={`flex gap-2 px-1 rounded group ${rowClass}`}>
+            {line.timestamp && (
+              <span className={`shrink-0 select-none w-16 ${timestampClass}`}>{line.timestamp}</span>
+            )}
+            <span className={`shrink-0 w-7 font-semibold ${LEVEL_STYLES[line.level]}`}>
+              {LEVEL_LABEL[line.level]}
+            </span>
+            <span className={lineTextClass(line.level)}>
+              {line.message}
+            </span>
+          </div>
+        ))
+      ) : (
+        <span className={emptyClass}>No log output yet.</span>
+      )}
+    </div>
+  );
+}
+
+// ─── Main Component ───────────────────────────────────────────────────────────
+
 export default function DataPipelineLog({ runId }: { runId?: string }) {
-  const location = useLocation();
-  const queryRunId = new URLSearchParams(location.search).get("runId") ?? undefined;
+  const location      = useLocation();
+  const queryRunId    = new URLSearchParams(location.search).get("runId") ?? undefined;
   const effectiveRunId = runId ?? queryRunId;
 
-  const [loading, setLoading] = useState(false);
-  const [refreshing, setRefreshing] = useState(false);
-  const [runs, setRuns] = useState<PipelinePayload[] | null>(null);
-  const [selectedRun, setSelectedRun] = useState<PipelinePayload | null>(null);
-  const [selectedService, setSelectedService] = useState<string | null>(null);
-  const [showPayloadPage, setShowPayloadPage] = useState(false);
-  const [copySuccess, setCopySuccess] = useState(false);
-  const [payloadCopySuccess, setPayloadCopySuccess] = useState(false);
-  const [currentVersion, setCurrentVersion] = useState<string | null>(null);
-  const [emptyVersion, setEmptyVersion] = useState<string | null>(null);
-  const [serviceLogs, setServiceLogs] = useState<Record<string, ServiceLogState>>({});
-  const logScrollRef = useRef<HTMLDivElement | null>(null);
-  const logBottomRef = useRef<HTMLDivElement | null>(null);
-  const shouldStickToBottomRef = useRef(true);
-  const removeLogCallsRef = useRef<Set<string>>(new Set());
+  const [loading,           setLoading]           = useState(false);
+  const [refreshing,        setRefreshing]        = useState(false);
+  const [runs,              setRuns]              = useState<PipelinePayload[] | null>(null);
+  const [selectedRun,       setSelectedRun]       = useState<PipelinePayload | null>(null);
+  const [selectedService,   setSelectedService]   = useState<string | null>(null);
+  const [showPayloadPage,   setShowPayloadPage]   = useState(false);
+  const [copySuccess,       setCopySuccess]       = useState(false);
+  const [payloadCopySuccess,setPayloadCopySuccess]= useState(false);
+  const [currentVersion,    setCurrentVersion]    = useState<string | null>(null);
+  const [emptyVersion,      setEmptyVersion]      = useState<string | null>(null);
+  const [serviceLogs,       setServiceLogs]       = useState<Record<string, ServiceLogState>>({});
+  const [currentPage,       setCurrentPage]       = useState(1);
+  const [runsCollapsed,     setRunsCollapsed]     = useState(false);
+  const [logTheme,          setLogTheme]          = useState<"dark" | "light">("dark");
 
-  // Pagination state
-  const [currentPage, setCurrentPage] = useState(1);
+  const logBottomRef              = useRef<HTMLDivElement | null>(null);
+  const shouldStickToBottomRef    = useRef(true);
+  const removeLogCallsRef         = useRef<Set<string>>(new Set());
+
+  // ── Version + data fetch ──────────────────────────────────────────────────
 
   const fetchCurrentVersion = useCallback(async () => {
     try {
@@ -247,369 +448,169 @@ export default function DataPipelineLog({ runId }: { runId?: string }) {
       const version = res.data?.data?.version || res.data?.currentVersion || res.data?.version || "Unknown";
       setCurrentVersion(version);
       return version;
-    } catch (err) {
-      console.error("Failed to fetch current version:", err);
+    } catch {
       setCurrentVersion("Error");
       return null;
     }
   }, []);
 
   const fetchData = useCallback(async (isRefresh = false, version?: string | null) => {
-    if (isRefresh) setRefreshing(true);
-    else setLoading(true);
-
+    if (isRefresh) setRefreshing(true); else setLoading(true);
     try {
       const FETCH_URL = "http://localhost:3000/api/v1/admin-dashboard/data-pipeline/fetch-pipeline";
-      const params = version && version !== "Unknown" && version !== "Error"
-        ? { version }
-        : undefined;
+      const params = version && version !== "Unknown" && version !== "Error" ? { version } : undefined;
 
       if (effectiveRunId) {
         const res = await api.get(FETCH_URL, { params: { ...params, runId: effectiveRunId } });
         const arr = extractPipelineRuns(res.data ?? res);
-        const body =
-          arr.find((item) => item?.runId === effectiveRunId || item?._id === effectiveRunId || item?.id === effectiveRunId) ??
-          arr[0] ??
-          null;
+        const body = arr.find((i) => i?.runId === effectiveRunId || i?._id === effectiveRunId || i?.id === effectiveRunId) ?? arr[0] ?? null;
         setRuns(body ? [body] : []);
         setSelectedRun(body);
-        const services = servicesFor(body);
-        setSelectedService(services[0] ?? null);
+        setSelectedService(servicesFor(body)[0] ?? null);
         setEmptyVersion(!body && params?.version ? params.version : null);
       } else {
         const res = await api.get(FETCH_URL, { params });
         const arr = extractPipelineRuns(res.data ?? res);
         arr.sort((a: any, b: any) => {
-        const ta = a?.createdAt ? new Date(a.createdAt).getTime() : 0;
-        const tb = b?.createdAt ? new Date(b.createdAt).getTime() : 0;
-        return tb - ta;
+          const ta = a?.createdAt ? new Date(a.createdAt).getTime() : 0;
+          const tb = b?.createdAt ? new Date(b.createdAt).getTime() : 0;
+          return tb - ta;
         });
         setRuns(arr);
         setEmptyVersion(arr.length === 0 && params?.version ? params.version : null);
         if (arr.length > 0) {
-          // On refresh, keep the same run selected if it still exists; else fallback to first
           setSelectedRun((prev) => {
             const prevId = prev?.runId ?? prev?.id;
-            const found = prevId ? arr.find((r) => (r?.runId ?? r?.id) === prevId) : null;
-            return found ?? arr[0];
+            return prevId ? (arr.find((r) => (r?.runId ?? r?.id) === prevId) ?? arr[0]) : arr[0];
           });
-          setSelectedService((prevSvc) => {
-            if (prevSvc) return prevSvc;
-            const services = servicesFor(arr[0]);
-            return services[0] ?? null;
-          });
+          setSelectedService((prev) => prev ?? servicesFor(arr[0])[0] ?? null);
         } else {
           setSelectedRun(null);
           setSelectedService(null);
         }
       }
-    } catch (err) {
-      if (!isRefresh) {
-        setRuns(null);
-        setSelectedRun(null);
-      }
+    } catch {
+      if (!isRefresh) { setRuns(null); setSelectedRun(null); }
       setEmptyVersion(null);
     } finally {
-      if (isRefresh) setRefreshing(false);
-      else setLoading(false);
+      if (isRefresh) setRefreshing(false); else setLoading(false);
     }
   }, [effectiveRunId]);
 
+  // ── Remove-log helper ─────────────────────────────────────────────────────
+
   const removeSuccessfulServiceLog = useCallback(async (
-    run: PipelinePayload,
-    service: string,
-    runKey: string,
-    targetServer: string,
-    sId: string,
+    run: PipelinePayload, service: string, runKey: string, targetServer: string, sId: string,
   ) => {
     if (statusFor(service, run).status !== "success") return;
-
     const targetServerId = targetServerIdFor(run, service);
-    if (!targetServerId) {
-      console.warn("Skipping remove-log: targetServerId is missing.", { runKey, service });
-      return;
-    }
-
+    if (!targetServerId) return;
     const removeKey = `${runKey}:${service}:${targetServerId}:${sId}`;
     if (removeLogCallsRef.current.has(removeKey)) return;
     removeLogCallsRef.current.add(removeKey);
-
     try {
       const version = currentVersion || (await fetchCurrentVersion());
       if (!version || version === "Unknown" || version === "Error") return;
-
       const serverPathRes = await api.post("/admin-dashboard/pipeline-config/server-path", { version });
-      const serverPaths =
-        serverPathRes.data?.data?.serverPaths ||
-        serverPathRes.data?.serverPaths ||
-        {};
-      const pathInfo = flattenServerPaths(serverPaths).find(
-        (path) => (path.targetServerId || path.serverId) === targetServerId
-      );
+      const serverPaths = serverPathRes.data?.data?.serverPaths || serverPathRes.data?.serverPaths || {};
+      const pathInfo = flattenServerPaths(serverPaths).find((p) => (p.targetServerId || p.serverId) === targetServerId);
       const logPath = pathInfo?.logPath?.trim();
-
-      if (!logPath) {
-        console.warn("Skipping remove-log: logPath is missing for target server.", {
-          runKey,
-          service,
-          targetServerId,
-        });
-        return;
-      }
-
-      const fullLogPath = joinLogPath(logPath, `${runKey}_${service}.log`);
-
-      await axios.post(
-        REMOVE_LOG_URL,
-        {
-          server: targetServer,
-          sId,
-          logPath: fullLogPath,
-        },
-        { timeout: LOG_REQUEST_TIMEOUT }
-      );
-    } catch (err) {
-      removeLogCallsRef.current.delete(removeKey);
-      console.error("Failed to remove service log:", err);
+      if (!logPath) return;
+      await axios.post(REMOVE_LOG_URL, { server: targetServer, sId, logPath: joinLogPath(logPath, `${runKey}_${service}.log`) }, { timeout: LOG_REQUEST_TIMEOUT });
+    } catch {
+      removeLogCallsRef.current.delete(`${runKey}:${service}:${targetServerId}:${sId}`);
     }
   }, [currentVersion, fetchCurrentVersion]);
 
+  // ── Bootstrap ─────────────────────────────────────────────────────────────
+
   useEffect(() => {
     let cancelled = false;
-
-    async function loadPipelineRuns() {
-      const version = await fetchCurrentVersion();
-      if (!cancelled) {
-        fetchData(false, version);
-      }
-    }
-
-    loadPipelineRuns();
-
-    return () => {
-      cancelled = true;
-    };
+    fetchCurrentVersion().then((v) => { if (!cancelled) fetchData(false, v); });
+    return () => { cancelled = true; };
   }, [fetchData, fetchCurrentVersion]);
 
-  // Reset to page 1 when runs list changes
-  useEffect(() => {
-    setCurrentPage(1);
-  }, [runs?.length]);
+  useEffect(() => { setCurrentPage(1); }, [runs?.length]);
+
+  // ── Log polling ───────────────────────────────────────────────────────────
 
   useEffect(() => {
     if (!selectedRun || !selectedService) return;
-
-    const runKey = String(selectedRun?.runId ?? selectedRun?.id ?? selectedRun?._id ?? "");
-    const logKey = `${runKey}:${selectedService}`;
+    const runKey      = String(selectedRun?.runId ?? selectedRun?.id ?? selectedRun?._id ?? "");
+    const logKey      = `${runKey}:${selectedService}`;
     const targetServer = targetServerFor(selectedRun, selectedService);
-    const sId = sIdFor(selectedRun, selectedService);
+    const sId         = sIdFor(selectedRun, selectedService);
 
     if (!targetServer || !sId) {
       setServiceLogs((prev) => ({
         ...prev,
-        [logKey]: {
-          log: "",
-          loading: false,
-          error: !targetServer
-            ? "Target server is missing for this service."
-            : "sId is missing for this service.",
-        },
+        [logKey]: { log: "", loading: false, error: !targetServer ? "Target server is missing." : "sId is missing." },
       }));
       return;
     }
 
     const controller = new AbortController();
     const pendingTimeouts: ReturnType<typeof setTimeout>[] = [];
-    const waitForNextPoll = () =>
-      new Promise<void>((resolve) => {
-        const timeoutId = setTimeout(resolve, LOG_POLL_DELAY);
-        pendingTimeouts.push(timeoutId);
-      });
+    const wait = () => new Promise<void>((res) => { const id = setTimeout(res, LOG_POLL_DELAY); pendingTimeouts.push(id); });
 
-    async function fetchRunIdLogs() {
-      setServiceLogs((prev) => ({
-        ...prev,
-        [logKey]: { log: "", loading: true, error: null },
-      }));
-
+    async function poll() {
+      setServiceLogs((prev) => ({ ...prev, [logKey]: { log: "", loading: true, error: null } }));
       const lines: string[] = [];
-      let offset = 0;
-      let retryCount = 0;
-      let idlePollCount = 0;
-      const serviceStatus = statusFor(selectedService, selectedRun).status;
-      const fallbackLog = statusFor(selectedService, selectedRun).log;
+      let offset = 0, retryCount = 0, idlePollCount = 0;
+      const svcStatus  = statusFor(selectedService!, selectedRun!).status;
+      const fallbackLog = statusFor(selectedService!, selectedRun!).log;
 
       try {
         while (!controller.signal.aborted) {
           try {
-            const res = await axios.post(
-              RUN_ID_LOGS_URL,
-              {
-                targetServer,
-                sId,
-                offset,
-              },
-              {
-                signal: controller.signal,
-                timeout: LOG_REQUEST_TIMEOUT,
-              }
-            );
-
-            const data = res.data;
-            const newLogs = normalizeLogLines(data);
-            if (newLogs.length > 0) {
-              lines.push(...newLogs);
-            }
+            const res = await axios.post(RUN_ID_LOGS_URL, { targetServer, sId, offset }, { signal: controller.signal, timeout: LOG_REQUEST_TIMEOUT });
+            const newLogs = normalizeLogLines(res.data);
+            if (newLogs.length > 0) lines.push(...newLogs);
             retryCount = 0;
-
-            setServiceLogs((prev) => ({
-              ...prev,
-              [logKey]: {
-                log: lines.join("\n"),
-                loading: true,
-                error: null,
-              },
-            }));
-
-            const newOffset = extractNewOffset(data);
-            const completed =
-              extractLogCompleted(data) ||
-              serviceStatus === "success" ||
-              serviceStatus === "failed";
-
-            if (newOffset !== null && newOffset !== offset) {
-              offset = newOffset;
-              idlePollCount = 0;
-            } else {
-              idlePollCount += 1;
-            }
-
-            const maxIdlePolls = completed
-              ? MAX_IDLE_POLLS_AFTER_FINISH
-              : MAX_IDLE_POLLS_WHILE_RUNNING;
-
-            if (idlePollCount >= maxIdlePolls) {
-              break;
-            }
-
-            if (!controller.signal.aborted) {
-              await waitForNextPoll();
-            }
-          } catch (pollErr: any) {
-            if (pollErr?.name === "AbortError" || pollErr?.code === "ERR_CANCELED") {
-              break;
-            }
-
-            retryCount++;
-            if (retryCount >= MAX_LOG_RETRIES) {
-              throw pollErr;
-            }
-
-            console.warn(
-              `API call failed (attempt ${retryCount}/${MAX_LOG_RETRIES}):`,
-              pollErr?.message
-            );
-
-            await waitForNextPoll();
+            setServiceLogs((prev) => ({ ...prev, [logKey]: { log: lines.join("\n"), loading: true, error: null } }));
+            const newOffset = extractNewOffset(res.data);
+            const completed = extractLogCompleted(res.data) || svcStatus === "success" || svcStatus === "failed";
+            if (newOffset !== null && newOffset !== offset) { offset = newOffset; idlePollCount = 0; } else idlePollCount++;
+            if (idlePollCount >= (completed ? MAX_IDLE_POLLS_AFTER_FINISH : MAX_IDLE_POLLS_WHILE_RUNNING)) break;
+            if (!controller.signal.aborted) await wait();
+          } catch (e: any) {
+            if (e?.name === "AbortError" || e?.code === "ERR_CANCELED") break;
+            if (++retryCount >= MAX_LOG_RETRIES) throw e;
+            await wait();
           }
         }
-
         const finalLog = lines.length > 0 ? lines.join("\n") : fallbackLog;
-        setServiceLogs((prev) => ({
-          ...prev,
-          [logKey]: {
-            log: finalLog,
-            loading: false,
-            error: null,
-          },
-        }));
-
-        if (!controller.signal.aborted) {
-          await removeSuccessfulServiceLog(
-            selectedRun,
-            selectedService,
-            runKey,
-            targetServer,
-            sId,
-          );
-        }
-      } catch (err: any) {
-        if (err?.name === "AbortError") return;
+        setServiceLogs((prev) => ({ ...prev, [logKey]: { log: finalLog, loading: false, error: null } }));
+        if (!controller.signal.aborted)
+          await removeSuccessfulServiceLog(selectedRun!, selectedService!, runKey, targetServer, sId);
+      } catch (e: any) {
+        if (e?.name === "AbortError") return;
         const finalLog = lines.length > 0 ? lines.join("\n") : fallbackLog;
-        setServiceLogs((prev) => ({
-          ...prev,
-          [logKey]: {
-            log: finalLog,
-            loading: false,
-            error: finalLog ? null : err?.message || "Failed to fetch run logs.",
-          },
-        }));
+        setServiceLogs((prev) => ({ ...prev, [logKey]: { log: finalLog, loading: false, error: finalLog ? null : e?.message || "Failed to fetch logs." } }));
       }
     }
 
-    // Call fetchRunIdLogs immediately when effect runs
-    fetchRunIdLogs();
-
-    return () => {
-      controller.abort();
-      // Clean up all pending timeouts
-      pendingTimeouts.forEach((timeoutId) => clearTimeout(timeoutId));
-    };
+    poll();
+    return () => { controller.abort(); pendingTimeouts.forEach(clearTimeout); };
   }, [removeSuccessfulServiceLog, selectedRun, selectedService]);
 
-  const activeRunKey = String(selectedRun?.runId ?? selectedRun?.id ?? selectedRun?._id ?? "");
-  const activeLogState =
-    selectedService ? serviceLogs[`${activeRunKey}:${selectedService}`] : null;
-  const activeLogText =
-    activeLogState?.log ??
-    (selectedService ? statusFor(selectedService, selectedRun || {}).log : "");
+  // ── Scroll-to-bottom ──────────────────────────────────────────────────────
+
+  const activeRunKey   = String(selectedRun?.runId ?? selectedRun?.id ?? selectedRun?._id ?? "");
+  const activeLogState = selectedService ? serviceLogs[`${activeRunKey}:${selectedService}`] : null;
+  const activeLogText  = activeLogState?.log ?? (selectedService ? statusFor(selectedService, selectedRun || {}).log : "");
 
   useEffect(() => {
     shouldStickToBottomRef.current = true;
-    requestAnimationFrame(() => {
-      logBottomRef.current?.scrollIntoView({ block: "end" });
-    });
+    requestAnimationFrame(() => logBottomRef.current?.scrollIntoView({ block: "end" }));
   }, [activeRunKey, selectedService]);
 
   useEffect(() => {
     if (!shouldStickToBottomRef.current) return;
-    requestAnimationFrame(() => {
-      logBottomRef.current?.scrollIntoView({ block: "end" });
-    });
+    requestAnimationFrame(() => logBottomRef.current?.scrollIntoView({ block: "end" }));
   }, [activeLogText]);
 
-  if (loading)
-    return (
-      <div className="flex items-center gap-2 text-sm text-muted-foreground">
-        <Loader2 className="w-4 h-4 animate-spin" /> Loading logs…
-      </div>
-    );
-  if (!runs || runs.length === 0)
-    return (
-      <div className="h-full min-h-[320px] flex items-center justify-center p-6">
-        <div className="w-full max-w-md rounded-lg border border-dashed border-border bg-card px-6 py-8 text-center shadow-sm">
-          <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-muted text-muted-foreground">
-            <AlertCircle className="h-5 w-5" />
-          </div>
-          <h3 className="text-base font-semibold text-foreground">
-            No pipeline runs found
-          </h3>
-          <p className="mt-2 text-sm leading-6 text-muted-foreground">
-            {emptyVersion ? (
-              <>
-                There is no pipeline run for this particular version{" "}
-                <span className="font-mono font-medium text-foreground bg-muted px-1.5 py-0.5 rounded">
-                  {emptyVersion}
-                </span>
-                .
-              </>
-            ) : (
-              "No pipeline runs are available right now."
-            )}
-          </p>
-        </div>
-      </div>
-    );
+  // ─── Helpers ─────────────────────────────────────────────────────────────
 
   const formatDate = (ts?: number | string) => {
     if (!ts) return "—";
@@ -619,7 +620,7 @@ export default function DataPipelineLog({ runId }: { runId?: string }) {
 
   const timeAgo = (ts?: number | string) => {
     if (!ts) return "—";
-    const d = typeof ts === "number" ? new Date(ts) : new Date(String(ts));
+    const d    = typeof ts === "number" ? new Date(ts) : new Date(String(ts));
     const diff = Math.floor((Date.now() - d.getTime()) / 60000);
     if (diff < 1) return "Just now";
     if (diff < 60) return `${diff}m ago`;
@@ -627,159 +628,118 @@ export default function DataPipelineLog({ runId }: { runId?: string }) {
     return d.toLocaleDateString();
   };
 
-const overallStatus = (run: PipelinePayload) => {
-  const services = servicesFor(run);
-  let hasPending = false;
-  for (const s of services) {
-    const st = (run?.services?.[s]?.status ?? "") as string;
-    const v = String(st).toLowerCase();
-    if (v === "failed" || v === "error") return "failed";
-    if (!v || v === "pending") hasPending = true;
-  }
-  return hasPending ? "pending" : "success";
-};
+  const overallStatus = (run: PipelinePayload) => {
+    const services = servicesFor(run);
+    let hasPending = false;
+    for (const s of services) {
+      const v = String(run?.services?.[s]?.status ?? "").toLowerCase();
+      if (v === "failed" || v === "error") return "failed";
+      if (!v || v === "pending") hasPending = true;
+    }
+    return hasPending ? "pending" : "success";
+  };
 
   const downloadLog = (name: string, log: string) => {
-    try {
-      const rid = selectedRun?.runId ?? selectedRun?.id ?? "run";
-      const blob = new Blob([log || ""], { type: "text/plain" });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = `${rid}_${name}.log`;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
-    } catch (err) {
-      console.error("Download failed:", err);
-    }
+    const rid  = selectedRun?.runId ?? selectedRun?.id ?? "run";
+    const blob = new Blob([log || ""], { type: "text/plain" });
+    const url  = URL.createObjectURL(blob);
+    const a    = document.createElement("a");
+    a.href = url; a.download = `${rid}_${name}.log`;
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    URL.revokeObjectURL(url);
   };
 
   const copyLog = (log: string) => {
-    try {
-      navigator.clipboard
-        .writeText(log || "")
-        .then(() => {
-          setCopySuccess(true);
-          setTimeout(() => setCopySuccess(false), 2000);
-        })
-        .catch((err) => console.error("Copy failed:", err));
-    } catch (err) {
-      console.error("Copy error:", err);
-    }
+    navigator.clipboard.writeText(log || "").then(() => {
+      setCopySuccess(true); setTimeout(() => setCopySuccess(false), 2000);
+    });
   };
 
-  // ── Pagination logic ──────────────────────────────────────────────────────
-  const totalPages = Math.ceil(runs.length / RUNS_PER_PAGE);
-  const paginatedRuns = runs.slice(
-    (currentPage - 1) * RUNS_PER_PAGE,
-    currentPage * RUNS_PER_PAGE,
-  );
-
-  const goToPage = (page: number) => {
-    if (page < 1 || page > totalPages) return;
-    setCurrentPage(page);
-  };
-
-  // Build page number buttons (show up to 5 pages around current)
-  const pageButtons = () => {
-    const delta = 2;
-    const range: number[] = [];
-    for (
-      let i = Math.max(1, currentPage - delta);
-      i <= Math.min(totalPages, currentPage + delta);
-      i++
-    ) {
-      range.push(i);
-    }
-    return range;
-  };
-  // ─────────────────────────────────────────────────────────────────────────
-
-  const services = selectedRun
-    ? servicesFor(selectedRun)
-    : [];
-  const selectedServiceData = selectedService
-    ? statusFor(selectedService, selectedRun || {})
-    : null;
-  const selectedRunKey = activeRunKey;
-  const selectedLogState =
-    selectedService ? serviceLogs[`${selectedRunKey}:${selectedService}`] : null;
-  const selectedLogText = activeLogText;
-
-  const getServicePayload = (run: PipelinePayload | null, svc: string | null) => {
+  const getServicePayload = (run: PipelinePayload | null, svc: string | null): any => {
     if (!run || !svc) return null;
-    if (run.services && !Array.isArray(run.services) && typeof run.services === "object") {
-      const svcPayload = run.services[svc];
-      if (svcPayload !== undefined) return svcPayload;
-    }
-    if (Array.isArray(run.services)) {
-      const svcPayload = run.services.find((item: any) => item?.service === svc || item?.name === svc);
-      if (svcPayload !== undefined) return svcPayload;
-    }
-    if (run[svc] !== undefined) return run[svc];
-    const lowerSvc = svc.toLowerCase();
-    const result: Record<string, any> = {};
-    const commonSuffixes = ["payload", "request", "response", "data", "body"];
-    for (const k of Object.keys(run)) {
-      const kl = k.toLowerCase();
-      if (
-        kl.startsWith(lowerSvc) ||
-        commonSuffixes.some(
-          (suf) =>
-            kl === `${lowerSvc}${suf}` ||
-            (kl.endsWith(suf) && kl.includes(lowerSvc)),
-        )
-      ) {
-        result[k] = run[k];
-      }
-      if (
-        k === "services" &&
-        run[k] &&
-        typeof run[k] === "object" &&
-        run[k][svc] !== undefined
-      ) {
-        result["services"] = { [svc]: run[k][svc] };
-      }
-    }
-    for (const suf of commonSuffixes) {
-      const key = `${svc}${suf}`;
-      if (run[key] !== undefined) result[key] = run[key];
-    }
-    return Object.keys(result).length ? result : null;
+    if (run.services && !Array.isArray(run.services)) return run.services[svc] ?? null;
+    if (Array.isArray(run.services)) return run.services.find((i: any) => i?.service === svc || i?.name === svc) ?? null;
+    return run[svc] ?? null;
   };
 
+  // ── Pagination ────────────────────────────────────────────────────────────
+
+  const totalPages    = Math.ceil((runs?.length ?? 0) / RUNS_PER_PAGE);
+  const paginatedRuns = (runs ?? []).slice((currentPage - 1) * RUNS_PER_PAGE, currentPage * RUNS_PER_PAGE);
+  const goToPage      = (p: number) => { if (p >= 1 && p <= totalPages) setCurrentPage(p); };
+  const pageButtons   = () => {
+    const out: number[] = [];
+    for (let i = Math.max(1, currentPage - 2); i <= Math.min(totalPages, currentPage + 2); i++) out.push(i);
+    return out;
+  };
+
+  // ── Derived values ────────────────────────────────────────────────────────
+
+  const services              = selectedRun ? servicesFor(selectedRun) : [];
+  const selectedServiceData   = selectedService ? statusFor(selectedService, selectedRun || {}) : null;
+  const selectedLogState      = selectedService ? serviceLogs[`${activeRunKey}:${selectedService}`] : null;
   const selectedServicePayload = getServicePayload(selectedRun, selectedService);
+  const targetServer          = targetServerFor(selectedRun, selectedService);
+
+  // ─── Loading / empty states ───────────────────────────────────────────────
+
+  if (loading)
+    return (
+      <div className="flex items-center gap-2 text-sm text-muted-foreground p-6">
+        <Loader2 className="w-4 h-4 animate-spin" /> Loading logs…
+      </div>
+    );
+
+  if (!runs || runs.length === 0)
+    return (
+      <div className="h-full min-h-[320px] flex items-center justify-center p-6">
+        <div className="w-full max-w-md rounded-lg border border-dashed border-border bg-card px-6 py-10 text-center shadow-sm">
+          <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-muted text-muted-foreground">
+            <Terminal className="h-5 w-5" />
+          </div>
+          <h3 className="text-base font-semibold text-foreground">No pipeline runs found</h3>
+          <p className="mt-2 text-sm leading-6 text-muted-foreground">
+            {emptyVersion ? (
+              <>
+                No run found for version{" "}
+                <span className="font-mono font-medium text-foreground bg-muted px-1.5 py-0.5 rounded">
+                  {emptyVersion}
+                </span>.
+              </>
+            ) : "No pipeline runs are available right now."}
+          </p>
+          <button
+            onClick={() => fetchCurrentVersion().then((v) => fetchData(true, v))}
+            className="mt-4 inline-flex items-center gap-1.5 text-sm text-muted-foreground border border-border rounded-md px-3 py-1.5 hover:bg-muted transition-colors"
+          >
+            <RefreshCw className="w-3.5 h-3.5" /> Refresh
+          </button>
+        </div>
+      </div>
+    );
+
+  // ─── Main render ──────────────────────────────────────────────────────────
 
   return (
     <div className="h-full flex flex-col relative">
-      {/* Header */}
-      <div className="border-b border-border px-6 py-4 flex items-center justify-between">
+
+      {/* ── Top header ── */}
+      <div className="border-b border-border px-6 py-3 flex items-center justify-between shrink-0">
         <div>
-          <h2 className="text-lg font-semibold">Pipeline Logs</h2>
+          <h2 className="text-base font-semibold leading-tight">Pipeline Logs</h2>
           <p className="text-xs text-muted-foreground">View runs and their service logs</p>
         </div>
-
-        <div className="flex items-center gap-4">
-          {/* Current Version Display */}
+        <div className="flex items-center gap-3">
           {currentVersion && (
-            <div className="text-sm text-muted-foreground">
-              <span className="font-medium">Version:</span> 
-              <span className="font-mono bg-muted px-2 py-0.5 rounded text-xs">
-                {currentVersion}
-              </span>
-            </div>
+            <span className="inline-flex items-center gap-1.5 rounded-md border border-border bg-muted/40 px-2.5 py-1 text-xs text-muted-foreground">
+              <span>Version</span>
+              <span className="font-mono font-medium text-foreground">{currentVersion}</span>
+            </span>
           )}
-          
-          {/* ── Refresh Button ── */}
           <button
-            type="button"
-            onClick={() => {
-              fetchCurrentVersion().then((version) => fetchData(true, version));
-            }}
+            onClick={() => fetchCurrentVersion().then((v) => fetchData(true, v))}
             disabled={refreshing}
-            className="inline-flex items-center gap-2 px-3 py-1.5 rounded-md text-sm font-medium border border-border bg-card hover:bg-muted transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
+            className="inline-flex items-center gap-2 px-3 py-1.5 rounded-md text-sm font-medium border border-border bg-card hover:bg-muted transition-colors disabled:opacity-60"
           >
             <RefreshCw className={`w-3.5 h-3.5 ${refreshing ? "animate-spin" : ""}`} />
             {refreshing ? "Refreshing…" : "Refresh"}
@@ -787,25 +747,37 @@ const overallStatus = (run: PipelinePayload) => {
         </div>
       </div>
 
-      {/* Main Content */}
+      {/* ── Main content ── */}
       <div className="flex flex-1 overflow-hidden gap-4 p-4">
-        {/* Left: Runs List */}
-        <aside className="w-72 border border-border rounded-lg overflow-hidden flex flex-col bg-card">
-          <div className="px-4 py-3 border-b border-border flex items-center justify-between">
-            <div>
-              <h3 className="font-semibold text-sm">Pipeline Runs</h3>
-              <p className="text-xs text-muted-foreground">
-                {runs.length} total · page {currentPage}/{totalPages}
-              </p>
-            </div>
+
+        {/* ── Left: run list ── */}
+        <aside className={`${runsCollapsed ? "w-11" : "w-72"} border border-border rounded-lg overflow-hidden flex flex-col bg-card shrink-0 transition-all duration-200`}>
+          <div className={`${runsCollapsed ? "px-2 py-3" : "px-4 py-3"} border-b border-border flex items-start justify-between gap-2`}>
+            {!runsCollapsed && (
+              <div className="min-w-0">
+            <h3 className="font-semibold text-sm">Pipeline Runs</h3>
+            <p className="text-xs text-muted-foreground">{runs.length} total · page {currentPage}/{totalPages || 1}</p>
+              </div>
+            )}
+            <button
+              type="button"
+              onClick={() => setRunsCollapsed((value) => !value)}
+              className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-border text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
+              title={runsCollapsed ? "Show pipeline runs" : "Hide pipeline runs"}
+              aria-label={runsCollapsed ? "Show pipeline runs" : "Hide pipeline runs"}
+            >
+              {runsCollapsed ? <ChevronRight className="w-3.5 h-3.5" /> : <ChevronLeft className="w-3.5 h-3.5" />}
+            </button>
           </div>
 
-          {/* Run items */}
+          {!runsCollapsed && (
+          <>
           <div className="flex-1 overflow-y-auto">
             <div className="space-y-1 p-2">
               {paginatedRuns.map((run) => {
-                const rid = run?.runId ?? run?.id ?? "-";
+                const rid     = run?.runId ?? run?.id ?? "-";
                 const created = run?.createdAt ?? run?.created_at ?? null;
+                const status  = overallStatus(run);
                 const isSelected = selectedRun === run;
 
                 return (
@@ -813,26 +785,22 @@ const overallStatus = (run: PipelinePayload) => {
                     key={rid}
                     onClick={() => {
                       setSelectedRun(run);
-                      const svcList = Array.isArray(run?.servicesList)
-                        ? run.servicesList
-                        : ["search", "routing", "tile"];
+                      const svcList = servicesFor(run);
                       setSelectedService(svcList[0] ?? null);
                     }}
                     className={
-                      (isSelected
-                        ? "bg-muted border-primary"
-                        : "bg-card border-border hover:bg-muted/50") +
-                      " w-full text-left p-3 rounded-md border transition-colors"
+                      "w-full text-left p-3 rounded-md border transition-colors " +
+                      (isSelected ? "bg-muted border-primary" : "bg-card border-border hover:bg-muted/50")
                     }
                   >
                     <div className="flex items-start justify-between gap-2">
                       <div className="min-w-0 flex-1">
                         <div className="text-sm font-medium truncate">{rid}</div>
-                        <div className="text-xs text-muted-foreground mt-0.5">
-                          <span className="font-bold text-foreground">{formatDate(created)}</span>
-                        </div>
+                        <div className="text-xs text-muted-foreground mt-0.5">{formatDate(created)}</div>
                         <div className="text-xs text-muted-foreground">{timeAgo(created)}</div>
                       </div>
+                      {/* ★ Idea 1: overall status badge on each run item */}
+                      <StatusPill status={status} size="sm" />
                     </div>
                   </button>
                 );
@@ -840,191 +808,161 @@ const overallStatus = (run: PipelinePayload) => {
             </div>
           </div>
 
-          {/* ── Pagination Controls ── */}
+          {/* Pagination */}
           {totalPages > 1 && (
             <div className="border-t border-border px-2 py-2 flex items-center justify-between gap-1">
-              {/* Prev */}
-              <button
-                type="button"
-                onClick={() => goToPage(currentPage - 1)}
-                disabled={currentPage === 1}
-                className="p-1.5 rounded-md hover:bg-muted border border-border disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-                aria-label="Previous page"
-              >
+              <button onClick={() => goToPage(currentPage - 1)} disabled={currentPage === 1}
+                className="p-1.5 rounded-md hover:bg-muted border border-border disabled:opacity-40 transition-colors" aria-label="Previous">
                 <ChevronLeft className="w-3.5 h-3.5" />
               </button>
-
-              {/* Page numbers */}
               <div className="flex items-center gap-1">
                 {currentPage > 3 && (
                   <>
-                    <button
-                      type="button"
-                      onClick={() => goToPage(1)}
-                      className="min-w-[28px] h-7 px-1.5 rounded-md text-xs border border-border hover:bg-muted transition-colors"
-                    >
-                      1
-                    </button>
-                    {currentPage > 4 && (
-                      <span className="text-xs text-muted-foreground px-0.5">…</span>
-                    )}
+                    <button onClick={() => goToPage(1)} className="min-w-[28px] h-7 px-1.5 rounded-md text-xs border border-border hover:bg-muted transition-colors">1</button>
+                    {currentPage > 4 && <span className="text-xs text-muted-foreground px-0.5">…</span>}
                   </>
                 )}
-
                 {pageButtons().map((p) => (
-                  <button
-                    key={p}
-                    type="button"
-                    onClick={() => goToPage(p)}
-                    className={
-                      "min-w-[28px] h-7 px-1.5 rounded-md text-xs border transition-colors " +
-                      (p === currentPage
-                        ? "bg-primary text-primary-foreground border-primary"
-                        : "border-border hover:bg-muted")
-                    }
-                  >
+                  <button key={p} onClick={() => goToPage(p)}
+                    className={"min-w-[28px] h-7 px-1.5 rounded-md text-xs border transition-colors " + (p === currentPage ? "bg-primary text-primary-foreground border-primary" : "border-border hover:bg-muted")}>
                     {p}
                   </button>
                 ))}
-
                 {currentPage < totalPages - 2 && (
                   <>
-                    {currentPage < totalPages - 3 && (
-                      <span className="text-xs text-muted-foreground px-0.5">…</span>
-                    )}
-                    <button
-                      type="button"
-                      onClick={() => goToPage(totalPages)}
-                      className="min-w-[28px] h-7 px-1.5 rounded-md text-xs border border-border hover:bg-muted transition-colors"
-                    >
-                      {totalPages}
-                    </button>
+                    {currentPage < totalPages - 3 && <span className="text-xs text-muted-foreground px-0.5">…</span>}
+                    <button onClick={() => goToPage(totalPages)} className="min-w-[28px] h-7 px-1.5 rounded-md text-xs border border-border hover:bg-muted transition-colors">{totalPages}</button>
                   </>
                 )}
               </div>
-
-              {/* Next */}
-              <button
-                type="button"
-                onClick={() => goToPage(currentPage + 1)}
-                disabled={currentPage === totalPages}
-                className="p-1.5 rounded-md hover:bg-muted border border-border disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-                aria-label="Next page"
-              >
+              <button onClick={() => goToPage(currentPage + 1)} disabled={currentPage === totalPages}
+                className="p-1.5 rounded-md hover:bg-muted border border-border disabled:opacity-40 transition-colors" aria-label="Next">
                 <ChevronRight className="w-3.5 h-3.5" />
               </button>
             </div>
           )}
+          </>
+          )}
         </aside>
 
-        {/* Right: Run Details */}
-        <section className="flex-1 flex flex-col gap-4 overflow-hidden">
-          {/* Service Tabs */}
-          {selectedRun && (
-            <div className="border border-border rounded-lg bg-card overflow-hidden flex flex-col">
-              <div className="px-4 py-3 border-b border-border">
-                <h3 className="font-semibold text-sm">
-                  {selectedRun?.runId ?? selectedRun?.id ?? "Run"} — Services
-                </h3>
-                <p className="text-xs text-muted-foreground">
-                  <span className="font-bold text-foreground">
-                    {formatDate(selectedRun?.createdAt ?? selectedRun?.created_at)}
-                  </span>
-                </p>
-              </div>
-              <div className="flex flex-wrap gap-2 p-3 overflow-y-auto">
-                {services.map((svc: string) => {
-                  const { status } = statusFor(svc, selectedRun);
-                  const tag =
-                    SERVICE_TAG_COLOR[svc] ?? "bg-muted text-muted-foreground";
-                  const isActive = selectedService === svc;
+        {/* ── Right: detail panel ── */}
+        <section className="flex-1 flex flex-col gap-3 overflow-hidden min-w-0">
 
-                  return (
-                    <button
-                      key={svc}
-                      onClick={() => setSelectedService(svc)}
-                      className={
-                        (isActive ? "ring-2 ring-primary shadow-md" : "") +
-                        " px-3 py-2 rounded-md text-sm font-medium border transition-all " +
-                        tag
-                      }
-                    >
-                      <div className="flex items-center gap-2">
-                        <span>{svc}</span>
-                        <StatusPill status={status} />
-                      </div>
-                    </button>
-                  );
-                })}
+          {selectedRun && (
+            <>
+              {/* ★ Idea 5: Run summary bar */}
+              <div className="border border-border rounded-lg bg-card px-4 py-2.5 flex items-center gap-3 flex-wrap shrink-0">
+                <span className="font-mono text-sm font-medium truncate max-w-[200px]">
+                  {selectedRun?.runId ?? selectedRun?.id ?? "—"}
+                </span>
+                <span className="text-muted-foreground text-xs hidden sm:block">·</span>
+                <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                  <Clock className="w-3 h-3" />
+                  {formatDate(selectedRun?.createdAt ?? selectedRun?.created_at)} · {timeAgo(selectedRun?.createdAt ?? selectedRun?.created_at)}
+                </span>
+                {targetServer && (
+                  <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                    <Server className="w-3 h-3" />
+                    {targetServer}
+                  </span>
+                )}
+                <div className="ml-auto">
+                  <StatusPill status={overallStatus(selectedRun)} />
+                </div>
               </div>
-            </div>
+
+              {/* ★ Idea 2: underline service tabs */}
+              <div className="border border-border rounded-lg bg-card overflow-hidden shrink-0">
+                <div className="flex overflow-x-auto border-b border-border">
+                  {services.map((svc: string) => {
+                    const { status } = statusFor(svc, selectedRun);
+                    const colors     = SERVICE_COLORS[svc];
+                    const isActive   = selectedService === svc;
+                    return (
+                      <button
+                        key={svc}
+                        onClick={() => setSelectedService(svc)}
+                        className={
+                          "flex items-center gap-2 px-4 py-2.5 text-sm font-medium whitespace-nowrap border-b-2 transition-all " +
+                          (isActive
+                            ? `border-primary ${colors?.tab ?? "text-foreground"} bg-muted/40`
+                            : "border-transparent text-muted-foreground hover:text-foreground hover:bg-muted/20")
+                        }
+                      >
+                        <StatusDot status={status} />
+                        {svc}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            </>
           )}
 
-          {/* Log Viewer */}
+          {/* ★ Ideas 3 & 4: dark terminal viewer + consolidated toolbar */}
           {selectedService && selectedServiceData && (
-            <div className="border border-border rounded-lg bg-card overflow-hidden flex flex-col flex-1">
-              <div className="px-4 py-3 border-b border-border flex items-center justify-between">
-                <div>
-                  <h3 className="font-semibold text-sm">{selectedService} Log</h3>
-                  <p className="text-xs text-muted-foreground">
-                    Status: {selectedServiceData.status}
-                  </p>
+            <div className="border border-border rounded-lg bg-card overflow-hidden flex flex-col flex-1 min-h-0">
+
+              {/* ★ Idea 4: toolbar — context left, icon actions right */}
+              <div className="flex items-center justify-between px-4 py-2 border-b border-border shrink-0">
+                <div className="flex items-center gap-2">
+                  <span className={`px-2 py-0.5 rounded-full text-xs font-medium border ${SERVICE_COLORS[selectedService]?.badge ?? "bg-muted text-muted-foreground border-border"}`}>
+                    {selectedService}
+                  </span>
+                  <StatusPill status={selectedServiceData.status} size="sm" />
+                  {selectedLogState?.loading && activeLogText && (
+                    <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
+                      <Loader2 className="w-3 h-3 animate-spin" /> live
+                    </span>
+                  )}
                 </div>
-                <div className="flex gap-2">
+                <div className="flex items-center gap-1">
                   <button
                     type="button"
-                    onClick={() => setShowPayloadPage(true)}
-                    className="text-xs px-2 py-1 rounded-md hover:bg-muted border border-border transition-colors"
+                    onClick={() => setLogTheme((theme) => theme === "dark" ? "light" : "dark")}
+                    className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs border border-border hover:bg-muted transition-colors text-muted-foreground"
+                    title={`Switch log section to ${logTheme === "dark" ? "light" : "dark"} mode`}
                   >
-                    <Eye className="w-3.5 h-3.5 inline-block mr-1" /> View Payload
+                    {logTheme === "dark" ? <Sun className="w-3.5 h-3.5" /> : <Moon className="w-3.5 h-3.5" />}
+                    {logTheme === "dark" ? "Light" : "Dark"}
                   </button>
-                  <button
-                    type="button"
-                    onClick={() => copyLog(selectedLogText)}
-                    className={`text-xs px-2 py-1 rounded-md border transition-colors ${
-                      copySuccess
-                        ? "bg-emerald-500/10 border-emerald-500/20 text-emerald-600"
-                        : "hover:bg-muted border-border"
-                    }`}
-                  >
-                    <Copy className="w-3.5 h-3.5 inline-block mr-1" />
-                    {copySuccess ? "Copied!" : "Copy"}
+                  <button onClick={() => setShowPayloadPage(true)}
+                    className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs border border-border hover:bg-muted transition-colors text-muted-foreground"
+                    title="View payload">
+                    <Eye className="w-3.5 h-3.5" /> Payload
                   </button>
-                  <button
-                    type="button"
-                    onClick={() => downloadLog(selectedService, selectedLogText)}
-                    className="text-xs px-2 py-1 rounded-md hover:bg-muted border border-border transition-colors"
-                  >
-                    <Download className="w-3.5 h-3.5 inline-block mr-1" /> Download
+                  <button onClick={() => copyLog(activeLogText)}
+                    className={`p-1.5 rounded-md border transition-colors ${copySuccess ? "bg-emerald-500/10 border-emerald-500/20 text-emerald-600" : "border-border hover:bg-muted text-muted-foreground"}`}
+                    title="Copy log">
+                    <Copy className="w-3.5 h-3.5" />
+                  </button>
+                  <button onClick={() => downloadLog(selectedService, activeLogText)}
+                    className="p-1.5 rounded-md border border-border hover:bg-muted text-muted-foreground transition-colors"
+                    title="Download log">
+                    <Download className="w-3.5 h-3.5" />
                   </button>
                 </div>
               </div>
+
+              {/* ★ Idea 3: dark terminal log */}
               <div
-                ref={logScrollRef}
-                onScroll={(event) => {
-                  const el = event.currentTarget;
-                  shouldStickToBottomRef.current =
-                    el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+                className={`flex-1 overflow-auto ${logTheme === "dark" ? "bg-[#0d1117]" : "bg-white"}`}
+                onScroll={(e) => {
+                  const el = e.currentTarget;
+                  shouldStickToBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
                 }}
-                className="flex-1 overflow-auto p-4 flex flex-col"
               >
-                <div className="rounded bg-black/5 p-3 text-xs font-mono whitespace-pre-wrap break-words text-foreground flex-1">
-                  {selectedLogState?.loading && !selectedLogText ? (
-                    <span className="inline-flex items-center gap-2 text-muted-foreground">
-                      <Loader2 className="w-3.5 h-3.5 animate-spin" /> Fetching logs...
+                <TerminalLog
+                  logText={activeLogText}
+                  loading={selectedLogState?.loading ?? false}
+                  error={selectedLogState?.error ?? null}
+                  theme={logTheme}
+                />
+                {selectedLogState?.loading && activeLogText && (
+                  <div className={`${logTheme === "dark" ? "bg-[#0d1117]" : "bg-white"} px-3 pb-2`}>
+                    <span className={`inline-flex items-center gap-1.5 text-xs ${logTheme === "dark" ? "text-zinc-500" : "text-slate-500"}`}>
+                      <Loader2 className="w-3 h-3 animate-spin" /> Polling for more output…
                     </span>
-                  ) : selectedLogState?.error ? (
-                    <span className="text-destructive">{selectedLogState.error}</span>
-                  ) : selectedLogText ? (
-                    selectedLogText
-                  ) : (
-                    <span className="text-muted-foreground">No log available.</span>
-                  )}
-                </div>
-                {selectedLogState?.loading && selectedLogText && (
-                  <div className="mt-3 inline-flex items-center gap-2 text-xs text-muted-foreground">
-                    <Loader2 className="w-3 h-3 animate-spin" />
-                    <span>Polling for more logs...</span>
                   </div>
                 )}
                 <div ref={logBottomRef} />
@@ -1034,22 +972,20 @@ const overallStatus = (run: PipelinePayload) => {
         </section>
       </div>
 
-      {/* Full-page Payload View */}
+      {/* ── Full-page Payload View ── */}
       {showPayloadPage && (
         <div className="absolute inset-0 z-50 flex flex-col bg-background">
-          {/* Payload Page Header */}
-          <div className="border-b border-border px-6 py-4 flex items-center justify-between shrink-0">
+
+          {/* Payload header */}
+          <div className="border-b border-border px-6 py-3 flex items-center justify-between shrink-0">
             <div className="flex items-center gap-3">
-              <button
-                type="button"
-                onClick={() => setShowPayloadPage(false)}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium border border-border bg-card hover:bg-muted transition-colors"
-              >
-                <ArrowLeft className="w-3.5 h-3.5" /> Back to Logs
+              <button onClick={() => setShowPayloadPage(false)}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium border border-border bg-card hover:bg-muted transition-colors">
+                <ArrowLeft className="w-3.5 h-3.5" /> Back
               </button>
               <div className="h-5 w-px bg-border" />
               <div>
-                <h2 className="text-lg font-semibold leading-none">
+                <h2 className="text-base font-semibold leading-none">
                   Payload — <span className="text-primary">{selectedService}</span>
                 </h2>
                 <p className="text-xs text-muted-foreground mt-0.5">
@@ -1057,106 +993,63 @@ const overallStatus = (run: PipelinePayload) => {
                 </p>
               </div>
             </div>
-
             <div className="flex items-center gap-2">
-              {/* Copy payload */}
               <button
-                type="button"
                 onClick={() => {
                   const text = selectedServicePayload
                     ? JSON.stringify(selectedServicePayload, null, 2)
-                    : JSON.stringify({ message: `No payload keys found for ${selectedService}`, fullRun: selectedRun }, null, 2);
-                  navigator.clipboard.writeText(text).then(() => {
-                    setPayloadCopySuccess(true);
-                    setTimeout(() => setPayloadCopySuccess(false), 2000);
-                  });
+                    : JSON.stringify({ message: `No payload for ${selectedService}`, fullRun: selectedRun }, null, 2);
+                  navigator.clipboard.writeText(text).then(() => { setPayloadCopySuccess(true); setTimeout(() => setPayloadCopySuccess(false), 2000); });
                 }}
-                className={`inline-flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-md border transition-colors ${
-                  payloadCopySuccess
-                    ? "bg-emerald-500/10 border-emerald-500/20 text-emerald-600"
-                    : "border-border bg-card hover:bg-muted"
-                }`}
-              >
-                <Copy className="w-3.5 h-3.5" />
-                {payloadCopySuccess ? "Copied!" : "Copy JSON"}
+                className={`inline-flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-md border transition-colors ${payloadCopySuccess ? "bg-emerald-500/10 border-emerald-500/20 text-emerald-600" : "border-border bg-card hover:bg-muted"}`}>
+                <Copy className="w-3.5 h-3.5" /> {payloadCopySuccess ? "Copied!" : "Copy JSON"}
               </button>
-
-              {/* Download payload */}
               <button
-                type="button"
                 onClick={() => {
-                  const text = selectedServicePayload
-                    ? JSON.stringify(selectedServicePayload, null, 2)
-                    : JSON.stringify({ message: `No payload keys found for ${selectedService}`, fullRun: selectedRun }, null, 2);
-                  const rid = selectedRun?.runId ?? selectedRun?.id ?? "run";
+                  const text = selectedServicePayload ? JSON.stringify(selectedServicePayload, null, 2) : JSON.stringify({ fullRun: selectedRun }, null, 2);
+                  const rid  = selectedRun?.runId ?? selectedRun?.id ?? "run";
                   const blob = new Blob([text], { type: "application/json" });
-                  const url = URL.createObjectURL(blob);
-                  const a = document.createElement("a");
-                  a.href = url;
-                  a.download = `${rid}_${selectedService}_payload.json`;
-                  document.body.appendChild(a);
-                  a.click();
-                  document.body.removeChild(a);
+                  const url  = URL.createObjectURL(blob);
+                  const a    = document.createElement("a");
+                  a.href = url; a.download = `${rid}_${selectedService}_payload.json`;
+                  document.body.appendChild(a); a.click(); document.body.removeChild(a);
                   URL.revokeObjectURL(url);
                 }}
-                className="inline-flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-md border border-border bg-card hover:bg-muted transition-colors"
-              >
+                className="inline-flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-md border border-border bg-card hover:bg-muted transition-colors">
                 <Download className="w-3.5 h-3.5" /> Download
               </button>
-
-              {/* Close X */}
-              <button
-                type="button"
-                onClick={() => setShowPayloadPage(false)}
-                className="p-1.5 rounded-md border border-border bg-card hover:bg-muted transition-colors"
-                aria-label="Close"
-              >
+              <button onClick={() => setShowPayloadPage(false)}
+                className="p-1.5 rounded-md border border-border bg-card hover:bg-muted transition-colors" aria-label="Close">
                 <X className="w-4 h-4" />
               </button>
             </div>
           </div>
 
-          {/* Service tab strip (read-only context) */}
-          <div className="border-b border-border px-6 py-2 flex gap-2 shrink-0">
-            {(selectedRun
-              ? servicesFor(selectedRun)
-              : []
-            ).map((svc: string) => {
-              const tag = SERVICE_TAG_COLOR[svc] ?? "bg-muted text-muted-foreground border-border";
+          {/* Service tab strip */}
+          <div className="border-b border-border flex shrink-0">
+            {services.map((svc: string) => {
               const isActive = selectedService === svc;
+              const { status } = statusFor(svc, selectedRun || {});
               return (
-                <button
-                  key={svc}
-                  type="button"
-                  onClick={() => setSelectedService(svc)}
+                <button key={svc} onClick={() => setSelectedService(svc)}
                   className={
-                    "px-3 py-1 rounded-md text-xs font-medium border transition-all " +
-                    tag +
-                    (isActive ? " ring-2 ring-primary" : "")
-                  }
-                >
+                    "flex items-center gap-2 px-4 py-2.5 text-sm font-medium border-b-2 transition-all " +
+                    (isActive
+                      ? `border-primary ${SERVICE_COLORS[svc]?.tab ?? "text-foreground"} bg-muted/40`
+                      : "border-transparent text-muted-foreground hover:text-foreground hover:bg-muted/20")
+                  }>
+                  <StatusDot status={status} />
                   {svc}
                 </button>
               );
             })}
           </div>
 
-          {/* JSON Content — fills remaining height, no page scroll */}
-          <div className="flex-1 overflow-hidden p-6">
-            <div className="h-full rounded-lg border border-border bg-black/[0.03] dark:bg-white/[0.03] overflow-auto">
-              <pre className="p-5 text-xs font-mono leading-relaxed text-foreground whitespace-pre break-words">
-                {selectedServicePayload
-                  ? JSON.stringify(selectedServicePayload, null, 2)
-                  : JSON.stringify(
-                      {
-                        message: `No payload keys found for ${selectedService}`,
-                        fullRun: selectedRun,
-                      },
-                      null,
-                      2,
-                    )}
-              </pre>
-            </div>
+          {/* ★ Idea 6: interactive JSON viewer */}
+          <div className="flex-1 overflow-hidden">
+            <PayloadViewer
+              data={selectedServicePayload ?? { message: `No payload keys found for ${selectedService}`, fullRun: selectedRun }}
+            />
           </div>
         </div>
       )}
