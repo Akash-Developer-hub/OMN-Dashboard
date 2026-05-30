@@ -1,13 +1,35 @@
 'use strict';
 
+const axios = require('axios');
 const ApiResponse = require('../../utils/ApiResponse');
 const asyncHandler = require('../../utils/asyncHandler');
 const logger = require('../../logs_/logger');
+const config = require('../config');
 const PipelineConfig = require('../models/PipelineConfig');
 const VersionedDownloadStatus = require('../models/VersionedDownloadStatus');
 
 const DEFAULT_VERSION = 'v1.0';
 const ALLOWED_WORKFLOWS = new Set(['searchTiles', 'routing']);
+const RESERVED_STATUS_KEYS = new Set([
+    'workflow',
+    'version',
+    'runId',
+    'job',
+    'summary',
+    'logState',
+    'outputPath',
+    'logPath',
+    'targetServer',
+    'scriptPath',
+    'inputFile',
+    'addMaxspeedAndTurnlanesToOsm',
+    'maxspeedAndTurnlanesPath',
+    'status',
+    '_id',
+    'id',
+    'createdAt',
+    'updatedAt',
+]);
 
 function cleanString(value) {
     return typeof value === 'string' ? value.trim() : '';
@@ -29,40 +51,248 @@ function normalizeObject(value) {
     return value && typeof value === 'object' && !Array.isArray(value) ? value : null;
 }
 
+function cleanOptionalString(value) {
+    const cleaned = cleanString(value);
+    return cleaned || null;
+}
+
+function cleanOptionalBoolean(value) {
+    return typeof value === 'boolean' ? value : null;
+}
+
+function isSafeMergeKey(key) {
+    return key !== '__proto__' && key !== 'prototype' && key !== 'constructor';
+}
+
+function mergeObjects(currentValue, nextValue) {
+    const currentObject = normalizeObject(currentValue);
+    const nextObject = normalizeObject(nextValue);
+
+    if (!nextObject) return currentObject;
+    if (!currentObject) return nextObject;
+
+    const filteredNextObject = Object.fromEntries(
+        Object.entries(nextObject).filter(([key, value]) => isSafeMergeKey(key) && value !== undefined && value !== null)
+    );
+
+    return {
+        ...currentObject,
+        ...filteredNextObject,
+    };
+}
+
+function buildAdditionalTopLevelFields(payload) {
+    const entries = Object.entries(payload || {})
+        .filter(([key, value]) => !RESERVED_STATUS_KEYS.has(key) && isSafeMergeKey(key) && value !== undefined)
+        .map(([key, value]) => {
+            const nextObject = normalizeObject(value);
+            if (nextObject) {
+                return [key, nextObject];
+            }
+
+            return [key, value];
+        });
+
+    return Object.fromEntries(entries);
+}
+
+async function triggerCompletedWebhook(statusDoc) {
+    const webhookUrl = cleanString(config.n8n?.downloadStatusCompletedWebhookUrl);
+    if (!webhookUrl) return;
+
+    const workflow = cleanString(statusDoc?.workflow);
+    const runId = cleanString(statusDoc?.runId || statusDoc?.job?.runId);
+    const scriptPath = cleanOptionalString(statusDoc?.scriptPath || statusDoc?.job?.scriptPath);
+    const inputFile = cleanOptionalString(statusDoc?.inputFile || statusDoc?.job?.inputFile);
+
+    if (!workflow || !runId || !scriptPath || !inputFile) {
+        logger.warn('Skipping download status completion webhook due to missing payload fields.', {
+            workflow: workflow || null,
+            runId: runId || null,
+            hasScriptPath: Boolean(scriptPath),
+            hasInputFile: Boolean(inputFile),
+        });
+        return;
+    }
+
+    const payload = {
+        workflow,
+        runId,
+        scriptPath,
+        inputFile,
+    };
+
+    try {
+        await axios.post(webhookUrl, payload, { timeout: 30000 });
+        logger.info('Download completion n8n webhook triggered successfully.', payload);
+    } catch (error) {
+        logger.error('Failed to trigger download completion n8n webhook.', {
+            payload,
+            error: error.message,
+            response: error.response?.data,
+        });
+    }
+}
+
+async function triggerRoutingAddMaxspeedWebhook(statusDoc) {
+    const webhookUrl = cleanString(config.n8n?.routingAddMaxspeedWebhookUrl);
+    if (!webhookUrl) return;
+
+    const workflow = cleanString(statusDoc?.workflow);
+    if (workflow !== 'routing') return;
+
+    const runId = cleanString(statusDoc?.runId || statusDoc?.job?.runId);
+    const downloadLocation = cleanOptionalString(statusDoc?.outputPath || statusDoc?.job?.outputPath);
+
+    if (!downloadLocation) {
+        logger.warn('Skipping routing addmaxspeed webhook due to missing download location.', {
+            workflow,
+            runId: runId || null,
+        });
+        return;
+    }
+
+    const payload = {
+        workflow,
+        runId: runId || null,
+        downloadLocation,
+    };
+
+    try {
+        await axios.post(webhookUrl, payload, { timeout: 30000 });
+        logger.info('Routing addmaxspeed n8n webhook triggered successfully.', payload);
+    } catch (error) {
+        logger.error('Failed to trigger routing addmaxspeed n8n webhook.', {
+            payload,
+            error: error.message,
+            response: error.response?.data,
+        });
+    }
+}
+
+async function persistStatusUpdate(payload, updatedBy) {
+    const workflow = cleanString(payload.workflow);
+
+    if (!ALLOWED_WORKFLOWS.has(workflow)) {
+        return { error: 'workflow must be searchTiles or routing.' };
+    }
+
+    const version = await resolveRequestedVersion(payload.version);
+    const incomingTargetServer = normalizeObject(payload.targetServer);
+    const incomingAddMaxspeedAndTurnlanesToOsm = cleanOptionalBoolean(payload.addMaxspeedAndTurnlanesToOsm);
+    const incomingMaxspeedAndTurnlanesPath = cleanOptionalString(payload.maxspeedAndTurnlanesPath);
+    const incomingJob = mergeObjects(normalizeObject(payload.job), {
+        outputPath: cleanOptionalString(payload.outputPath),
+        logPath: cleanOptionalString(payload.logPath),
+        scriptPath: cleanOptionalString(payload.scriptPath),
+        inputFile: cleanOptionalString(payload.inputFile),
+        targetServer: incomingTargetServer,
+        addMaxspeedAndTurnlanesToOsm: incomingAddMaxspeedAndTurnlanesToOsm,
+        maxspeedAndTurnlanesPath: incomingMaxspeedAndTurnlanesPath,
+    });
+    const incomingSummary = normalizeObject(payload.summary);
+    const incomingLogState = normalizeObject(payload.logState);
+    const incomingScriptPath = cleanOptionalString(payload.scriptPath || incomingJob?.scriptPath);
+    const incomingInputFile = cleanOptionalString(payload.inputFile || incomingJob?.inputFile);
+    const incomingRunId = cleanString(payload.runId || incomingJob?.runId);
+    const existingStatus = await VersionedDownloadStatus.findByWorkflow(version, workflow);
+    const additionalTopLevelFields = buildAdditionalTopLevelFields(payload);
+    const previousStatus = cleanString(existingStatus?.status || existingStatus?.summary?.validatedStatus || existingStatus?.job?.status);
+
+    logger.info('Download status payload received.', {
+        source: updatedBy || 'unknown',
+        workflow,
+        version,
+        runId: incomingRunId || null,
+        hasJob: Boolean(incomingJob),
+        hasSummary: Boolean(incomingSummary),
+        hasLogState: Boolean(incomingLogState),
+        payloadKeys: Object.keys(payload || {}),
+    });
+
+    const mergedJob = mergeObjects(existingStatus?.job, incomingJob);
+    const mergedSummary = mergeObjects(existingStatus?.summary, incomingSummary);
+    const mergedLogState = mergeObjects(existingStatus?.logState, incomingLogState);
+    const runId = incomingRunId || cleanString(existingStatus?.runId) || cleanString(mergedJob?.runId);
+    const scriptPath = incomingScriptPath || cleanOptionalString(existingStatus?.scriptPath) || cleanOptionalString(mergedJob?.scriptPath);
+    const inputFile = incomingInputFile || cleanOptionalString(existingStatus?.inputFile) || cleanOptionalString(mergedJob?.inputFile);
+    const outputPath = cleanOptionalString(payload.outputPath) || cleanOptionalString(existingStatus?.outputPath) || cleanOptionalString(mergedJob?.outputPath);
+    const logPath = cleanOptionalString(payload.logPath) || cleanOptionalString(existingStatus?.logPath) || cleanOptionalString(mergedJob?.logPath);
+    const targetServer = incomingTargetServer || normalizeObject(existingStatus?.targetServer) || normalizeObject(mergedJob?.targetServer);
+    const addMaxspeedAndTurnlanesToOsm = incomingAddMaxspeedAndTurnlanesToOsm ?? existingStatus?.addMaxspeedAndTurnlanesToOsm ?? mergedJob?.addMaxspeedAndTurnlanesToOsm ?? null;
+    const maxspeedAndTurnlanesPath = incomingMaxspeedAndTurnlanesPath || cleanOptionalString(existingStatus?.maxspeedAndTurnlanesPath) || cleanOptionalString(mergedJob?.maxspeedAndTurnlanesPath);
+    const status = cleanString(payload.status || incomingSummary?.validatedStatus || incomingJob?.status)
+        || cleanString(existingStatus?.status || existingStatus?.summary?.validatedStatus || existingStatus?.job?.status)
+        || null;
+
+    const saveResult = await VersionedDownloadStatus.upsertByWorkflow(version, workflow, {
+        runId: runId || null,
+        job: mergedJob,
+        summary: mergedSummary,
+        logState: mergedLogState,
+        outputPath,
+        logPath,
+        targetServer,
+        scriptPath,
+        inputFile,
+        addMaxspeedAndTurnlanesToOsm,
+        maxspeedAndTurnlanesPath,
+        status,
+        ...additionalTopLevelFields,
+    });
+    const savedStatus = saveResult?.workflowStatus || null;
+    const savedDocument = saveResult?.document || null;
+
+    logger.info('Download status saved.', {
+        source: updatedBy || 'unknown',
+        workflow,
+        version,
+        runId: runId || null,
+        status,
+        savedStatusId: savedDocument?.id || null,
+        savedStatusKeys: savedStatus ? Object.keys(savedStatus) : [],
+        savedDocumentKeys: savedDocument ? Object.keys(savedDocument) : [],
+    });
+
+    if (status === 'completed' && previousStatus !== 'completed') {
+        await triggerCompletedWebhook(savedStatus);
+        await triggerRoutingAddMaxspeedWebhook(savedStatus);
+    }
+
+    logger.audit('DOWNLOAD_STATUS_UPSERTED', {
+        workflow,
+        version,
+        runId: runId || null,
+        updatedBy: updatedBy || null,
+    });
+
+    return {
+        version,
+        status: savedStatus,
+        document: savedDocument,
+    };
+}
+
 class DownloadStatusController {
     static upsertStatus = asyncHandler(async (req, res) => {
-        const payload = req.body || {};
-        const workflow = cleanString(payload.workflow);
+        const result = await persistStatusUpdate(req.body || {}, req.user?.id);
+        if (result.error) return ApiResponse.error(res, 400, result.error);
 
-        if (!ALLOWED_WORKFLOWS.has(workflow)) {
-            return ApiResponse.error(res, 400, 'workflow must be searchTiles or routing.');
-        }
+        return ApiResponse.success(res, 200, 'Download status stored.', result);
+    });
 
-        const version = await resolveRequestedVersion(payload.version);
-        const job = normalizeObject(payload.job);
-        const summary = normalizeObject(payload.summary);
-        const logState = normalizeObject(payload.logState);
-        const runId = cleanString(payload.runId || job?.runId);
+    static upsertStatusFromN8n = asyncHandler(async (req, res) => {
+        const result = await persistStatusUpdate(req.body || {}, 'n8n');
+        if (result.error) return ApiResponse.error(res, 400, result.error);
 
-        const savedStatus = await VersionedDownloadStatus.upsertByWorkflow(version, workflow, {
-            runId: runId || null,
-            job,
-            summary,
-            logState,
-            status: cleanString(payload.status || summary?.validatedStatus || job?.status) || null,
+        logger.info('Sending n8n download status response.', {
+            workflow: result.status?.workflow || null,
+            runId: result.status?.runId || null,
+            responseKeys: result.document ? Object.keys(result.document) : [],
+            responseBody: result.document,
         });
 
-        logger.audit('DOWNLOAD_STATUS_UPSERTED', {
-            workflow,
-            version,
-            runId: runId || null,
-            updatedBy: req.user?.id,
-        });
-
-        return ApiResponse.success(res, 200, 'Download status stored.', {
-            version,
-            status: savedStatus,
-        });
+        return res.status(200).json(result.document || result.status);
     });
 
     static getStatuses = asyncHandler(async (req, res) => {
@@ -73,6 +303,23 @@ class DownloadStatusController {
             version,
             statuses,
         });
+    });
+
+    static getLatestDocument = asyncHandler(async (_req, res) => {
+        const latest = await VersionedDownloadStatus.findLatestDocument();
+
+        if (!latest) {
+            return ApiResponse.success(res, 200, 'No download status documents found.', {
+                latest: null,
+            });
+        }
+
+        return ApiResponse.success(res, 200, 'Latest download status document fetched.', latest);
+    });
+
+    static getLatestDocumentForN8n = asyncHandler(async (_req, res) => {
+        const latest = await VersionedDownloadStatus.findLatestDocument();
+        return res.status(200).json(latest || null);
     });
 }
 

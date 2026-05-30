@@ -33,6 +33,7 @@ type WorkflowFormState = {
   logPath: string;
   scriptPath: string;
   addMaxspeedAndTurnlanesToOsm: boolean;
+  maxspeedAndTurnlanesPath: string;
 };
 
 type ServerPathEntry = {
@@ -102,6 +103,35 @@ type BrowserState = {
   search: string;
 };
 
+type PersistedWorkflowEntry = {
+  workflow?: WorkflowKey;
+  runId?: string;
+  sId?: string;
+  outputPath?: string;
+  logPath?: string;
+  status?: JobStatus;
+  requestedAt?: string;
+  createdAt?: string;
+  updatedAt?: string;
+  summary?: Partial<WorkflowSummary>;
+  logState?: Partial<JobLogState>;
+  targetServer?: {
+    name?: string;
+  };
+  job?: Partial<DownloadJob> & {
+    runId?: string;
+    sId?: string;
+    outputPath?: string;
+    logPath?: string;
+    serverName?: string;
+    requestedAt?: string;
+    status?: JobStatus;
+    targetServer?: {
+      name?: string;
+    };
+  };
+};
+
 const DOWNLOAD_WEBHOOK_URL = "https://sandbox.vmmaps.com/n8n/webhook/omn/download";
 const LIST_FOLDERS_URL = "https://sandbox.vmmaps.com/n8n/webhook/omn/list-folders";
 const RUN_ID_LOGS_URL = "https://sandbox.vmmaps.com/n8n/webhook/omn/runId-logs";
@@ -142,6 +172,7 @@ const emptyForm = (): WorkflowFormState => ({
   logPath: "/home/logs",
   scriptPath: DEFAULT_SEARCH_TILES_SCRIPT_PATH,
   addMaxspeedAndTurnlanesToOsm: true,
+  maxspeedAndTurnlanesPath: "",
 });
 
 const defaultForms = (): Record<WorkflowKey, WorkflowFormState> => ({
@@ -197,6 +228,31 @@ const buildStaticLogStateForWorkflow = (workflow: WorkflowKey): JobLogState => {
   return buildEmptyLogState();
 };
 
+const buildHydratedJob = (entry: PersistedWorkflowEntry, workflow: WorkflowKey): DownloadJob | null => {
+  const runId = String(entry?.runId || entry?.job?.runId || "").trim();
+  if (!runId) return null;
+
+  const serverName = String(
+    entry?.job?.serverName || entry?.targetServer?.name || entry?.job?.targetServer?.name || "",
+  ).trim();
+  const requestedAt = String(entry?.job?.requestedAt || entry?.updatedAt || entry?.createdAt || new Date().toISOString()).trim();
+  const status = (entry?.status || entry?.summary?.validatedStatus || entry?.job?.status || "queued") as JobStatus;
+
+  return {
+    id: String(entry?.job?.id || entry?.sId || entry?.job?.sId || runId),
+    runId,
+    sId: String(entry?.sId || entry?.job?.sId || runId),
+    workflow,
+    workflowLabel: String(entry?.job?.workflowLabel || workflowCopy[workflow].label),
+    serverName,
+    outputPath: String(entry?.outputPath || entry?.job?.outputPath || "").trim(),
+    logPath: String(entry?.logPath || entry?.job?.logPath || "").trim(),
+    status,
+    requestedAt,
+    lastError: typeof entry?.logState?.lastError === "string" ? entry.logState.lastError : undefined,
+  };
+};
+
 const makeRunId = (workflow: WorkflowKey) => {
   const prefix = workflow === "searchTiles" ? "st" : "rt";
   return `${prefix}_${Math.random().toString(36).slice(2, 8)}_${Date.now().toString(36)}`;
@@ -215,6 +271,10 @@ const buildWorkflowLogPath = (basePath: string, sId: string) => {
   return `${value.replace(/\/+$/, "")}/${sId}.log`;
 };
 const normalizeOutputPath = (path: string) => String(path || "").trim() || "/home";
+const normalizeOptionalPath = (path: string) => {
+  const value = String(path || "").trim();
+  return value || null;
+};
 
 const buildBrowserPath = (basePath: string, item: string) => {
   if (!item) return basePath;
@@ -349,7 +409,8 @@ const buildAllConfiguredExpectedFilePaths = () =>
   );
 
 const buildExpectedFilePaths = (lines: string[]) => {
-  if (lines.length > 0) return buildAllConfiguredExpectedFilePaths();
+  const configuredPaths = buildAllConfiguredExpectedFilePaths();
+  if (configuredPaths.size > 0) return configuredPaths;
 
   const observedPaths = extractObservedOsmFilePaths(lines);
   const keys = Array.from(new Set([...extractReferenceKeys(lines), ...extractReferenceKeysFromObservedPaths(observedPaths)]));
@@ -379,6 +440,35 @@ const normalizeLogLines = (payload: unknown): string[] => {
   if (typeof record?.log === "string") return buildStaticLogLines(record.log);
   if (typeof record?.message === "string") return buildStaticLogLines(record.message);
   return [];
+};
+
+const parseRunIdLogsResponse = async (response: Response): Promise<unknown> => {
+  const rawBody = await response.text();
+  const trimmedBody = rawBody.trim();
+
+  if (!trimmedBody) return null;
+
+  const contentType = response.headers.get("content-type")?.toLowerCase() ?? "";
+  if (contentType.includes("application/json")) {
+    try {
+      return JSON.parse(trimmedBody) as unknown;
+    } catch {
+      return rawBody;
+    }
+  }
+
+  try {
+    return JSON.parse(trimmedBody) as unknown;
+  } catch {
+    return rawBody;
+  }
+};
+
+const extractResponseMessage = (payload: unknown): string | undefined => {
+  if (!payload || typeof payload !== "object") return undefined;
+
+  const record = payload as Record<string, unknown>;
+  return typeof record.message === "string" ? record.message : undefined;
 };
 
 const extractNewOffset = (payload: unknown): number | null => {
@@ -427,9 +517,52 @@ const isFailureLogLine = (line: string): boolean => {
 };
 
 const getSearchTilesSummary = (job: DownloadJob | null, logState?: JobLogState, fallbackSummary?: WorkflowSummary | null): WorkflowSummary => {
-  if (!job || !logState || logState.lines.length === 0) {
-    if (job && fallbackSummary) {
+  if (!job) {
+    return {
+      totalCount: 0,
+      completedCount: 0,
+      failedCount: 0,
+      processingCount: 0,
+      pendingCount: 0,
+      completedSubRegionCount: 0,
+      totalSubRegionCount: 0,
+      downloadCompleted: false,
+      source: "empty",
+      validatedStatus: "queued",
+      statusFiles: {
+        completed: [],
+        failed: [],
+        processing: [],
+        pending: [],
+      },
+    };
+  }
+
+  if (!logState || logState.lines.length === 0) {
+    if (fallbackSummary && fallbackSummary.totalCount > 0) {
       return fallbackSummary;
+    }
+
+    const configuredPendingPaths = sortPathsByFileKey(buildAllConfiguredExpectedFilePaths());
+    if (configuredPendingPaths.length > 0) {
+      return {
+        totalCount: configuredPendingPaths.length,
+        completedCount: 0,
+        failedCount: 0,
+        processingCount: 0,
+        pendingCount: configuredPendingPaths.length,
+        completedSubRegionCount: 0,
+        totalSubRegionCount: Object.keys(osmJson).length,
+        downloadCompleted: false,
+        source: logState?.source ?? "empty",
+        validatedStatus: job.status,
+        statusFiles: {
+          completed: [],
+          failed: [],
+          processing: [],
+          pending: configuredPendingPaths,
+        },
+      };
     }
 
     return {
@@ -709,12 +842,13 @@ export default function Download() {
         const nextJobs: Record<WorkflowKey, DownloadJob | null> = { searchTiles: null, routing: null };
         const nextSummaries: Record<WorkflowKey, WorkflowSummary | null> = { searchTiles: null, routing: null };
         const nextLogs: Record<WorkflowKey, JobLogState> = { searchTiles: buildEmptyLogState(), routing: buildEmptyLogState() };
+        const nextAutoPollEnabled: Record<WorkflowKey, boolean> = { searchTiles: false, routing: false };
 
         statuses.forEach((entry) => {
           const workflow = entry?.workflow as WorkflowKey | undefined;
           if (!workflow || (workflow !== "searchTiles" && workflow !== "routing")) return;
 
-          if (entry?.job) nextJobs[workflow] = entry.job as DownloadJob;
+          nextJobs[workflow] = buildHydratedJob(entry as PersistedWorkflowEntry, workflow);
           if (entry?.summary) nextSummaries[workflow] = entry.summary as WorkflowSummary;
           if (entry?.logState) {
             nextLogs[workflow] = {
@@ -724,6 +858,10 @@ export default function Download() {
               offset: Number(entry.logState.offset) || 0,
               source: entry.logState.source === "remote" ? "remote" : entry.logState.source === "static" ? "static" : "empty",
             };
+          }
+
+          if (nextJobs[workflow]?.runId && !nextLogs[workflow].complete) {
+            nextAutoPollEnabled[workflow] = true;
           }
         });
 
@@ -735,6 +873,10 @@ export default function Download() {
         setJobLogs((current) => ({
           searchTiles: current.searchTiles.lines.length > 0 ? current.searchTiles : nextLogs.searchTiles,
           routing: current.routing.lines.length > 0 ? current.routing : nextLogs.routing,
+        }));
+        setAutoPollEnabled((current) => ({
+          searchTiles: current.searchTiles || nextAutoPollEnabled.searchTiles,
+          routing: current.routing || nextAutoPollEnabled.routing,
         }));
       } catch (error) {
         console.error("Failed to hydrate download statuses", error);
@@ -782,9 +924,9 @@ export default function Download() {
         signal: AbortSignal.timeout(LOG_REQUEST_TIMEOUT_MS),
       });
 
-      const data = await response.json().catch(() => null);
+      const data = await parseRunIdLogsResponse(response);
       if (!response.ok) {
-        const message = typeof data?.message === "string" ? data.message : `Failed to fetch ${workflowCopy[workflow].label} logs.`;
+        const message = extractResponseMessage(data) ?? `Failed to fetch ${workflowCopy[workflow].label} logs.`;
         throw new Error(message);
       }
 
@@ -887,6 +1029,12 @@ export default function Download() {
             offset: jobLogs[workflow].offset,
             source: jobLogs[workflow].source,
           },
+          ...(workflow === "routing"
+            ? {
+              addMaxspeedAndTurnlanesToOsm: forms.routing.addMaxspeedAndTurnlanesToOsm,
+              maxspeedAndTurnlanesPath: normalizeOptionalPath(forms.routing.maxspeedAndTurnlanesPath),
+            }
+            : {}),
         };
 
         const signature = JSON.stringify(payload);
@@ -904,7 +1052,7 @@ export default function Download() {
     };
 
     void persistStatuses();
-  }, [currentVersion, jobs, jobLogs, searchTilesSummary, routingSummary]);
+  }, [currentVersion, forms, jobs, jobLogs, searchTilesSummary, routingSummary]);
 
   const updateForm = (workflow: WorkflowKey, patch: Partial<WorkflowFormState>) => {
     setForms((current) => ({
@@ -1069,7 +1217,7 @@ export default function Download() {
       workflow,
       workflowLabel: workflowCopy[workflow].label,
       serverName: server.name,
-      outputPath: normalizeBrowsePath(form.outputPath),
+      outputPath: normalizeOutputPath(form.outputPath),
       logPath,
       status: workflow === "searchTiles" ? "running" : "queued",
       requestedAt: new Date().toISOString(),
@@ -1106,7 +1254,10 @@ export default function Download() {
         downloadType: workflow === "searchTiles" ? "search_tiles" : "routing",
         scriptPath,
         ...(workflow === "routing"
-          ? { addMaxspeedAndTurnlanesToOsm: form.addMaxspeedAndTurnlanesToOsm }
+          ? {
+            addMaxspeedAndTurnlanesToOsm: form.addMaxspeedAndTurnlanesToOsm,
+            maxspeedAndTurnlanesPath: form.maxspeedAndTurnlanesPath.trim(),
+          }
           : {}),
         targetServer: {
           id: server._id || server.id,
@@ -1253,6 +1404,15 @@ export default function Download() {
 
                 {workflow === "routing" ? (
                   <div className="space-y-3 rounded-xl border border-border/60 bg-muted/20 p-4">
+                    <div className="space-y-2">
+                      <Label htmlFor={`${workflow}-maxspeed-path`}>Maxspeed and turnlanes path</Label>
+                      <Input
+                        id={`${workflow}-maxspeed-path`}
+                        value={form.maxspeedAndTurnlanesPath}
+                        onChange={(event) => updateForm(workflow, { maxspeedAndTurnlanesPath: event.target.value })}
+                        placeholder="/home/maxspeed-turnlanes"
+                      />
+                    </div>
                     <label htmlFor={`${workflow}-maxspeed-toggle`} className="flex cursor-pointer items-center gap-3 rounded-lg border border-border/60 bg-background px-3 py-3 text-sm transition hover:border-primary/40">
                       <Checkbox
                         id={`${workflow}-maxspeed-toggle`}
@@ -1276,10 +1436,10 @@ export default function Download() {
         })}
       </section>
 
-      <section className="grid gap-6 xl:grid-cols-2">
+      <section className="grid gap-6 xl:grid-cols-1">
         {([
           ["searchTiles", jobs.searchTiles, searchTilesSummary],
-          ["routing", jobs.routing, routingSummary],
+          // ["routing", jobs.routing, routingSummary],
         ] as const).map(([workflow, latestJob, summary]) => (
           <Card key={`${workflow}-summary`} className="border-border/60 shadow-sm">
             <CardHeader>
@@ -1347,7 +1507,7 @@ export default function Download() {
                         </div>
                       </div>
                       <div className="mt-3 overflow-hidden rounded-xl border border-border/60 bg-background">
-                        <ScrollArea className="max-h-[32rem]">
+                        <ScrollArea className="h-[32rem]">
                           {visibleGroups.length > 0 ? (
                             <div className="divide-y divide-border/50">
                               {visibleGroups.map((group) => (

@@ -9,6 +9,8 @@
   "scripts": {
     "start": "node src/server.js",
     "dev": "nodemon --watch src",
+    "check:download-status-n8n": "node scripts/check-download-status-n8n.js",
+    "check:download-status-latest": "node scripts/check-download-status-latest.js",
     "convert:proto-json": "node scripts/protoToJson.js",
     "lint": "eslint src/ --ext .js",
     "lint:fix": "eslint src/ --ext .js --fix",

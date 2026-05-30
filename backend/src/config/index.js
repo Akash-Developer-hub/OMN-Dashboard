@@ -36,6 +36,8 @@ const config = {
 
     n8n: {
         apiKey: process.env.N8N_API_KEY || '',
+        downloadStatusCompletedWebhookUrl: process.env.N8N_DOWNLOAD_STATUS_COMPLETED_WEBHOOK_URL || '',
+        routingAddMaxspeedWebhookUrl: process.env.N8N_ROUTING_ADDMAXSPEED_WEBHOOK_URL || 'https://sandbox.vmmaps.com/n8n/webhook/omn/addmaxspeed',
     },
 };
 
