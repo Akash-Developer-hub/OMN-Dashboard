@@ -538,41 +538,6 @@ class PipelineConfigController {
      * Response:
      *   notifyList {Array<NotifiedAdmin>} - Array of admin objects with id, name, email, role, method
      */
-    // static getNotifyList = asyncHandler(async (req, res) => {
-    //     const payload = req.body || {};
-    //     const version = cleanString(payload.version) || DEFAULT_VERSION;
-
-    //     try {
-    //         // Find the config for the requested version
-    //         const config = await findConfigByVersion(version);
-
-    //         if (!config) {
-    //             return ApiResponse.error(res, 404, `No configuration found for version: ${version}`);
-    //         }
-
-    //         // Extract adminList and convert from object to array
-    //         const adminListObj = config.adminList || {};
-    //         const notifyList = Object.values(adminListObj).filter(admin => admin && admin.id);
-
-    //         // Sort by name for consistent ordering
-    //         notifyList.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
-
-    //         logger.audit('NOTIFY_LIST_FETCHED', {
-    //             version,
-    //             count: notifyList.length,
-    //             requestedBy: req.user?.id,
-    //         });
-
-    //         return ApiResponse.success(res, 200, 'Notify list fetched successfully.', {
-    //             version,
-    //             notifyList,
-    //         });
-    //     } catch (error) {
-    //         logger.error('Error fetching notify list', { version, error: error.message });
-    //         return ApiResponse.error(res, 500, 'Failed to fetch notify list.');
-    //     }
-    // });
-
     static getNotifyList = asyncHandler(async (req, res) => {
         const version = cleanString(req.params.version) || DEFAULT_VERSION;
 
@@ -727,7 +692,8 @@ class PipelineConfigController {
  *   CASE B — Version does NOT exist:
  *     a. Create a brand-new PipelineConfig document with the supplied DownloadPaths.
  *
- * Stored fields: outputPath, logPath, scriptPath only.
+ * Stored fields: outputPath, logPath, scriptPath, multithreadscriptpath,
+ * multithreadoutputpath, maxspeedscriptpath.
  */
     static PostDownloadPath = asyncHandler(async (req, res) => {
         const payload = req.body || {};
@@ -749,8 +715,12 @@ class PipelineConfigController {
         const downloadEntry = {
             targetServerId: server.id,
             outputPath: cleanString(payload.outputPath || payload.output || payload.targetOutputPath) || null,
+            folder: cleanString(payload.folder) || null,
             logPath: cleanString(payload.logPath || payload.logDirectoryPath) || null,
             scriptPath: cleanString(payload.scriptPath || payload.scriptDisplayPath || payload.scriptDirectoryPath) || null,
+            multithreadscriptpath: cleanString(payload.multithreadscriptpath) || null,
+            multithreadoutputpath: cleanString(payload.multithreadoutputpath) || null,
+            maxspeedscriptpath: cleanString(payload.maxspeedscriptpath) || null,
         };
 
         const serverKey = buildServerKey(server);
@@ -835,6 +805,9 @@ class PipelineConfigController {
      *   outputPath {string} - optional
      *   scriptPath {string} - optional
      *   logPath {string} - optional
+     *   multithreadscriptpath {string} - optional
+     *   multithreadoutputpath {string} - optional
+     *   maxspeedscriptpath {string} - optional
      */
     static updateDownloadPath = asyncHandler(async (req, res) => {
         const payload = req.body || {};
@@ -874,8 +847,12 @@ class PipelineConfigController {
         const updatedEntry = {
             targetServerId: server.id,
             outputPath: cleanString(payload.outputPath) || existingEntry.outputPath || null,
+            folder: cleanString(payload.folder) || null,
             scriptPath: cleanString(payload.scriptPath) || existingEntry.scriptPath || null,
             logPath: cleanString(payload.logPath) || existingEntry.logPath || null,
+            multithreadscriptpath: cleanString(payload.multithreadscriptpath) || existingEntry.multithreadscriptpath || null,
+            multithreadoutputpath: cleanString(payload.multithreadoutputpath) || existingEntry.multithreadoutputpath || null,
+            maxspeedscriptpath: cleanString(payload.maxspeedscriptpath) || existingEntry.maxspeedscriptpath || null,
         };
 
         // Rebuild DownloadPaths map for this version: remove old entry and push updated

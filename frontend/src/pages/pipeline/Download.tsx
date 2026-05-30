@@ -30,6 +30,7 @@ type JobStatus = "queued" | "running" | "completed" | "failed";
 type WorkflowFormState = {
   targetServerId: string;
   outputPath: string;
+  folderName: string;
   logPath: string;
   scriptPath: string;
   addMaxspeedAndTurnlanesToOsm: boolean;
@@ -40,8 +41,10 @@ type ServerPathEntry = {
   targetServerId?: string;
   serverId?: string;
   outputPath?: string;
+  folder?: string;
   logPath?: string;
   scriptPath?: string;
+  maxspeedscriptpath?: string;
 };
 
 type DownloadJob = {
@@ -93,9 +96,12 @@ type SummaryCardSelection = {
   status: SummaryStatusKey;
 };
 
+type BrowserField = "outputPath" | "logPath" | "scriptPath" | "maxspeedAndTurnlanesPath";
+
 type BrowserState = {
   open: boolean;
   workflow: WorkflowKey;
+  field: BrowserField;
   basePath: string;
   items: string[];
   loading: boolean;
@@ -133,7 +139,7 @@ type PersistedWorkflowEntry = {
 };
 
 const DOWNLOAD_WEBHOOK_URL = "https://sandbox.vmmaps.com/n8n/webhook/omn/download";
-const LIST_FOLDERS_URL = "https://sandbox.vmmaps.com/n8n/webhook/omn/list-folders";
+const LIST_FOLDERS_URL = "https://sandbox.vmmaps.com/n8n/webhook/list-files";
 const RUN_ID_LOGS_URL = "https://sandbox.vmmaps.com/n8n/webhook/omn/runId-logs";
 const MAX_LOG_LINES = 25000;
 const STATUS_DETAIL_REGIONS_PER_PAGE = 12;
@@ -141,7 +147,7 @@ const LOG_POLL_INTERVAL_MS = 3000;
 const LOG_REQUEST_TIMEOUT_MS = 60000;
 const DOWNLOAD_REQUEST_TIMEOUT_MS = 30 * 60 * 1000;
 const MAX_LOG_POLL_DURATION_MS = 6 * 60 * 60 * 1000;
-const DEFAULT_SEARCH_TILES_SCRIPT_PATH = "/home/gaaya/Projects/pipeline/";
+const DEFAULT_SEARCH_TILES_SCRIPT_PATH = "/home/gaaya/Projects/pipeline";
 
 const workflowCopy: Record<
   WorkflowKey,
@@ -169,11 +175,14 @@ const workflowCopy: Record<
 const emptyForm = (): WorkflowFormState => ({
   targetServerId: "",
   outputPath: "/home",
-  logPath: "/home/logs",
-  scriptPath: DEFAULT_SEARCH_TILES_SCRIPT_PATH,
+  folderName: "",
+  logPath: "/home",
+  scriptPath: "/home",
   addMaxspeedAndTurnlanesToOsm: true,
   maxspeedAndTurnlanesPath: "",
 });
+
+const DEFAULT_MAXSPEED_SCRIPT_PATH = "/home/gaaya/Projects/pipeline/maxspeedlogs";
 
 const defaultForms = (): Record<WorkflowKey, WorkflowFormState> => ({
   searchTiles: emptyForm(),
@@ -696,12 +705,14 @@ function FolderBrowserModal({
   browserState,
   onClose,
   onNavigate,
+  onConfirm,
   onSearch,
   onSelect,
 }: {
   browserState: BrowserState | null;
   onClose: () => void;
   onNavigate: (path: string) => void;
+  onConfirm: () => void;
   onSearch: (value: string) => void;
   onSelect: (item: string) => void;
 }) {
@@ -782,7 +793,7 @@ function FolderBrowserModal({
         </ScrollArea>
 
         <div className="border-t border-border bg-muted/20 px-5 py-3">
-          <Button onClick={() => onNavigate(browserState.basePath)}>Use {browserState.basePath}</Button>
+          <Button onClick={onConfirm}>Use {browserState.basePath}</Button>
         </div>
       </div>
     </div>
@@ -1084,7 +1095,7 @@ export default function Download() {
     updateForm(workflow, { targetServerId: serverId });
 
     if (!serverId) {
-      updateForm(workflow, { outputPath: "/home", logPath: "/home", scriptPath: DEFAULT_SEARCH_TILES_SCRIPT_PATH });
+      updateForm(workflow, { outputPath: "/home", folderName: "", logPath: "/home", scriptPath: "/hom", maxspeedAndTurnlanesPath: "" });
       return;
     }
 
@@ -1093,11 +1104,14 @@ export default function Download() {
       const nextOutputPath = normalizeBrowsePath(pathInfo?.outputPath || "/home");
       const nextLogPath = normalizeBrowsePath(pathInfo?.logPath || "/home");
       const nextScriptPath = String(pathInfo?.scriptPath || DEFAULT_SEARCH_TILES_SCRIPT_PATH).trim();
+      const nextMaxspeedPath = String(pathInfo?.maxspeedscriptpath || DEFAULT_MAXSPEED_SCRIPT_PATH).trim();
 
       updateForm(workflow, {
         outputPath: nextOutputPath,
+        folderName: String(pathInfo?.folder || "").trim(),
         logPath: nextLogPath,
         scriptPath: nextScriptPath,
+        ...(workflow === "routing" ? { maxspeedAndTurnlanesPath: nextMaxspeedPath } : {}),
       });
 
       if (!pathInfo) {
@@ -1105,7 +1119,7 @@ export default function Download() {
       }
     } catch (error) {
       console.error("Failed to load download path config", error);
-      updateForm(workflow, { outputPath: "/home", logPath: "/home", scriptPath: DEFAULT_SEARCH_TILES_SCRIPT_PATH });
+      updateForm(workflow, { outputPath: "/home", folderName: "", logPath: "/home", scriptPath: "", maxspeedAndTurnlanesPath: "" });
       toast.error("Failed to load download path config.");
     }
   };
@@ -1118,7 +1132,7 @@ export default function Download() {
   };
 
   const fetchServerFolders = async (server: Server, path: string) => {
-    const copyServerUser = String(server.name || server.username || "ZEUS").trim().toUpperCase();
+    const copyServerUser = String(server.name || "").trim().toUpperCase();
     const response = await fetch(LIST_FOLDERS_URL, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -1132,15 +1146,16 @@ export default function Download() {
     return parsePathList(await response.json());
   };
 
-  const openBrowser = async (workflow: WorkflowKey) => {
+  const openBrowser = async (workflow: WorkflowKey, field: BrowserField) => {
     const server = getServer(forms[workflow].targetServerId);
     if (!server) {
-      toast.error("Select a server before browsing output paths.");
+      toast.error("Select a server before browsing.");
       return;
     }
 
-    const basePath = normalizeBrowsePath(forms[workflow].outputPath);
-    setBrowserState({ open: true, workflow, basePath, items: [], loading: true, search: "" });
+    const fieldValue = String(forms[workflow][field] || "").trim();
+    const basePath = normalizeBrowsePath(fieldValue || "/home");
+    setBrowserState({ open: true, workflow, field, basePath, items: [], loading: true, search: "" });
 
     try {
       const items = await fetchServerFolders(server, basePath);
@@ -1158,16 +1173,21 @@ export default function Download() {
     if (!server) return;
 
     const basePath = normalizeBrowsePath(path);
-    setBrowserState((current) => current ? { ...current, basePath, items: [], loading: true, error: undefined } : null);
+    setBrowserState((current) => current ? { ...current, basePath, items: [], loading: true, error: undefined, search: "" } : null);
 
     try {
       const items = await fetchServerFolders(server, basePath);
       setBrowserState((current) => current ? { ...current, basePath, items, loading: false, error: undefined } : null);
-      updateForm(browserState.workflow, { outputPath: basePath });
     } catch (error) {
       console.error("Failed to navigate folders", error);
       setBrowserState((current) => current ? { ...current, items: [], loading: false, error: "Unable to load folders." } : null);
     }
+  };
+
+  const confirmBrowserSelection = () => {
+    if (!browserState) return;
+    updateForm(browserState.workflow, { [browserState.field]: browserState.basePath });
+    setBrowserState(null);
   };
 
   const selectBrowserItem = async (item: string) => {
@@ -1236,8 +1256,8 @@ export default function Download() {
     }));
 
     try {
-      const pathInfo = await fetchServerPathForServer(server._id || server.id);
-      const scriptPath = String(pathInfo?.scriptPath || (workflow === "searchTiles" ? DEFAULT_SEARCH_TILES_SCRIPT_PATH : "")).trim();
+      const pathInfo = await fetchDownloadPathForServer(server._id || server.id);
+      const scriptPath = String(pathInfo?.scriptPath || form.scriptPath || "").trim();
 
       if (!scriptPath) {
         throw new Error("No script path is configured for the selected server.");
@@ -1249,7 +1269,7 @@ export default function Download() {
         workflowLabel: workflowCopy[workflow].label,
         runId,
         sId,
-        outputPath: provisionalJob.outputPath,
+        outputPath: workflow === "searchTiles" ? (String(pathInfo?.folder || "").trim() || provisionalJob.outputPath) : provisionalJob.outputPath,
         logPath,
         downloadType: workflow === "searchTiles" ? "search_tiles" : "routing",
         scriptPath,
@@ -1357,20 +1377,33 @@ export default function Download() {
                   {loadingServers ? <p className="text-xs text-muted-foreground">Loading active servers...</p> : null}
                 </div>
 
-                <div className="space-y-2">
-                  <Label htmlFor={`${workflow}-output`}>Output path</Label>
-                  <div className="flex gap-2">
+                {workflow === "searchTiles" ? (
+                  <div className="space-y-2">
+                    <Label htmlFor={`${workflow}-folder`}>Folder</Label>
                     <Input
-                      id={`${workflow}-output`}
-                      value={form.outputPath}
-                      onChange={(event) => updateForm(workflow, { outputPath: event.target.value })}
-                      placeholder="/home/output"
+                      id={`${workflow}-folder`}
+                      value={form.folderName}
+                      readOnly
+                      placeholder="Select a server to load folder"
+                      className="bg-muted/40 cursor-default"
                     />
-                    <Button type="button" variant="outline" onClick={() => void openBrowser(workflow)}>
-                      <Folder className="mr-2 h-4 w-4" /> Browse
-                    </Button>
                   </div>
-                </div>
+                ) : (
+                  <div className="space-y-2">
+                    <Label htmlFor={`${workflow}-output`}>Output path</Label>
+                    <div className="flex gap-2">
+                      <Input
+                        id={`${workflow}-output`}
+                        value={form.outputPath}
+                        onChange={(event) => updateForm(workflow, { outputPath: event.target.value })}
+                        placeholder="/home/output"
+                      />
+                      <Button type="button" variant="outline" onClick={() => void openBrowser(workflow, "outputPath")}>
+                        <Folder className="mr-2 h-4 w-4" /> Browse
+                      </Button>
+                    </div>
+                  </div>
+                )}
 
                 <div className="space-y-2">
                   <Label htmlFor={`${workflow}-log`}>Log path</Label>
@@ -1381,7 +1414,7 @@ export default function Download() {
                       onChange={(event) => updateForm(workflow, { logPath: event.target.value })}
                       placeholder="/home/logs"
                     />
-                    <Button type="button" variant="outline" onClick={() => void openBrowser(workflow)}>
+                    <Button type="button" variant="outline" onClick={() => void openBrowser(workflow, "logPath")}>
                       <Folder className="mr-2 h-4 w-4" /> Browse
                     </Button>
                   </div>
@@ -1396,7 +1429,7 @@ export default function Download() {
                       onChange={(event) => updateForm(workflow, { scriptPath: event.target.value })}
                       placeholder={DEFAULT_SEARCH_TILES_SCRIPT_PATH}
                     />
-                    <Button type="button" variant="outline" onClick={() => void openBrowser(workflow)}>
+                    <Button type="button" variant="outline" onClick={() => void openBrowser(workflow, "scriptPath")}>
                       <Folder className="mr-2 h-4 w-4" /> Browse
                     </Button>
                   </div>
@@ -1406,12 +1439,17 @@ export default function Download() {
                   <div className="space-y-3 rounded-xl border border-border/60 bg-muted/20 p-4">
                     <div className="space-y-2">
                       <Label htmlFor={`${workflow}-maxspeed-path`}>Maxspeed and turnlanes path</Label>
-                      <Input
-                        id={`${workflow}-maxspeed-path`}
-                        value={form.maxspeedAndTurnlanesPath}
-                        onChange={(event) => updateForm(workflow, { maxspeedAndTurnlanesPath: event.target.value })}
-                        placeholder="/home/maxspeed-turnlanes"
-                      />
+                      <div className="flex gap-2">
+                        <Input
+                          id={`${workflow}-maxspeed-path`}
+                          value={form.maxspeedAndTurnlanesPath}
+                          onChange={(event) => updateForm(workflow, { maxspeedAndTurnlanesPath: event.target.value })}
+                          placeholder="/home/maxspeed-turnlanes"
+                        />
+                        <Button type="button" variant="outline" onClick={() => void openBrowser(workflow, "maxspeedAndTurnlanesPath")}>
+                          <Folder className="mr-2 h-4 w-4" /> Browse
+                        </Button>
+                      </div>
                     </div>
                     <label htmlFor={`${workflow}-maxspeed-toggle`} className="flex cursor-pointer items-center gap-3 rounded-lg border border-border/60 bg-background px-3 py-3 text-sm transition hover:border-primary/40">
                       <Checkbox
@@ -1661,6 +1699,7 @@ export default function Download() {
         browserState={browserState}
         onClose={() => setBrowserState(null)}
         onNavigate={(path) => void navigateBrowser(path)}
+        onConfirm={confirmBrowserSelection}
         onSearch={(value) => setBrowserState((current) => current ? { ...current, search: value } : null)}
         onSelect={(item) => void selectBrowserItem(item)}
       />

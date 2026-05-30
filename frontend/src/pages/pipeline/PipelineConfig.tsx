@@ -65,9 +65,13 @@ interface ServerPathEntry {
   targetServerId: string;
   inputPath: string;
   outputPath: string;
+  folder?: string;
   scriptPath: string;
   backupPath: string;
   logPath: string;
+  multithreadscriptpath?: string;
+  multithreadoutputpath?: string;
+  maxspeedscriptpath?: string;
 }
 
 // ─── API Calls ────────────────────────────────────────────────────────────────
@@ -149,13 +153,17 @@ const addServerPaths = async (version: string, serverName: string, serverId: str
   return res.data;
 };
 
-const addDownloadPaths = async (version: string, serverId: string, paths: Pick<ServerPathEntry, "outputPath" | "scriptPath" | "logPath">): Promise<any> => {
+const addDownloadPaths = async (version: string, serverId: string, paths: Pick<ServerPathEntry, "outputPath" | "folder" | "scriptPath" | "logPath" | "multithreadscriptpath" | "multithreadoutputpath" | "maxspeedscriptpath">): Promise<any> => {
   const res = await api.post("/admin-dashboard/pipeline-config/download-path", {
     version,
     targetServerId: serverId,
     outputPath: paths.outputPath,
+    folder: paths.folder,
     scriptPath: paths.scriptPath,
     logPath: paths.logPath,
+    multithreadscriptpath: paths.multithreadscriptpath,
+    multithreadoutputpath: paths.multithreadoutputpath,
+    maxspeedscriptpath: paths.maxspeedscriptpath,
   });
   return res.data;
 };
@@ -179,14 +187,18 @@ const updateServerPaths = async (version: string, serverId: string, paths: Omit<
 const updateDownloadPaths = async (
   version: string,
   serverId: string,
-  paths: Pick<ServerPathEntry, "outputPath" | "scriptPath" | "logPath">
+  paths: Pick<ServerPathEntry, "outputPath" | "folder" | "scriptPath" | "logPath" | "multithreadscriptpath" | "multithreadoutputpath" | "maxspeedscriptpath">
 ): Promise<any> => {
   const res = await api.patch("/admin-dashboard/pipeline-config/UpdateDownload-path", {
     version,
     targetServerId: serverId,
     outputPath: paths.outputPath,
+    folder: paths.folder,
     scriptPath: paths.scriptPath,
     logPath: paths.logPath,
+    multithreadscriptpath: paths.multithreadscriptpath,
+    multithreadoutputpath: paths.multithreadoutputpath,
+    maxspeedscriptpath: paths.maxspeedscriptpath,
   });
   return res.data;
 };
@@ -388,8 +400,8 @@ const ServerCard = ({ server, serverPaths, onAddPath, onViewPath }: ServerCardPr
 
 interface PathFormProps {
   server: AvailabilityServer;
-  paths: { inputPath: string; outputPath: string; scriptPath: string; backupPath: string; logPath: string };
-  setPaths: React.Dispatch<React.SetStateAction<{ inputPath: string; outputPath: string; scriptPath: string; backupPath: string; logPath: string }>>;
+  paths: { inputPath: string; outputPath: string; folder: string; scriptPath: string; backupPath: string; logPath: string; multithreadscriptpath: string; multithreadoutputpath: string; maxspeedscriptpath: string };
+  setPaths: React.Dispatch<React.SetStateAction<{ inputPath: string; outputPath: string; folder: string; scriptPath: string; backupPath: string; logPath: string; multithreadscriptpath: string; multithreadoutputpath: string; maxspeedscriptpath: string }>>;
   submitting: boolean;
   onSubmit: () => void;
   onClose: () => void;
@@ -478,6 +490,16 @@ const PathFormFields = ({ server, paths, setPaths, submitting, onSubmit, onClose
       ),
     },
     {
+      key: "folder" as const,
+      label: "Folder",
+      placeholder: "e.g. test",
+      icon: (
+        <svg className="w-3.5 h-3.5 text-indigo-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
+        </svg>
+      ),
+    },
+    {
       key: "scriptPath" as const,
       label: "Script Path",
       placeholder: "/home/user/Projects/TileGen/tilemaker",
@@ -507,7 +529,37 @@ const PathFormFields = ({ server, paths, setPaths, submitting, onSubmit, onClose
         </svg>
       ),
     },
-  ].filter((field) => mode === "server" || ["outputPath", "scriptPath", "logPath"].includes(field.key));
+    {
+      key: "multithreadscriptpath" as const,
+      label: "Multithread Script Path",
+      placeholder: "/home/user/Projects/TileGen/tilemaker",
+      icon: (
+        <svg className="w-3.5 h-3.5 text-cyan-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4" />
+        </svg>
+      ),
+    },
+    {
+      key: "multithreadoutputpath" as const,
+      label: "Multithread Output Path",
+      placeholder: "/home/user/Projects/TileGen/tilemaker/routingTiles",
+      icon: (
+        <svg className="w-3.5 h-3.5 text-teal-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+        </svg>
+      ),
+    },
+    {
+      key: "maxspeedscriptpath" as const,
+      label: "Max Speed Script Path",
+      placeholder: "/home/user/Projects/pipeline/maxspeedlogs",
+      icon: (
+        <svg className="w-3.5 h-3.5 text-orange-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+        </svg>
+      ),
+    },
+  ].filter((field) => mode === "server" || ["outputPath", "folder", "scriptPath", "logPath", "multithreadscriptpath", "multithreadoutputpath", "maxspeedscriptpath"].includes(field.key));
 
   const isValid = mode === "download"
     ? paths.outputPath.trim() && paths.scriptPath.trim() && paths.logPath.trim()
@@ -640,7 +692,7 @@ interface AddPathModalProps {
 }
 
 const AddPathModal = ({ server, onClose, onSubmit, submitting, mode = "server" }: AddPathModalProps) => {
-  const [paths, setPaths] = useState({ inputPath: "/home", outputPath: "/home", scriptPath: "/home", backupPath: "/home", logPath: "/home" });
+  const [paths, setPaths] = useState({ inputPath: "/home", outputPath: "/home", folder: "", scriptPath: "/home", backupPath: "/home", logPath: "/home", multithreadscriptpath: "/home", multithreadoutputpath: "/home", maxspeedscriptpath: "/home" });
 
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
@@ -699,17 +751,25 @@ const EditPathModal = ({ server, existingEntry, onClose, onSubmit, submitting, m
       return {
         inputPath: "",
         outputPath: existingEntry.outputPath || "",
+        folder: existingEntry.folder || "",
         scriptPath: existingEntry.scriptPath || "",
         backupPath: "",
         logPath: existingEntry.logPath || "/home",
+        multithreadscriptpath: existingEntry.multithreadscriptpath || "/home",
+        multithreadoutputpath: existingEntry.multithreadoutputpath || "/home",
+        maxspeedscriptpath: existingEntry.maxspeedscriptpath || "/home",
       };
     }
     return {
       inputPath: existingEntry.inputPath,
       outputPath: existingEntry.outputPath,
+      folder: existingEntry.folder || "",
       scriptPath: existingEntry.scriptPath,
       backupPath: existingEntry.backupPath,
-      logPath: existingEntry.logPath || "/home", // Fallback for existing entries without logPath
+      logPath: existingEntry.logPath || "/home",
+      multithreadscriptpath: "",
+      multithreadoutputpath: "",
+      maxspeedscriptpath: "",
     };
   });
 
@@ -822,6 +882,13 @@ const ViewPathModal = ({ server, paths, onClose, onEdit, mode = "server" }: View
                 value={entry.outputPath || "Not configured"}
                 icon={<svg className="w-3.5 h-3.5 text-emerald-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>}
               />
+              {mode === "download" && (
+                <PathRow
+                  label="Folder"
+                  value={entry.folder || "Not configured"}
+                  icon={<svg className="w-3.5 h-3.5 text-indigo-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" /></svg>}
+                />
+              )}
               <PathRow
                 label="Script Path"
                 value={entry.scriptPath || "Not configured"}
@@ -839,6 +906,25 @@ const ViewPathModal = ({ server, paths, onClose, onEdit, mode = "server" }: View
                 value={entry.logPath || "Not configured"}
                 icon={<svg className="w-3.5 h-3.5 text-rose-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>}
               />
+              {mode === "download" && (
+                <>
+                  <PathRow
+                    label="Multithread Script Path"
+                    value={entry.multithreadscriptpath || "Not configured"}
+                    icon={<svg className="w-3.5 h-3.5 text-cyan-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4" /></svg>}
+                  />
+                  <PathRow
+                    label="Multithread Output Path"
+                    value={entry.multithreadoutputpath || "Not configured"}
+                    icon={<svg className="w-3.5 h-3.5 text-teal-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>}
+                  />
+                  <PathRow
+                    label="Max Speed Script Path"
+                    value={entry.maxspeedscriptpath || "Not configured"}
+                    icon={<svg className="w-3.5 h-3.5 text-orange-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>}
+                  />
+                </>
+              )}
             </div>
           </div>
         ))}
@@ -1247,8 +1333,12 @@ export default function PipelineConfig() {
       if (addPathMode === "download") {
         const response = await addDownloadPaths(savedVersion, addPathServer._id, {
           outputPath: paths.outputPath,
+          folder: paths.folder,
           scriptPath: paths.scriptPath,
           logPath: paths.logPath,
+          multithreadscriptpath: paths.multithreadscriptpath,
+          multithreadoutputpath: paths.multithreadoutputpath,
+          maxspeedscriptpath: paths.maxspeedscriptpath,
         });
         if (response?.success) {
           setDownloadPathsMap((prev) => ({
@@ -1259,9 +1349,13 @@ export default function PipelineConfig() {
                 targetServerId: addPathServer._id,
                 inputPath: "",
                 outputPath: paths.outputPath,
+                folder: paths.folder,
                 scriptPath: paths.scriptPath,
                 backupPath: "",
                 logPath: paths.logPath,
+                multithreadscriptpath: paths.multithreadscriptpath,
+                multithreadoutputpath: paths.multithreadoutputpath,
+                maxspeedscriptpath: paths.maxspeedscriptpath,
               },
             ],
           }));
@@ -1310,8 +1404,12 @@ export default function PipelineConfig() {
         // Try server API for updating download paths
         const response = await updateDownloadPaths(savedVersion, editPathServer._id, {
           outputPath: paths.outputPath,
+          folder: paths.folder,
           scriptPath: paths.scriptPath,
           logPath: paths.logPath,
+          multithreadscriptpath: paths.multithreadscriptpath,
+          multithreadoutputpath: paths.multithreadoutputpath,
+          maxspeedscriptpath: paths.maxspeedscriptpath,
         });
 
         if (response?.success) {
@@ -1319,7 +1417,7 @@ export default function PipelineConfig() {
             const existing = prev[editPathServer._id] ?? [];
             const updated = existing.map((entry) =>
               entry.targetServerId === editPathEntry.targetServerId
-                ? { ...entry, outputPath: paths.outputPath, scriptPath: paths.scriptPath, logPath: paths.logPath }
+                ? { ...entry, outputPath: paths.outputPath, folder: paths.folder, scriptPath: paths.scriptPath, logPath: paths.logPath, multithreadscriptpath: paths.multithreadscriptpath, multithreadoutputpath: paths.multithreadoutputpath, maxspeedscriptpath: paths.maxspeedscriptpath }
                 : entry
             );
             return { ...prev, [editPathServer._id]: updated };

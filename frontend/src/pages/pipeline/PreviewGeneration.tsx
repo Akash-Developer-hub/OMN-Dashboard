@@ -23,6 +23,8 @@ type ServiceKey = "search" | "tile" | "routing" | string;
 
 const FETCH_PIPELINE_URL = "/admin-dashboard/data-pipeline/fetch-pipeline";
 const CURRENT_VERSION_URL = "/admin-dashboard/pipeline-config/current-version";
+const DOWNLOAD_PATH_CONFIG_URL = "/admin-dashboard/pipeline-config/download-path-config";
+const MULTITHREAD_WEBHOOK_URL = "https://sandbox.vmmaps.com/n8n/webhook/omn/multithread";
 
 const serviceMeta: Record<string, { label: string; icon: typeof Search; tone: string }> = {
   search: { label: "Search", icon: Search, tone: "border-blue-500/20 bg-blue-500/10 text-blue-600" },
@@ -168,6 +170,7 @@ export default function PreviewGeneration() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [routingLogsVisible, setRoutingLogsVisible] = useState(false);
+  const [multithreadLoading, setMultithreadLoading] = useState(false);
 
   const fetchPreviewData = useCallback(async (isRefresh = false) => {
     if (isRefresh) setRefreshing(true);
@@ -197,6 +200,44 @@ export default function PreviewGeneration() {
   useEffect(() => {
     void fetchPreviewData();
   }, [fetchPreviewData]);
+
+  const handleStartMultithread = async () => {
+    setMultithreadLoading(true);
+    try {
+      const version = currentVersion || (await api.get(CURRENT_VERSION_URL).then((r) => getVersion(r.data)));
+      const configRes = await api.post(DOWNLOAD_PATH_CONFIG_URL, { version });
+      const downloadPaths: any[] = Object.values(configRes.data?.data?.downloadPaths ?? configRes.data?.downloadPaths ?? {}).flat() as any[];
+
+      const routingData = getServiceData(selectedRun, "routing");
+      const serverId = routingData?.targetServerId ?? routingData?.serverId ?? selectedRun?.targetServerId ?? "";
+      const pathInfo = downloadPaths.find((p: any) => (p?.targetServerId || p?.serverId) === serverId) ?? downloadPaths[0];
+
+      const inputPath = pathInfo?.outputPath ?? "";
+      const multithreadscriptpath = pathInfo?.multithreadscriptpath ?? "";
+      const multithreadoutputpath = pathInfo?.multithreadoutputpath ?? "";
+
+      if (!inputPath || !multithreadscriptpath || !multithreadoutputpath) {
+        toast.error("Multithread paths are not configured for this server. Please configure them in Download Config.");
+        return;
+      }
+
+      const response = await fetch(MULTITHREAD_WEBHOOK_URL, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ inputPath, multithreadscriptpath, multithreadoutputpath }),
+      });
+
+      if (!response.ok) throw new Error(`Request failed with status ${response.status}`);
+
+      setRoutingLogsVisible(true);
+      toast.success("Multithread process started successfully.");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Failed to start multithread process.";
+      toast.error(message);
+    } finally {
+      setMultithreadLoading(false);
+    }
+  };
 
   const services = useMemo(() => servicesFor(selectedRun), [selectedRun]);
 
@@ -327,8 +368,8 @@ export default function PreviewGeneration() {
                             </TabsList>
 
                             {isRouting && !routingLogsVisible ? (
-                              <Button type="button" size="sm" onClick={() => setRoutingLogsVisible(true)}>
-                                <Play className="mr-2 h-4 w-4" />
+                              <Button type="button" size="sm" onClick={() => void handleStartMultithread()} disabled={multithreadLoading}>
+                                {multithreadLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Play className="mr-2 h-4 w-4" />}
                                 Start Multithread
                               </Button>
                             ) : null}
