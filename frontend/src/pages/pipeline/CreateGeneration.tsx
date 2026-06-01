@@ -20,7 +20,7 @@ const SERVICES: { key: GenerationService; label: string; color: string; desc: st
   { key: "tile",    label: "Tile",    color: "bg-purple-500/10 text-purple-600 border-purple-500/20",  desc: "Generate map tiles" },
 ];
 
-const PRESET_SERVERS: { id: string; name: string }[] = [];
+const PRESET_SERVERS: { id: string; _id?: string; name: string }[] = [];
 
 type InputMode   = "path" | "copy" | "import";
 type SearchMode  = "full" | "contribution";
@@ -72,6 +72,7 @@ type ServerPathEntry = {
   serverId?: string;
   inputPath?: string;
   outputPath?: string;
+  folder?: string;
   scriptPath?: string;
   backupPath?: string;
 };
@@ -715,10 +716,16 @@ export function CreateGeneration({ open, onClose, preSelectContribution, servers
     }
   }, [externalServers]);
 
-  const findServerById = (id?: string) => {
+  const findServerById = useCallback((id?: string) => {
     if (!id) return undefined;
-    return servers.find((s) => s.id === id) || PRESET_SERVERS.find((p) => p.id === id);
-  };
+    return servers.find((s) => s.id === id || s._id === id) || PRESET_SERVERS.find((p) => p.id === id);
+  }, [servers]);
+
+  const serverIdMatches = useCallback((path: ServerPathEntry, serverId: string) => {
+    const server = findServerById(serverId);
+    const ids = new Set([serverId, server?.id, server?._id].filter(Boolean));
+    return ids.has(path.targetServerId || "") || ids.has(path.serverId || "");
+  }, [findServerById]);
 
   const getServerName = (svc: GenerationService, field: "target" | "source" = "target"): string => {
     const f = forms[svc];
@@ -740,9 +747,20 @@ export function CreateGeneration({ open, onClose, preSelectContribution, servers
     const res = await api.post("/admin-dashboard/pipeline-config/server-path", { version });
     const serverPaths = res.data?.data?.serverPaths || res.data?.serverPaths || {};
     const paths = flattenServerPaths(serverPaths);
-    const pathInfo = paths.find((path) => (path.targetServerId || path.serverId) === serverId);
+    const pathInfo = paths.find((path) => serverIdMatches(path, serverId));
     return { version, pathInfo };
-  }, [fetchCurrentConfigVersion]);
+  }, [fetchCurrentConfigVersion, serverIdMatches]);
+
+  const fetchDownloadPathForServer = useCallback(async (serverId: string, version: string) => {
+    try {
+      const res = await api.post("/admin-dashboard/pipeline-config/download-path-config", { version });
+      const downloadPaths = res.data?.data?.downloadPaths || res.data?.downloadPaths || {};
+      const entry = flattenServerPaths(downloadPaths).find((path) => serverIdMatches(path, serverId));
+      return entry ? { outputPath: entry.outputPath || null, folder: entry.folder || null } : null;
+    } catch {
+      return null;
+    }
+  }, [serverIdMatches]);
 
   const handleViewFiles = async (svc: GenerationService) => {
     const f    = forms[svc];
@@ -885,25 +903,27 @@ export function CreateGeneration({ open, onClose, preSelectContribution, servers
 
       try {
         const { version, pathInfo } = await fetchServerPathForServer(serverId);
+        const downloadInfo = await fetchDownloadPathForServer(serverId, version);
+        const isRouting = svc === "routing";
+        const autoFilePath = isRouting ? (downloadInfo?.outputPath || null) : (downloadInfo?.folder || null);
         if (pathInfo) {
           updateForm(svc, {
-            filePath: pathInfo.inputPath || "/home",
+            filePath: autoFilePath || pathInfo.inputPath || "/home",
             scriptDisplayPath: pathInfo.scriptPath || "/home",
             outputPath: pathInfo.outputPath || "/home",
             backupPath: pathInfo.backupPath || "/home",
-            importServerFilePath: pathInfo.inputPath || "/home",
+            importServerFilePath: autoFilePath || pathInfo.inputPath || "/home",
             configVersion: version || forms[svc].configVersion,
-            hasConfiguredPaths: true, // server has configured paths
+            hasConfiguredPaths: true,
           });
         } else {
-          // Server selected but no paths configured - reset to /home defaults
           updateForm(svc, {
-            filePath: "/home",
+            filePath: autoFilePath || "/home",
             scriptDisplayPath: "/home",
             outputPath: "/home",
             backupPath: "/home",
             sourceFilePath: forms[svc].inputMode === "copy" ? forms[svc].sourceFilePath : "/home",
-            importServerFilePath: "/home",
+            importServerFilePath: autoFilePath || "/home",
             configVersion: version || forms[svc].configVersion,
             hasConfiguredPaths: false,
           });
@@ -951,10 +971,10 @@ export function CreateGeneration({ open, onClose, preSelectContribution, servers
     checkService("search");
     checkService("routing");
     checkService("tile");
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
     forms.search.targetServerId, forms.routing.targetServerId, forms.tile.targetServerId,
     forms.search.inputMode, forms.routing.inputMode, forms.tile.inputMode,
-    fetchServerPathForServer
   ]);
 
   // Fetch source server paths when sourceServerId changes (for copy mode)
@@ -1006,10 +1026,10 @@ export function CreateGeneration({ open, onClose, preSelectContribution, servers
     checkSourceService("search");
     checkSourceService("routing");
     checkSourceService("tile");
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
     forms.search.sourceServerId, forms.routing.sourceServerId, forms.tile.sourceServerId,
     forms.search.inputMode, forms.routing.inputMode, forms.tile.inputMode,
-    fetchServerPathForServer
   ]);
 
   const toggleService = (svc: GenerationService) => {

@@ -25,6 +25,7 @@ const FETCH_PIPELINE_URL = "/admin-dashboard/data-pipeline/fetch-pipeline";
 const CURRENT_VERSION_URL = "/admin-dashboard/pipeline-config/current-version";
 const DOWNLOAD_PATH_CONFIG_URL = "/admin-dashboard/pipeline-config/download-path-config";
 const MULTITHREAD_WEBHOOK_URL = "https://sandbox.vmmaps.com/n8n/webhook/omn/multithread";
+const RUN_ID_LOGS_URL = "https://sandbox.vmmaps.com/n8n/webhook/omn/runId-logs";
 
 const serviceMeta: Record<string, { label: string; icon: typeof Search; tone: string }> = {
   search: { label: "Search", icon: Search, tone: "border-blue-500/20 bg-blue-500/10 text-blue-600" },
@@ -151,6 +152,31 @@ function serviceLogText(run: PipelineRun | null, service: ServiceKey) {
   return "";
 }
 
+function normalizeRunIdLogs(payload: any): string[] {
+  const body = payload?.data ?? payload;
+  const candidates = [body?.logs, body?.lines, body?.logLines, body?.data?.logs, body?.data?.lines, Array.isArray(body) ? body : null];
+  const raw = candidates.find((item) => Array.isArray(item) || typeof item === "string");
+  if (Array.isArray(raw)) {
+    return raw
+      .map((item) => {
+        if (typeof item === "string") return item;
+        if (item?.message) return String(item.message);
+        if (item?.line) return String(item.line);
+        if (item?.log) return String(item.log);
+        return JSON.stringify(item);
+      })
+      .filter(Boolean);
+  }
+  if (typeof raw === "string") return raw ? [raw] : [];
+  if (typeof body?.log === "string") return [body.log];
+  if (typeof body?.message === "string") return [body.message];
+  return [];
+}
+
+function extractLogPath(basePath: string, sId: string) {
+  return `${basePath.trim().replace(/\/+$|\s+$/g, "")}/${sId}.log`;
+}
+
 function formatDate(value: unknown) {
   if (!value) return "No date";
   const date = new Date(String(value));
@@ -170,6 +196,8 @@ export default function PreviewGeneration() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [routingLogsVisible, setRoutingLogsVisible] = useState(false);
+  const [routingLogText, setRoutingLogText] = useState("");
+  const [routingLogError, setRoutingLogError] = useState<string | null>(null);
   const [multithreadLoading, setMultithreadLoading] = useState(false);
 
   const fetchPreviewData = useCallback(async (isRefresh = false) => {
@@ -215,24 +243,62 @@ export default function PreviewGeneration() {
       const inputPath = pathInfo?.outputPath ?? "";
       const multithreadscriptpath = pathInfo?.multithreadscriptpath ?? "";
       const multithreadoutputpath = pathInfo?.multithreadoutputpath ?? "";
+      const logBasePath = pathInfo?.logPath ?? "/home/gaaya/Projects/pipeline/logs";
+
+      const targetServer = pickText(
+        routingData?.targetServer,
+        routingData?.targetServerName,
+        routingData?.server,
+        routingData?.target_server,
+        routingData?.serverName,
+        selectedRun?.targetServer,
+        selectedRun?.targetServerName,
+        selectedRun?.server,
+      );
 
       if (!inputPath || !multithreadscriptpath || !multithreadoutputpath) {
         toast.error("Multithread paths are not configured for this server. Please configure them in Download Config.");
         return;
       }
 
-      const response = await fetch(MULTITHREAD_WEBHOOK_URL, {
+      if (!targetServer) {
+        toast.error("Target server is missing for the selected routing run.");
+        return;
+      }
+
+      const randomBase36 = (length: number) =>
+        Array.from({ length }, () => Math.floor(Math.random() * 36).toString(36)).join("");
+
+      const sId = `st_${randomBase36(7)}_${randomBase36(8)}`;
+
+      const multithreadResponse = await fetch(MULTITHREAD_WEBHOOK_URL, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ inputPath, multithreadscriptpath, multithreadoutputpath }),
+        body: JSON.stringify({ targetServer, sId, inputPath, multithreadscriptpath, multithreadoutputpath }),
       });
 
-      if (!response.ok) throw new Error(`Request failed with status ${response.status}`);
+      if (!multithreadResponse.ok) throw new Error(`Multithread request failed with status ${multithreadResponse.status}`);
 
+      const logPath = extractLogPath(logBasePath, sId);
+      setRoutingLogText("");
+      setRoutingLogError(null);
       setRoutingLogsVisible(true);
-      toast.success("Multithread process started successfully.");
+
+      const logsResponse = await fetch(RUN_ID_LOGS_URL, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ targetServer, sId, offset: 0, logPath }),
+      });
+
+      if (!logsResponse.ok) throw new Error(`Log request failed with status ${logsResponse.status}`);
+
+      const logsPayload = await logsResponse.json();
+      const logs = normalizeRunIdLogs(logsPayload).join("\n");
+      setRoutingLogText(logs || `No logs returned from ${RUN_ID_LOGS_URL}.`);
+      toast.success("Multithread process started and logs fetched successfully.");
     } catch (error) {
       const message = error instanceof Error ? error.message : "Failed to start multithread process.";
+      setRoutingLogError(message);
       toast.error(message);
     } finally {
       setMultithreadLoading(false);
@@ -392,7 +458,9 @@ export default function PreviewGeneration() {
                             <TabsContent value="logs" className="mt-0">
                               <div className="overflow-hidden rounded-md border border-slate-800 bg-slate-950">
                                 <pre className="max-h-72 overflow-auto whitespace-pre-wrap break-words p-4 font-mono text-xs leading-6 text-slate-200">
-                                  {logText || "No log output available in this generation payload."}
+                                  {isRouting && routingLogsVisible
+                                    ? routingLogError ?? routingLogText ?? "No routing logs available."
+                                    : logText || "No log output available in this generation payload."}
                                 </pre>
                               </div>
                             </TabsContent>

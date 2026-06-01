@@ -4,6 +4,7 @@ import osmJson from "@/utils/osm.json";
 import {
   Folder,
   Home,
+  Info,
   Loader2,
   Play,
   RefreshCw,
@@ -21,6 +22,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import type { Server } from "@/pages/servers/serversApi";
 import { api } from "@/utils/api";
 
@@ -831,7 +833,22 @@ export default function Download() {
   const [autoPollEnabled, setAutoPollEnabled] = useState<Record<WorkflowKey, boolean>>({ searchTiles: false, routing: false });
   const persistSignatureRef = useRef<Record<WorkflowKey, string>>({ searchTiles: "", routing: "" });
   const logPollInFlightRef = useRef<Record<WorkflowKey, boolean>>({ searchTiles: false, routing: false });
+  const activeLogRequestKeyRef = useRef<Record<WorkflowKey, string>>({ searchTiles: "", routing: "" });
+  const completedLogRequestKeyRef = useRef<Record<WorkflowKey, string>>({ searchTiles: "", routing: "" });
+  const completedLogRequestAtRef = useRef<Record<WorkflowKey, number>>({ searchTiles: 0, routing: 0 });
   const lastLogPollAtRef = useRef<Record<WorkflowKey, number>>({ searchTiles: 0, routing: 0 });
+  const workflowSubmitInFlightRef = useRef<Record<WorkflowKey, boolean>>({ searchTiles: false, routing: false });
+  const autoLogRequestKeyRef = useRef<Record<WorkflowKey, string>>({ searchTiles: "", routing: "" });
+  const jobsRef = useRef(jobs);
+  const jobLogsRef = useRef(jobLogs);
+
+  useEffect(() => {
+    jobsRef.current = jobs;
+  }, [jobs]);
+
+  useEffect(() => {
+    jobLogsRef.current = jobLogs;
+  }, [jobLogs]);
 
   useEffect(() => {
     const fetchServers = async () => {
@@ -883,9 +900,7 @@ export default function Download() {
             };
           }
 
-          if (nextJobs[workflow]?.runId && !nextLogs[workflow].complete) {
-            nextAutoPollEnabled[workflow] = true;
-          }
+          nextAutoPollEnabled[workflow] = false;
         });
 
         setJobs((current) => ({
@@ -920,7 +935,7 @@ export default function Download() {
   );
 
   const pollWorkflowLogs = useCallback(async (workflow: WorkflowKey, force = false) => {
-    const job = jobs[workflow];
+    const job = jobsRef.current[workflow];
     if (!job?.runId) return;
 
     if (logPollInFlightRef.current[workflow]) return;
@@ -928,10 +943,22 @@ export default function Download() {
     const now = Date.now();
     if (!force && now - lastLogPollAtRef.current[workflow] < LOG_POLL_INTERVAL_MS) return;
 
-    const currentLogState = jobLogs[workflow];
+    const currentLogState = jobLogsRef.current[workflow];
+    if (!force && currentLogState.complete) return;
+
     const sId = job.sId || job.runId;
     const logPath = job.logPath || buildWorkflowLogPath("/home/logs", sId);
+    const requestKey = `${job.runId}:${currentLogState.offset}`;
+    const wasJustRequested =
+      completedLogRequestKeyRef.current[workflow] === requestKey &&
+      now - completedLogRequestAtRef.current[workflow] < LOG_POLL_INTERVAL_MS;
+
+    if (!force && (activeLogRequestKeyRef.current[workflow] === requestKey || wasJustRequested)) {
+      return;
+    }
+
     logPollInFlightRef.current[workflow] = true;
+    activeLogRequestKeyRef.current[workflow] = requestKey;
     lastLogPollAtRef.current[workflow] = now;
 
     try {
@@ -960,7 +987,11 @@ export default function Download() {
         : newLines.length > 0
           ? buildStaticLogLines(newLines.join("\n"))
           : currentLogState.lines;
-      const completed = extractLogCompleted(data) || hasDownloadCompletedLine(mergedLines);
+
+      const hasSavedFile = mergedLines.some((line) =>
+        /['"]?(.+?\.osm\.pbf(?:\.[\d]+)?)['"]?\s+saved/i.test(line),
+      );
+      const completed = hasSavedFile || extractLogCompleted(data) || hasDownloadCompletedLine(mergedLines);
 
       setJobLogs((current) => ({
         ...current,
@@ -972,6 +1003,10 @@ export default function Download() {
           source: "remote",
         },
       }));
+
+      if (completed) {
+        setAutoPollEnabled((current) => ({ ...current, [workflow]: false }));
+      }
     } catch (error) {
       const message = error instanceof Error ? error.message : "Failed to fetch logs.";
       setJobLogs((current) => ({
@@ -984,20 +1019,20 @@ export default function Download() {
       }));
     } finally {
       logPollInFlightRef.current[workflow] = false;
+      completedLogRequestKeyRef.current[workflow] = requestKey;
+      completedLogRequestAtRef.current[workflow] = Date.now();
+      activeLogRequestKeyRef.current[workflow] = "";
     }
-  }, [jobLogs, jobs]);
+  }, []);
 
   useEffect(() => {
-    const activeWorkflows = (["searchTiles", "routing"] as WorkflowKey[]).filter((workflow) => {
+    (["searchTiles", "routing"] as WorkflowKey[]).forEach((workflow) => {
       const job = jobs[workflow];
       const logState = jobLogs[workflow];
-      if (!autoPollEnabled[workflow] || !job?.runId || logState.complete) return false;
+      if (!autoPollEnabled[workflow] || !job?.runId || logState.complete) return;
 
       const requestedAt = new Date(job.requestedAt).getTime();
-      if (Number.isNaN(requestedAt)) return true;
-
-      const isWithinPollingWindow = Date.now() - requestedAt <= MAX_LOG_POLL_DURATION_MS;
-      if (!isWithinPollingWindow) {
+      if (!Number.isNaN(requestedAt) && Date.now() - requestedAt > MAX_LOG_POLL_DURATION_MS) {
         setJobLogs((current) => ({
           ...current,
           [workflow]: {
@@ -1006,24 +1041,18 @@ export default function Download() {
             lastError: "Log polling stopped after the maximum execution window. Use Refresh logs to fetch the latest output.",
           },
         }));
+        setAutoPollEnabled((current) => ({ ...current, [workflow]: false }));
+        return;
       }
 
-      return isWithinPollingWindow;
-    });
+      const requestKey = `${workflow}:${job.runId}`;
+      if (autoLogRequestKeyRef.current[workflow] === requestKey) return;
 
-    if (activeWorkflows.length === 0) return;
-
-    activeWorkflows.forEach((workflow) => {
-      void pollWorkflowLogs(workflow);
-    });
-
-    const intervalId = window.setInterval(() => {
-      activeWorkflows.forEach((workflow) => {
-        void pollWorkflowLogs(workflow);
+      autoLogRequestKeyRef.current[workflow] = requestKey;
+      void pollWorkflowLogs(workflow, true).finally(() => {
+        setAutoPollEnabled((current) => ({ ...current, [workflow]: false }));
       });
-    }, LOG_POLL_INTERVAL_MS);
-
-    return () => window.clearInterval(intervalId);
+    });
   }, [autoPollEnabled, jobs, jobLogs, pollWorkflowLogs]);
 
   useEffect(() => {
@@ -1221,6 +1250,8 @@ export default function Download() {
   };
 
   const triggerWorkflow = async (workflow: WorkflowKey) => {
+    if (workflowSubmitInFlightRef.current[workflow]) return;
+
     const form = forms[workflow];
     const server = getServer(form.targetServerId);
 
@@ -1256,8 +1287,12 @@ export default function Download() {
     };
 
     setSubmitting((current) => ({ ...current, [workflow]: true }));
-    setAutoPollEnabled((current) => ({ ...current, [workflow]: true }));
+    workflowSubmitInFlightRef.current[workflow] = true;
     lastLogPollAtRef.current[workflow] = 0;
+    activeLogRequestKeyRef.current[workflow] = "";
+    completedLogRequestKeyRef.current[workflow] = "";
+    completedLogRequestAtRef.current[workflow] = 0;
+    autoLogRequestKeyRef.current[workflow] = "";
     setJobs((current) => ({ ...current, [workflow]: provisionalJob }));
     setStoredSummaries((current) => ({ ...current, [workflow]: null }));
     setJobLogs((current) => ({
@@ -1284,7 +1319,7 @@ export default function Download() {
         outputPath: workflow === "searchTiles" ? (form.folderName.trim() || provisionalJob.outputPath) : provisionalJob.outputPath,
         logPath,
         downloadType: workflow === "searchTiles" ? "search_tiles" : "routing",
-        scriptPath,
+        ...(workflow !== "routing" ? { scriptPath } : {}),
         ...(workflow === "routing"
           ? {
             addMaxspeedAndTurnlanesToOsm: form.addMaxspeedAndTurnlanesToOsm,
@@ -1318,10 +1353,10 @@ export default function Download() {
         ...current,
         [workflow]: current[workflow] ? { ...current[workflow], status: "running", lastError: undefined } : current[workflow],
       }));
+      setAutoPollEnabled((current) => ({ ...current, [workflow]: true }));
       toast.success(`${workflowCopy[workflow].label} download started.`);
     } catch (error) {
       const message = error instanceof Error ? error.message : "Failed to start download.";
-      setAutoPollEnabled((current) => ({ ...current, [workflow]: false }));
       setJobs((current) => ({
         ...current,
         [workflow]: current[workflow] ? { ...current[workflow], status: "failed", lastError: message } : current[workflow],
@@ -1336,6 +1371,7 @@ export default function Download() {
       toast.error(message);
     } finally {
       setSubmitting((current) => ({ ...current, [workflow]: false }));
+      workflowSubmitInFlightRef.current[workflow] = false;
     }
   };
 
@@ -1401,7 +1437,19 @@ export default function Download() {
                   </div>
                 ) : (
                   <div className="space-y-2">
-                    <Label htmlFor={`${workflow}-output`}>Output path</Label>
+                    <div className="flex items-center gap-1.5">
+                      <Label htmlFor={`${workflow}-output`}>Output path</Label>
+                      <TooltipProvider>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <Info className="h-3.5 w-3.5 cursor-pointer text-muted-foreground" />
+                          </TooltipTrigger>
+                          <TooltipContent side="top" className="text-[11px] max-w-[220px]">
+                            Value sourced directly from download config <span className="font-mono font-semibold">outputPath</span>
+                          </TooltipContent>
+                        </Tooltip>
+                      </TooltipProvider>
+                    </div>
                     <div className="flex gap-2">
                       <Input
                         id={`${workflow}-output`}
@@ -1409,9 +1457,18 @@ export default function Download() {
                         onChange={(event) => updateForm(workflow, { outputPath: event.target.value })}
                         placeholder="/home/output"
                       />
-                      <Button type="button" variant="outline" onClick={() => void openBrowser(workflow, "outputPath")}>
-                        <Folder className="mr-2 h-4 w-4" /> Browse
-                      </Button>
+                      <TooltipProvider>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <Button type="button" variant="outline" onClick={() => void openBrowser(workflow, "outputPath")}>
+                              <Folder className="mr-2 h-4 w-4" /> Browse
+                            </Button>
+                          </TooltipTrigger>
+                          <TooltipContent side="top" className="text-[11px] max-w-[220px]">
+                            Path sourced from download path config <span className="font-mono font-semibold">outputPath</span>
+                          </TooltipContent>
+                        </Tooltip>
+                      </TooltipProvider>
                     </div>
                   </div>
                 )}
@@ -1431,7 +1488,7 @@ export default function Download() {
                   </div>
                 </div>
 
-                <div className="space-y-2">
+                {workflow === "routing" ? null : ( <div className="space-y-2">
                   <Label htmlFor={`${workflow}-script`}>Script path</Label>
                   <div className="flex gap-2">
                     <Input
@@ -1445,6 +1502,7 @@ export default function Download() {
                     </Button>
                   </div>
                 </div>
+               )}
 
                 {workflow === "routing" ? (
                   <div className="space-y-3 rounded-xl border border-border/60 bg-muted/20 p-4">
