@@ -501,6 +501,15 @@ const pathToFileKey = (path: string) => path.split("/").filter(Boolean).pop()?.r
 
 const pathToRegionKey = (path: string) => path.split("/").filter(Boolean).at(-2) ?? "-";
 
+const resolvePathAgainstExpectedSet = (path: string, expectedPaths: Set<string>) => {
+  if (!path || expectedPaths.size === 0) return path;
+  if (expectedPaths.has(path)) return path;
+
+  const fileKey = pathToFileKey(path);
+  const matchingExpectedPaths = Array.from(expectedPaths).filter((expectedPath) => pathToFileKey(expectedPath) === fileKey);
+  return matchingExpectedPaths.length === 1 ? matchingExpectedPaths[0] : path;
+};
+
 const sortPathsByFileKey = (paths: Iterable<string>) =>
   Array.from(new Set(paths)).sort((left, right) => pathToFileKey(left).localeCompare(pathToFileKey(right)));
 
@@ -614,18 +623,21 @@ const getSearchTilesSummary = (job: DownloadJob | null, logState?: JobLogState, 
   const completedSubRegions = extractCompletedSubRegions(logState.lines);
   const downloadCompleted = hasDownloadCompletedLine(logState.lines);
   const expectedPaths = buildExpectedFilePaths(logState.lines);
+  const resolvedCompletedPaths = new Set(Array.from(completedPaths).map((path) => resolvePathAgainstExpectedSet(path, expectedPaths)));
+  const resolvedFailedPaths = new Set(Array.from(failedPaths).map((path) => path === "__unknown__" ? path : resolvePathAgainstExpectedSet(path, expectedPaths)));
+  const resolvedDownloadingPaths = new Set(Array.from(downloadingPaths).map((path) => resolvePathAgainstExpectedSet(path, expectedPaths)));
   const completedFilePaths = sortPathsByFileKey(
-    expectedPaths.size > 0 ? Array.from(completedPaths).filter((path) => expectedPaths.has(path)) : completedPaths,
+    expectedPaths.size > 0 ? Array.from(resolvedCompletedPaths).filter((path) => expectedPaths.has(path)) : resolvedCompletedPaths,
   );
   const failedFilePaths = sortPathsByFileKey(
-    expectedPaths.size > 0 ? Array.from(failedPaths).filter((path) => path !== "__unknown__" && expectedPaths.has(path)) : Array.from(failedPaths).filter((path) => path !== "__unknown__"),
+    expectedPaths.size > 0 ? Array.from(resolvedFailedPaths).filter((path) => path !== "__unknown__" && expectedPaths.has(path)) : Array.from(resolvedFailedPaths).filter((path) => path !== "__unknown__"),
   );
   const processingPaths = sortPathsByFileKey(
-    Array.from(downloadingPaths).filter((path) => !completedPaths.has(path) && !failedPaths.has(path) && (!expectedPaths.size || expectedPaths.has(path))),
+    Array.from(resolvedDownloadingPaths).filter((path) => !resolvedCompletedPaths.has(path) && !resolvedFailedPaths.has(path) && (!expectedPaths.size || expectedPaths.has(path))),
   );
   const pendingPaths = sortPathsByFileKey(
     expectedPaths.size
-      ? Array.from(expectedPaths).filter((path) => !completedPaths.has(path) && !failedPaths.has(path) && !processingPaths.includes(path))
+      ? Array.from(expectedPaths).filter((path) => !resolvedCompletedPaths.has(path) && !resolvedFailedPaths.has(path) && !processingPaths.includes(path))
       : [],
   );
   const pendingCount = pendingPaths.length;
