@@ -1269,7 +1269,7 @@ export default function Download() {
         workflowLabel: workflowCopy[workflow].label,
         runId,
         sId,
-        outputPath: workflow === "searchTiles" ? (String(pathInfo?.folder || "").trim() || provisionalJob.outputPath) : provisionalJob.outputPath,
+        outputPath: workflow === "searchTiles" ? (form.folderName.trim() || provisionalJob.outputPath) : provisionalJob.outputPath,
         logPath,
         downloadType: workflow === "searchTiles" ? "search_tiles" : "routing",
         scriptPath,
@@ -1383,9 +1383,8 @@ export default function Download() {
                     <Input
                       id={`${workflow}-folder`}
                       value={form.folderName}
-                      readOnly
+                      onChange={(event) => updateForm(workflow, { folderName: event.target.value })}
                       placeholder="Select a server to load folder"
-                      className="bg-muted/40 cursor-default"
                     />
                   </div>
                 ) : (
