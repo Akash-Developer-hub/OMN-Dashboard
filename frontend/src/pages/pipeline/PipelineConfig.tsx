@@ -228,7 +228,6 @@ const normalizeServerPathsByServerId = (serverPaths: Record<string, ServerPathEn
 const listFolders = async (path: string, serverUser: string): Promise<string[]> => {
   try {
     const formattedUser = serverUser?.toUpperCase() || "ZEUS";
-    console.log(`Fetching folders for user: ${formattedUser}, path: ${path}`);
 
     const response = await fetch('https://sandbox.vmmaps.com/n8n/webhook/omn/list-folders', {
       method: 'POST',
@@ -241,7 +240,6 @@ const listFolders = async (path: string, serverUser: string): Promise<string[]> 
       }),
     });
     const data = await response.json();
-    console.log("Folder API Response:", data);
 
     if (data?.filenames && typeof data.filenames === 'string') {
       return data.filenames.split(',').map((name: string) => name.trim()).filter((name: string) => name !== "");
@@ -559,7 +557,17 @@ const PathFormFields = ({ server, paths, setPaths, submitting, onSubmit, onClose
         </svg>
       ),
     },
-  ].filter((field) => mode === "server" || ["outputPath", "folder", "scriptPath", "logPath", "multithreadscriptpath", "multithreadoutputpath", "maxspeedscriptpath"].includes(field.key));
+  ].filter((field) => {
+    if (mode === "download") {
+      return ["outputPath", "folder", "scriptPath", "logPath", "multithreadscriptpath", "multithreadoutputpath", "maxspeedscriptpath"].includes(field.key);
+    }
+    // For availability server section (mode === "server"), exclude specific paths when editing
+    if (mode === "server" && isEdit) {
+      return !["folder", "multithreadscriptpath", "multithreadoutputpath", "maxspeedscriptpath"].includes(field.key);
+    }
+    // For availability server section (mode === "server") when adding, show all server fields
+    return mode === "server";
+  });
 
   const isValid = mode === "download"
     ? paths.outputPath.trim() && paths.scriptPath.trim() && paths.logPath.trim()
@@ -692,7 +700,7 @@ interface AddPathModalProps {
 }
 
 const AddPathModal = ({ server, onClose, onSubmit, submitting, mode = "server" }: AddPathModalProps) => {
-  const [paths, setPaths] = useState({ inputPath: "/home", outputPath: "/home", folder: "", scriptPath: "/home", backupPath: "/home", logPath: "/home", multithreadscriptpath: "/home", multithreadoutputpath: "/home", maxspeedscriptpath: "/home" });
+  const [paths, setPaths] = useState({ inputPath: "/home", outputPath: "/home", folder: "/home", scriptPath: "/home", backupPath: "/home", logPath: "/home", multithreadscriptpath: "/home", multithreadoutputpath: "/home", maxspeedscriptpath: "/home" });
 
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">

@@ -2731,8 +2731,8 @@ export default function DataPipeline() {
         </div>
         <div className="flex flex-col items-end gap-2">
           {currentVersion && (
-            <div className="text-xs text-muted-foreground bg-muted/30 px-3 py-1.5 rounded-lg border border-border/50">
-              Version: <span className="font-semibold text-foreground">{currentVersion}</span>
+            <div className="text-xs text-muted-foreground bg-muted/30 px-3 py-1.5 rounded-lg border border-border/50 font-mono">
+              Version <span className="font-semibold text-foreground">{currentVersion}</span>
             </div>
           )}
           <div className="flex items-center gap-2">

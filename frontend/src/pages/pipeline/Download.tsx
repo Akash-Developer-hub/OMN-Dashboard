@@ -1378,11 +1378,18 @@ export default function Download() {
   return (
     <div className="space-y-6 p-6">
       <section className="rounded-3xl p-6">
-        <div className="space-y-2">
-          <h1 className="text-3xl font-semibold tracking-tight text-foreground">Search & Tiles and Routing downloads</h1>
-          <p className="max-w-3xl text-sm leading-6 text-muted-foreground">
-            Select a server, browse the destination folder, start the download, and validate the output against the static log and static OSM configuration.
-          </p>
+        <div className="flex items-center justify-between gap-3">
+          <div className="space-y-1">
+            <h1 className="text-3xl font-semibold tracking-tight text-foreground">Search & Tiles and Routing downloads</h1>
+            <p className="max-w-3xl text-sm leading-6 text-muted-foreground">
+              Select a server, browse the destination folder, start the download, and validate the output against the static log and static OSM configuration.
+            </p>
+          </div>
+          {currentVersion ? (
+            <Badge variant="outline" className="font-mono">
+              Version {currentVersion}
+            </Badge>
+          ) : null}
         </div>
       </section>
 
