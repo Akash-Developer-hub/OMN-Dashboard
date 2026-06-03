@@ -536,6 +536,15 @@ const isFailureLogLine = (line: string): boolean => {
   );
 };
 
+const deriveRoutingStatus = (job: DownloadJob, logState: JobLogState, payload: unknown): JobStatus => {
+  if (logState.lines.some((line) => isFailureLogLine(line))) return "failed";
+  if (extractLogCompleted(payload) || hasDownloadCompletedLine(logState.lines) || logState.lines.some((line) => /saved/i.test(line))) {
+    return "completed";
+  }
+  if (logState.lines.length > 0) return "running";
+  return job.status;
+};
+
 const getSearchTilesSummary = (job: DownloadJob | null, logState?: JobLogState, fallbackSummary?: WorkflowSummary | null): WorkflowSummary => {
   if (!job) {
     return {
@@ -992,16 +1001,33 @@ export default function Download() {
         /['"]?(.+?\.osm\.pbf(?:\.[\d]+)?)['"]?\s+saved/i.test(line),
       );
       const completed = hasSavedFile || extractLogCompleted(data) || hasDownloadCompletedLine(mergedLines);
-
+const nextLogState: JobLogState = {
+        lines: mergedLines,
+        complete: false,
+        offset: nextOffset ?? currentLogState.offset,
+        lastError: undefined,
+        source: "remote",
+      };
+      const nextStatus = workflow === "searchTiles"
+        ? getSearchTilesSummary(job, nextLogState, storedSummaries.searchTiles).validatedStatus
+        : deriveRoutingStatus(job, nextLogState, data);
+      // const completed = nextStatus === "completed" || nextStatus === "failed";
       setJobLogs((current) => ({
         ...current,
         [workflow]: {
-          lines: mergedLines,
+          ...nextLogState,
           complete: completed,
-          offset: nextOffset ?? current[workflow].offset,
-          lastError: undefined,
-          source: "remote",
         },
+      }));
+      setJobs((current) => ({
+        ...current,
+        [workflow]: current[workflow]
+          ? {
+            ...current[workflow],
+            status: nextStatus,
+            lastError: nextStatus === "failed" ? current[workflow]?.lastError ?? nextLogState.lastError : undefined,
+          }
+          : current[workflow],
       }));
 
       if (completed) {
@@ -1023,7 +1049,7 @@ export default function Download() {
       completedLogRequestAtRef.current[workflow] = Date.now();
       activeLogRequestKeyRef.current[workflow] = "";
     }
-  }, []);
+  }, [ storedSummaries.searchTiles]);
 
   useEffect(() => {
     (["searchTiles", "routing"] as WorkflowKey[]).forEach((workflow) => {
