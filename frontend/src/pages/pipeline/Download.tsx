@@ -527,6 +527,19 @@ const groupPathsByRegion = (paths: string[]) => {
     .sort((left, right) => left.region.localeCompare(right.region));
 };
 
+const splitPendingFilesByCompletedRegions = (completedPaths: string[], pendingPaths: string[]) => {
+  const completedRegions = new Set(completedPaths.map(pathToRegionKey).filter((region) => region !== "-"));
+
+  return pendingPaths.reduce(
+    (accumulator, path) => {
+      const bucket = completedRegions.has(pathToRegionKey(path)) ? "failed" : "pending";
+      accumulator[bucket].push(path);
+      return accumulator;
+    },
+    { failed: [] as string[], pending: [] as string[] },
+  );
+};
+
 const isFailureLogLine = (line: string): boolean => {
   const normalized = line.trim();
   if (!normalized) return false;
@@ -534,15 +547,6 @@ const isFailureLogLine = (line: string): boolean => {
   return /(\bfailed\b|\berror\b|\babort(?:ed)?\b|\btimeout\b|\bnot found\b|\bpermission\b|\bdenied\b|\b(?:http|status|response|code)\b[^\n]*\b(?:403|404|500)\b|\b(?:403|404|500)\b\s+(?:forbidden|not found|internal server error)\b)/i.test(
     normalized,
   );
-};
-
-const deriveRoutingStatus = (job: DownloadJob, logState: JobLogState, payload: unknown): JobStatus => {
-  if (logState.lines.some((line) => isFailureLogLine(line))) return "failed";
-  if (extractLogCompleted(payload) || hasDownloadCompletedLine(logState.lines) || logState.lines.some((line) => /saved/i.test(line))) {
-    return "completed";
-  }
-  if (logState.lines.length > 0) return "running";
-  return job.status;
 };
 
 const getSearchTilesSummary = (job: DownloadJob | null, logState?: JobLogState, fallbackSummary?: WorkflowSummary | null): WorkflowSummary => {
@@ -651,8 +655,11 @@ const getSearchTilesSummary = (job: DownloadJob | null, logState?: JobLogState, 
       ? Array.from(expectedPaths).filter((path) => !resolvedCompletedPaths.has(path) && !resolvedFailedPaths.has(path) && !processingPaths.includes(path))
       : [],
   );
-  const pendingCount = pendingPaths.length;
-  const failedCount = failedFilePaths.length;
+  const inferredStatusFiles = splitPendingFilesByCompletedRegions(completedFilePaths, pendingPaths);
+  const finalFailedFilePaths = sortPathsByFileKey([...failedFilePaths, ...inferredStatusFiles.failed]);
+  const finalPendingPaths = sortPathsByFileKey(inferredStatusFiles.pending);
+  const pendingCount = finalPendingPaths.length;
+  const failedCount = finalFailedFilePaths.length;
   const totalCount = expectedPaths.size;
 
   let validatedStatus: JobStatus = "queued";
@@ -675,9 +682,9 @@ const getSearchTilesSummary = (job: DownloadJob | null, logState?: JobLogState, 
     validatedStatus,
     statusFiles: {
       completed: completedFilePaths,
-      failed: failedFilePaths,
+      failed: finalFailedFilePaths,
       processing: processingPaths,
-      pending: pendingPaths,
+      pending: finalPendingPaths,
     },
   };
 };
@@ -1001,33 +1008,16 @@ export default function Download() {
         /['"]?(.+?\.osm\.pbf(?:\.[\d]+)?)['"]?\s+saved/i.test(line),
       );
       const completed = hasSavedFile || extractLogCompleted(data) || hasDownloadCompletedLine(mergedLines);
-const nextLogState: JobLogState = {
-        lines: mergedLines,
-        complete: false,
-        offset: nextOffset ?? currentLogState.offset,
-        lastError: undefined,
-        source: "remote",
-      };
-      const nextStatus = workflow === "searchTiles"
-        ? getSearchTilesSummary(job, nextLogState, storedSummaries.searchTiles).validatedStatus
-        : deriveRoutingStatus(job, nextLogState, data);
-      // const completed = nextStatus === "completed" || nextStatus === "failed";
+
       setJobLogs((current) => ({
         ...current,
         [workflow]: {
-          ...nextLogState,
+          lines: mergedLines,
           complete: completed,
+          offset: nextOffset ?? current[workflow].offset,
+          lastError: undefined,
+          source: "remote",
         },
-      }));
-      setJobs((current) => ({
-        ...current,
-        [workflow]: current[workflow]
-          ? {
-            ...current[workflow],
-            status: nextStatus,
-            lastError: nextStatus === "failed" ? current[workflow]?.lastError ?? nextLogState.lastError : undefined,
-          }
-          : current[workflow],
       }));
 
       if (completed) {
@@ -1049,7 +1039,7 @@ const nextLogState: JobLogState = {
       completedLogRequestAtRef.current[workflow] = Date.now();
       activeLogRequestKeyRef.current[workflow] = "";
     }
-  }, [ storedSummaries.searchTiles]);
+  }, []);
 
   useEffect(() => {
     (["searchTiles", "routing"] as WorkflowKey[]).forEach((workflow) => {
