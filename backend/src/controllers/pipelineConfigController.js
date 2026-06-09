@@ -286,6 +286,15 @@ async function findConfigByVersion(version = DEFAULT_VERSION) {
     return PipelineConfig.toResponse(doc);
 }
 
+async function findLatestConfig({ excludeVersion } = {}) {
+    const query = excludeVersion ? { version: { $ne: excludeVersion } } : {};
+    const doc = await PipelineConfig.collection.findOne(
+        query,
+        { sort: { createdAt: -1 } }
+    );
+    return PipelineConfig.toResponse(doc);
+}
+
 // ─── Helper: Response Enrichment ─────────────────────────────────────────────
 
 async function enrichWithServerPathSummary(config, { serverId } = {}) {
@@ -450,13 +459,41 @@ class PipelineConfigController {
         }
 
         // ── CASE B: Version not found — create a new document ─────────────
+        const previousConfig = await findLatestConfig({ excludeVersion: version });
+        const baseServerPaths = previousConfig
+            ? normalizeServerPathsForResponse(previousConfig.serverPaths)
+            : {};
+        const { merged: forkedServerPaths } = mergeServerPaths(baseServerPaths, serverPaths);
+        let adminList = previousConfig?.adminList || {};
+        if (payload.adminList && typeof payload.adminList === 'object') {
+            adminList = payload.adminList;
+        } else if (isExplicitAdminAddition) {
+            adminList = buildAdminList(admin, adminList);
+        }
+
+        const forkedConfigFields = previousConfig
+            ? (() => {
+                const copy = { ...previousConfig };
+                delete copy.id;
+                delete copy._id;
+                delete copy.version;
+                delete copy.status;
+                delete copy.admin;
+                delete copy.adminList;
+                delete copy.serverPaths;
+                delete copy.sections;
+                delete copy.createdAt;
+                delete copy.updatedAt;
+                return copy;
+            })()
+            : {};
+
         const config = await PipelineConfig.create({
+            ...forkedConfigFields,
             version,
             status: payload.status || 'added',
-            adminList:
-                payload.adminList ||
-                (isExplicitAdminAddition ? buildAdminList(admin) : {}),
-            serverPaths: groupServerPaths(serverPaths),
+            adminList,
+            serverPaths: forkedServerPaths,
         });
 
         logger.audit('PIPELINE_CONFIG_CREATED', {
@@ -464,6 +501,7 @@ class PipelineConfigController {
             adminId: admin.id,
             version,
             runId: config.runId,
+            copiedFromConfigId: previousConfig?.id || null,
         });
 
         return ApiResponse.success(res, 201, 'Pipeline config added.', {
@@ -523,29 +561,15 @@ class PipelineConfigController {
     });
 
     /**
-     * GET /api/v1/admin-dashboard/pipeline-config/admin-list
+     * GET /api/v1/admin-dashboard/pipeline-config/notify-list
      * Fetches the merged adminList across all pipeline configurations.
      */
-    /**
-     * POST /api/v1/admin-dashboard/pipeline-config/notify-list
-     *
-     * Fetches the list of administrators configured to receive notifications
-     * for a specific pipeline configuration version.
-     *
-     * Body:
-     *   version {string} - Pipeline config version (default: v1.0)
-     *
-     * Response:
-     *   notifyList {Array<NotifiedAdmin>} - Array of admin objects with id, name, email, role, method
-     */
     static getNotifyList = asyncHandler(async (req, res) => {
-        const version = cleanString(req.params.version) || DEFAULT_VERSION;
-
         try {
-            const config = await findConfigByVersion(version);
+            const config = await findLatestConfig();
 
             if (!config) {
-                return ApiResponse.error(res, 404, `No configuration found for version: ${version}`);
+                return ApiResponse.error(res, 404, 'No pipeline configuration found.');
             }
 
             const adminListObj = config.adminList || {};
@@ -554,20 +578,21 @@ class PipelineConfigController {
             notifyList.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
 
             logger.audit('NOTIFY_LIST_FETCHED', {
-                version,
+                version: config.version || DEFAULT_VERSION,
                 count: notifyList.length,
                 requestedBy: req.user?.id,
             });
 
             return ApiResponse.success(res, 200, 'Notify list fetched successfully.', {
-                version,
+                version: config.version || DEFAULT_VERSION,
                 notifyList,
             });
         } catch (error) {
-            logger.error('Error fetching notify list', { version, error: error.message });
+            logger.error('Error fetching notify list', { error: error.message });
             return ApiResponse.error(res, 500, 'Failed to fetch notify list.');
         }
     });
+
 
 
     /**
@@ -885,27 +910,30 @@ class PipelineConfigController {
         });
     });
 
-    /**
-     * GET /api/v1/admin-dashboard/pipeline-config/current-version
-     * Fetches the latest version string for the 'generation' mode.
+   /**
+     * GET /api/v1/admin-dashboard/pipeline-config/versions
+     * Fetches all distinct pipeline config versions available in the collection.
      */
-    static getCurrentVersion = asyncHandler(async (req, res) => {
-        const { configs } = await PipelineConfig.findAll({});
+    static getVersions = asyncHandler(async (req, res) => {
+        const versions = await PipelineConfig.collection.distinct('version', {
+            version: { $exists: true, $ne: null },
+        });
 
-        if (!configs || configs.length === 0) {
-            return ApiResponse.success(res, 200, 'Current version fetched.', {
-                version: DEFAULT_VERSION,
-            });
-        }
+        const normalizedVersions = (versions || [])
+            .filter((version) => typeof version === 'string' && version.trim().length > 0)
+            .map((version) => version.trim())
+            .sort((a, b) => a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' }));
 
-        // Sort by createdAt descending to get the latest
-        const sortedConfigs = configs.sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt));
-        const latestConfig = sortedConfigs[0];
+        logger.audit('PIPELINE_CONFIG_VERSIONS_FETCHED', {
+            count: normalizedVersions.length,
+            requestedBy: req.user?.id,
+        });
 
-        return ApiResponse.success(res, 200, 'Current version fetched.', {
-            version: latestConfig.version || DEFAULT_VERSION,
+        return ApiResponse.success(res, 200, 'Pipeline config versions fetched successfully.', {
+            versions: normalizedVersions,
         });
     });
+
 
     /**
      * POST /api/v1/admin-dashboard/pipeline-config/server-path

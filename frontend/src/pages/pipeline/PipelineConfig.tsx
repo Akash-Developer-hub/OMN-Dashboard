@@ -1,5 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
+import { useSearchParams } from "react-router-dom";
 import { api } from "@/utils/api";
+import { resolveSelectedPipelineVersion, storeSelectedPipelineVersion } from "./pipelineVersion";
 import {
   Table,
   TableBody,
@@ -81,12 +83,10 @@ const fetchAdminUsers = async (): Promise<AdminUser[]> => {
   return res.data?.data?.users ?? [];
 };
 
-const fetchNotifyList = async (version: string): Promise<NotifiedAdmin[]> => {
-  const n8nApiKey = import.meta.env.VITE_N8N_API_KEY;
-
-  const res = await api.get(`/admin-dashboard/pipeline-config/notify-list/${encodeURIComponent(version)}`, {
+const fetchNotifyList = async (): Promise<NotifiedAdmin[]> => {
+  const res = await api.get("/admin-dashboard/pipeline-config/notify-list-admin", {
     headers: {
-      "X-N8N-API-KEY": n8nApiKey,
+      "X-N8N-API-KEY": import.meta.env.VITE_N8N_API_KEY,
     },
   });
   return res.data?.data?.notifyList ?? [];
@@ -557,17 +557,12 @@ const PathFormFields = ({ server, paths, setPaths, submitting, onSubmit, onClose
         </svg>
       ),
     },
-  ].filter((field) => {
-    if (mode === "download") {
-      return ["outputPath", "folder", "scriptPath", "logPath", "multithreadscriptpath", "multithreadoutputpath", "maxspeedscriptpath"].includes(field.key);
-    }
-    // For availability server section (mode === "server"), exclude specific paths when editing
-    if (mode === "server" && isEdit) {
-      return !["folder", "multithreadscriptpath", "multithreadoutputpath", "maxspeedscriptpath"].includes(field.key);
-    }
-    // For availability server section (mode === "server") when adding, show all server fields
-    return mode === "server";
-  });
+    ].filter((field) => {
+      if (mode === "download") {
+        return ["outputPath", "folder", "scriptPath", "logPath", "multithreadscriptpath", "multithreadoutputpath", "maxspeedscriptpath"].includes(field.key);
+      }
+      return ["inputPath", "outputPath", "scriptPath", "backupPath", "logPath"].includes(field.key);
+    });
 
   const isValid = mode === "download"
     ? paths.outputPath.trim() && paths.scriptPath.trim() && paths.logPath.trim()
@@ -950,6 +945,7 @@ const ViewPathModal = ({ server, paths, onClose, onEdit, mode = "server" }: View
 // ─── Main Component ───────────────────────────────────────────────────────────
 
 export default function PipelineConfig() {
+  const [searchParams] = useSearchParams();
   const [adminUsers, setAdminUsers] = useState<AdminUser[]>([]);
   const [notifiedAdmins, setNotifiedAdmins] = useState<Record<string, NotifiedAdmin>>({});
   const [localAdminList, setLocalAdminList] = useState<Record<string, NotifiedAdmin>>({});
@@ -962,13 +958,14 @@ export default function PipelineConfig() {
   // Fetch current version from database on mount
   useEffect(() => {
     const initVersion = async () => {
-      const dbVersion = await fetchCurrentVersion();
+      const dbVersion = resolveSelectedPipelineVersion(searchParams, await fetchCurrentVersion());
+      storeSelectedPipelineVersion(dbVersion);
       setVersion(dbVersion);
       setSavedVersion(dbVersion);
       localStorage.setItem("pipeline_version", dbVersion);
     };
     initVersion();
-  }, []);
+  }, [searchParams]);
 
   const [loadingUsers, setLoadingUsers] = useState(true);
   const [loadingConfigs, setLoadingConfigs] = useState(true);
@@ -1147,10 +1144,10 @@ export default function PipelineConfig() {
     }
   }, []);
 
-  const loadConfigs = useCallback(async (versionToLoad = savedVersion) => {
+  const loadConfigs = useCallback(async (_versionToLoad = savedVersion) => {
     setLoadingConfigs(true);
     try {
-      const notifyUsers = await fetchNotifyList(versionToLoad);
+      const notifyUsers = await fetchNotifyList();
       const notifyMap = notifyUsers.reduce<Record<string, NotifiedAdmin>>((acc, admin) => {
         const key = admin.name || admin.email || admin.id;
         if (key) acc[key] = admin;

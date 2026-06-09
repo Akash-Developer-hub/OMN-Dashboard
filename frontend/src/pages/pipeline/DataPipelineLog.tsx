@@ -2,6 +2,7 @@ import React, { useEffect, useState, useCallback, useRef } from "react";
 import { useLocation } from "react-router-dom";
 import axios from "axios";
 import { api } from "@/utils/api";
+import { resolveSelectedPipelineVersion, storeSelectedPipelineVersion } from "./pipelineVersion";
 import {
   Loader2, Copy, Download, CheckCircle2, AlertCircle,
   Clock, Eye, RefreshCw, ChevronLeft, ChevronRight, ArrowLeft, X,
@@ -429,7 +430,7 @@ export default function DataPipelineLog({ runId }: { runId?: string }) {
   const [showPayloadPage,   setShowPayloadPage]   = useState(false);
   const [copySuccess,       setCopySuccess]       = useState(false);
   const [payloadCopySuccess,setPayloadCopySuccess]= useState(false);
-  const [currentVersion,    setCurrentVersion]    = useState<string | null>(null);
+  const [selectedVersion,   setSelectedVersion]   = useState<string | null>(null);
   const [emptyVersion,      setEmptyVersion]      = useState<string | null>(null);
   const [serviceLogs,       setServiceLogs]       = useState<Record<string, ServiceLogState>>({});
   const [currentPage,       setCurrentPage]       = useState(1);
@@ -439,26 +440,19 @@ export default function DataPipelineLog({ runId }: { runId?: string }) {
   const logBottomRef              = useRef<HTMLDivElement | null>(null);
   const shouldStickToBottomRef    = useRef(true);
   const removeLogCallsRef         = useRef<Set<string>>(new Set());
+  const selectedRunRef            = useRef<PipelinePayload | null>(null);
+
+  useEffect(() => {
+    selectedRunRef.current = selectedRun;
+  }, [selectedRun]);
 
   // ── Version + data fetch ──────────────────────────────────────────────────
-
-  const fetchCurrentVersion = useCallback(async () => {
-    try {
-      const res = await api.get("http://localhost:3000/api/v1/admin-dashboard/pipeline-config/current-version");
-      const version = res.data?.data?.version || res.data?.currentVersion || res.data?.version || "Unknown";
-      setCurrentVersion(version);
-      return version;
-    } catch {
-      setCurrentVersion("Error");
-      return null;
-    }
-  }, []);
 
   const fetchData = useCallback(async (isRefresh = false, version?: string | null) => {
     if (isRefresh) setRefreshing(true); else setLoading(true);
     try {
       const FETCH_URL = "http://localhost:3000/api/v1/admin-dashboard/data-pipeline/fetch-pipeline";
-      const params = version && version !== "Unknown" && version !== "Error" ? { version } : undefined;
+      const params = version ? { version } : undefined;
 
       if (effectiveRunId) {
         const res = await api.get(FETCH_URL, { params: { ...params, runId: effectiveRunId } });
@@ -467,7 +461,7 @@ export default function DataPipelineLog({ runId }: { runId?: string }) {
         setRuns(body ? [body] : []);
         setSelectedRun(body);
         setSelectedService(servicesFor(body)[0] ?? null);
-        setEmptyVersion(!body && params?.version ? params.version : null);
+        setEmptyVersion(!body && version ? version : null);
       } else {
         const res = await api.get(FETCH_URL, { params });
         const arr = extractPipelineRuns(res.data ?? res);
@@ -477,13 +471,12 @@ export default function DataPipelineLog({ runId }: { runId?: string }) {
           return tb - ta;
         });
         setRuns(arr);
-        setEmptyVersion(arr.length === 0 && params?.version ? params.version : null);
+        setEmptyVersion(arr.length === 0 && version ? version : null);
         if (arr.length > 0) {
-          setSelectedRun((prev) => {
-            const prevId = prev?.runId ?? prev?.id;
-            return prevId ? (arr.find((r) => (r?.runId ?? r?.id) === prevId) ?? arr[0]) : arr[0];
-          });
-          setSelectedService((prev) => prev ?? servicesFor(arr[0])[0] ?? null);
+          const prevId = selectedRunRef.current?.runId ?? selectedRunRef.current?.id;
+          const nextRun = prevId ? (arr.find((r) => (r?.runId ?? r?.id) === prevId) ?? arr[0]) : arr[0];
+          setSelectedRun(nextRun);
+          setSelectedService(servicesFor(nextRun)[0] ?? null);
         } else {
           setSelectedRun(null);
           setSelectedService(null);
@@ -509,9 +502,8 @@ export default function DataPipelineLog({ runId }: { runId?: string }) {
     if (removeLogCallsRef.current.has(removeKey)) return;
     removeLogCallsRef.current.add(removeKey);
     try {
-      const version = currentVersion || (await fetchCurrentVersion());
-      if (!version || version === "Unknown" || version === "Error") return;
-      const serverPathRes = await api.post("/admin-dashboard/pipeline-config/server-path", { version });
+      if (!selectedVersion) return;
+      const serverPathRes = await api.post("/admin-dashboard/pipeline-config/server-path", { version: selectedVersion });
       const serverPaths = serverPathRes.data?.data?.serverPaths || serverPathRes.data?.serverPaths || {};
       const pathInfo = flattenServerPaths(serverPaths).find((p) => (p.targetServerId || p.serverId) === targetServerId);
       const logPath = pathInfo?.logPath?.trim();
@@ -520,15 +512,16 @@ export default function DataPipelineLog({ runId }: { runId?: string }) {
     } catch {
       removeLogCallsRef.current.delete(`${runKey}:${service}:${targetServerId}:${sId}`);
     }
-  }, [currentVersion, fetchCurrentVersion]);
+  }, [selectedVersion]);
 
   // ── Bootstrap ─────────────────────────────────────────────────────────────
 
   useEffect(() => {
-    let cancelled = false;
-    fetchCurrentVersion().then((v) => { if (!cancelled) fetchData(false, v); });
-    return () => { cancelled = true; };
-  }, [fetchData, fetchCurrentVersion]);
+    const selectedPipelineVersion = resolveSelectedPipelineVersion(new URLSearchParams(location.search));
+    setSelectedVersion(selectedPipelineVersion || null);
+    if (selectedPipelineVersion) storeSelectedPipelineVersion(selectedPipelineVersion);
+    fetchData(false, selectedPipelineVersion || null);
+  }, [fetchData, location.search]);
 
   useEffect(() => { setCurrentPage(1); }, [runs?.length]);
 
@@ -697,19 +690,19 @@ export default function DataPipelineLog({ runId }: { runId?: string }) {
           <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-muted text-muted-foreground">
             <Terminal className="h-5 w-5" />
           </div>
-          <h3 className="text-base font-semibold text-foreground">No pipeline runs found</h3>
+          <h3 className="text-base font-semibold text-foreground">No logs found</h3>
           <p className="mt-2 text-sm leading-6 text-muted-foreground">
             {emptyVersion ? (
               <>
-                No run found for version{" "}
+                No logs found for version{" "}
                 <span className="font-mono font-medium text-foreground bg-muted px-1.5 py-0.5 rounded">
                   {emptyVersion}
                 </span>.
               </>
-            ) : "No pipeline runs are available right now."}
+            ) : "No logs are available right now."}
           </p>
           <button
-            onClick={() => fetchCurrentVersion().then((v) => fetchData(true, v))}
+            onClick={() => fetchData(true, selectedVersion)}
             className="mt-4 inline-flex items-center gap-1.5 text-sm text-muted-foreground border border-border rounded-md px-3 py-1.5 hover:bg-muted transition-colors"
           >
             <RefreshCw className="w-3.5 h-3.5" /> Refresh
@@ -730,14 +723,14 @@ export default function DataPipelineLog({ runId }: { runId?: string }) {
           <p className="text-xs text-muted-foreground">View runs and their service logs</p>
         </div>
         <div className="flex items-center gap-3">
-          {currentVersion && (
+          {selectedVersion && (
             <span className="inline-flex items-center gap-1.5 rounded-md border border-border bg-muted/40 px-2.5 py-1 text-xs text-muted-foreground">
               <span>Version</span>
-              <span className="font-mono font-medium text-foreground">{currentVersion}</span>
+              <span className="font-mono font-medium text-foreground">{selectedVersion}</span>
             </span>
           )}
           <button
-            onClick={() => fetchCurrentVersion().then((v) => fetchData(true, v))}
+            onClick={() => fetchData(true, selectedVersion)}
             disabled={refreshing}
             className="inline-flex items-center gap-2 px-3 py-1.5 rounded-md text-sm font-medium border border-border bg-card hover:bg-muted transition-colors disabled:opacity-60"
           >

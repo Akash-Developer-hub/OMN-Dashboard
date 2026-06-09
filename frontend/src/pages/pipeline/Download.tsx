@@ -1,16 +1,19 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import mockSearchTilesLog from "@/utils/st_z60j63_mpqprzhh.log.txt";
 import osmJson from "@/utils/osm.json";
 import {
   ArrowRight,
+  ChevronRight,
   Folder,
   Home,
   Info,
   Loader2,
   Play,
+  Plus,
   RefreshCw,
   Router,
+  Save,
   Search,
   TerminalSquare,
   X,
@@ -27,9 +30,23 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import type { Server } from "@/pages/servers/serversApi";
 import { api } from "@/utils/api";
+import { resolveSelectedPipelineVersion, storeSelectedPipelineVersion } from "./pipelineVersion";
 
 type WorkflowKey = "searchTiles" | "routing";
 type JobStatus = "queued" | "running" | "completed" | "failed";
+type DownloadSetupStep = "version" | "server";
+
+type DownloadSetupState = {
+  open: boolean;
+  step: DownloadSetupStep;
+  versions: string[];
+  loadingVersions: boolean;
+  addingVersion: boolean;
+  creatingVersion: boolean;
+  newVersion: string;
+  selectedVersion: string;
+  selectedServerId: string;
+};
 
 type WorkflowFormState = {
   targetServerId: string;
@@ -100,6 +117,15 @@ type SummaryCardSelection = {
   status: SummaryStatusKey;
 };
 
+type ProceedNotice =
+  | {
+      type: "failed";
+      failedFiles: string[];
+    }
+  | {
+      type: "running";
+    };
+
 type BrowserField = "outputPath" | "logPath" | "scriptPath" | "maxspeedAndTurnlanesPath";
 
 type BrowserState = {
@@ -141,6 +167,44 @@ type PersistedWorkflowEntry = {
     };
   };
 };
+
+const normalizeDownloadStatusEntries = (payload: unknown): PersistedWorkflowEntry[] => {
+  const body = (payload as { data?: unknown })?.data ?? payload;
+  const record = body as Record<string, unknown>;
+  const statuses = record?.statuses ?? (record?.data as Record<string, unknown> | undefined)?.statuses;
+
+  if (Array.isArray(statuses)) return statuses as PersistedWorkflowEntry[];
+  if (Array.isArray(body)) return body as PersistedWorkflowEntry[];
+  if (record?.workflow) return [record as PersistedWorkflowEntry];
+
+  return [];
+};
+
+const extractPipelineVersions = (payload: unknown): string[] => {
+  const body = (payload as { data?: unknown })?.data ?? payload;
+  const record = body as Record<string, unknown>;
+  const versions = record?.versions ?? (record?.data as Record<string, unknown> | undefined)?.versions ?? body;
+  if (!Array.isArray(versions)) return [];
+
+  return versions
+    .map((version) => String(version || "").trim())
+    .filter(Boolean);
+};
+
+const getSearchTilesStatusEntry = (entries: PersistedWorkflowEntry[]) =>
+  entries.find((entry) => entry?.workflow === "searchTiles") ?? null;
+
+const emptyDownloadSetup = (): DownloadSetupState => ({
+  open: false,
+  step: "version",
+  versions: [],
+  loadingVersions: false,
+  addingVersion: false,
+  creatingVersion: false,
+  newVersion: "",
+  selectedVersion: "",
+  selectedServerId: "",
+});
 
 const DOWNLOAD_WEBHOOK_URL = "https://sandbox.vmmaps.com/n8n/webhook/omn/download";
 const LIST_FOLDERS_URL = "https://sandbox.vmmaps.com/n8n/webhook/list-files";
@@ -529,12 +593,10 @@ const groupPathsByRegion = (paths: string[]) => {
     .sort((left, right) => left.region.localeCompare(right.region));
 };
 
-const splitPendingFilesByCompletedRegions = (completedPaths: string[], pendingPaths: string[]) => {
-  const completedRegions = new Set(completedPaths.map(pathToRegionKey).filter((region) => region !== "-"));
-
+const splitPendingFilesByCompletedRegions = (completedRegions: Set<string>, pendingPaths: string[]) => {
   return pendingPaths.reduce(
     (accumulator, path) => {
-      const bucket = completedRegions.has(pathToRegionKey(path)) ? "failed" : "pending";
+      const bucket = completedRegions.has(pathToRegionKey(path).toLowerCase()) ? "failed" : "pending";
       accumulator[bucket].push(path);
       return accumulator;
     },
@@ -657,7 +719,7 @@ const getSearchTilesSummary = (job: DownloadJob | null, logState?: JobLogState, 
       ? Array.from(expectedPaths).filter((path) => !resolvedCompletedPaths.has(path) && !resolvedFailedPaths.has(path) && !processingPaths.includes(path))
       : [],
   );
-  const inferredStatusFiles = splitPendingFilesByCompletedRegions(completedFilePaths, pendingPaths);
+  const inferredStatusFiles = splitPendingFilesByCompletedRegions(completedSubRegions, pendingPaths);
   const finalFailedFilePaths = sortPathsByFileKey([...failedFilePaths, ...inferredStatusFiles.failed]);
   const finalPendingPaths = sortPathsByFileKey(inferredStatusFiles.pending);
   const pendingCount = finalPendingPaths.length;
@@ -665,10 +727,15 @@ const getSearchTilesSummary = (job: DownloadJob | null, logState?: JobLogState, 
   const totalCount = expectedPaths.size;
 
   let validatedStatus: JobStatus = "queued";
-  if (failedCount > 0) validatedStatus = "failed";
-  else if (downloadCompleted) validatedStatus = "completed";
-  else if (totalCount > 0 && completedFilePaths.length >= totalCount) validatedStatus = "completed";
-  else if (processingPaths.length > 0 || completedFilePaths.length > 0) validatedStatus = "running";
+  if (downloadCompleted) validatedStatus = "completed";
+  else if (
+    totalCount > 0 ||
+    failedCount > 0 ||
+    processingPaths.length > 0 ||
+    completedFilePaths.length > 0
+  ) {
+    validatedStatus = "running";
+  }
 
   return {
     totalCount,
@@ -731,6 +798,12 @@ const formatTime = (value: string) => {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return "-";
   return date.toLocaleString();
+};
+
+const buildFailedFilesConfirmationMessage = (failedFiles: string[]) => {
+  const fileNames = failedFiles.length > 0 ? failedFiles.map(pathToFileKey) : ["No failed file names found."];
+
+  return fileNames.map((fileName, index) => `${index + 1}. ${fileName}`).join("\n");
 };
 
 function FolderBrowserModal({
@@ -834,6 +907,7 @@ function FolderBrowserModal({
 
 export default function Download() {
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const [servers, setServers] = useState<Server[]>([]);
   const [loadingServers, setLoadingServers] = useState(true);
   const [forms, setForms] = useState<Record<WorkflowKey, WorkflowFormState>>(() => defaultForms());
@@ -845,9 +919,11 @@ export default function Download() {
   const [submitting, setSubmitting] = useState<Record<WorkflowKey, boolean>>({ searchTiles: false, routing: false });
   const [refreshing, setRefreshing] = useState(false);
   const [browserState, setBrowserState] = useState<BrowserState | null>(null);
+  const [proceedNotice, setProceedNotice] = useState<ProceedNotice | null>(null);
   const [selectedSummaryCard, setSelectedSummaryCard] = useState<SummaryCardSelection | null>(null);
   const [selectedSummaryPage, setSelectedSummaryPage] = useState(1);
   const [currentVersion, setCurrentVersion] = useState("");
+  const [downloadSetup, setDownloadSetup] = useState<DownloadSetupState>(() => emptyDownloadSetup());
   const [storedSummaries, setStoredSummaries] = useState<Record<WorkflowKey, WorkflowSummary | null>>({ searchTiles: null, routing: null });
   const [autoPollEnabled, setAutoPollEnabled] = useState<Record<WorkflowKey, boolean>>({ searchTiles: false, routing: false });
   const persistSignatureRef = useRef<Record<WorkflowKey, string>>({ searchTiles: "", routing: "" });
@@ -858,6 +934,10 @@ export default function Download() {
   const lastLogPollAtRef = useRef<Record<WorkflowKey, number>>({ searchTiles: 0, routing: 0 });
   const workflowSubmitInFlightRef = useRef<Record<WorkflowKey, boolean>>({ searchTiles: false, routing: false });
   const autoLogRequestKeyRef = useRef<Record<WorkflowKey, string>>({ searchTiles: "", routing: "" });
+  const initialPrefillAppliedRef = useRef(false);
+  const initialVersionParamRef = useRef(String(searchParams.get("version") || "").trim());
+  const setupDownloadOpenKeyRef = useRef("");
+  const hydratedStatusVersionRef = useRef("");
   const jobsRef = useRef(jobs);
   const jobLogsRef = useRef(jobLogs);
 
@@ -890,13 +970,26 @@ export default function Download() {
   useEffect(() => {
     const hydrateDownloadStatuses = async () => {
       try {
+        const requestedVersion = initialVersionParamRef.current;
         const versionResponse = await api.get("/admin-dashboard/pipeline-config/current-version");
-        const version = String(versionResponse.data?.data?.version || versionResponse.data?.version || "v1.0");
+        const version = resolveSelectedPipelineVersion(searchParams, requestedVersion || versionResponse.data?.data?.version || versionResponse.data?.version || "v1.0");
+        storeSelectedPipelineVersion(version);
         setCurrentVersion(version);
 
         const statusResponse = await api.get("/admin-dashboard/download-status", { params: { version } });
-        const statuses = statusResponse.data?.data?.statuses ?? statusResponse.data?.statuses ?? [];
-        if (!Array.isArray(statuses) || statuses.length === 0) return;
+        const statuses = normalizeDownloadStatusEntries(statusResponse.data);
+        const isVersionChange = hydratedStatusVersionRef.current !== version;
+        hydratedStatusVersionRef.current = version;
+
+        if (statuses.length === 0) {
+          if (isVersionChange) {
+            setJobs({ searchTiles: null, routing: null });
+            setStoredSummaries({ searchTiles: null, routing: null });
+            setJobLogs({ searchTiles: buildEmptyLogState(), routing: buildEmptyLogState() });
+            setAutoPollEnabled({ searchTiles: false, routing: false });
+          }
+          return;
+        }
 
         const nextJobs: Record<WorkflowKey, DownloadJob | null> = { searchTiles: null, routing: null };
         const nextSummaries: Record<WorkflowKey, WorkflowSummary | null> = { searchTiles: null, routing: null };
@@ -922,16 +1015,16 @@ export default function Download() {
           nextAutoPollEnabled[workflow] = false;
         });
 
-        setJobs((current) => ({
+        setJobs((current) => isVersionChange ? nextJobs : ({
           searchTiles: current.searchTiles ?? nextJobs.searchTiles,
           routing: current.routing ?? nextJobs.routing,
         }));
         setStoredSummaries(nextSummaries);
-        setJobLogs((current) => ({
+        setJobLogs((current) => isVersionChange ? nextLogs : ({
           searchTiles: current.searchTiles.lines.length > 0 ? current.searchTiles : nextLogs.searchTiles,
           routing: current.routing.lines.length > 0 ? current.routing : nextLogs.routing,
         }));
-        setAutoPollEnabled((current) => ({
+        setAutoPollEnabled((current) => isVersionChange ? nextAutoPollEnabled : ({
           searchTiles: current.searchTiles || nextAutoPollEnabled.searchTiles,
           routing: current.routing || nextAutoPollEnabled.routing,
         }));
@@ -941,7 +1034,7 @@ export default function Download() {
     };
 
     void hydrateDownloadStatuses();
-  }, []);
+  }, [currentVersion, searchParams]);
 
   const searchTilesSummary = useMemo(
     () => getSearchTilesSummary(jobs.searchTiles, jobLogs.searchTiles, storedSummaries.searchTiles),
@@ -1142,8 +1235,8 @@ export default function Download() {
     return response.data?.data?.version || response.data?.version || "v1.0";
   };
 
-  const fetchDownloadPathForServer = async (serverId: string) => {
-    const version = currentVersion || (await fetchCurrentConfigVersion());
+  const fetchDownloadPathForServer = async (serverId: string, versionOverride?: string) => {
+    const version = versionOverride || currentVersion || (await fetchCurrentConfigVersion());
     const response = await api.post("/admin-dashboard/pipeline-config/download-path-config", {
       version,
     });
@@ -1151,7 +1244,7 @@ export default function Download() {
     return flattenServerPaths(downloadPaths).find((path) => (path.targetServerId || path.serverId) === serverId);
   };
 
-  const handleServerSelection = async (workflow: WorkflowKey, serverId: string) => {
+  const handleServerSelection = async (workflow: WorkflowKey, serverId: string, versionOverride?: string) => {
     updateForm(workflow, { targetServerId: serverId });
 
     if (!serverId) {
@@ -1160,7 +1253,7 @@ export default function Download() {
     }
 
     try {
-      const pathInfo = await fetchDownloadPathForServer(serverId);
+      const pathInfo = await fetchDownloadPathForServer(serverId, versionOverride);
       const nextOutputPath = normalizeBrowsePath(pathInfo?.outputPath || "/home");
       const nextLogPath = normalizeBrowsePath(pathInfo?.logPath || "/home");
       const nextScriptPath = String(pathInfo?.scriptPath || DEFAULT_SEARCH_TILES_SCRIPT_PATH).trim();
@@ -1183,6 +1276,140 @@ export default function Download() {
       toast.error("Failed to load download path config.");
     }
   };
+
+  const openDownloadSetup = useCallback(async (preferredVersion = "") => {
+    setDownloadSetup({
+      ...emptyDownloadSetup(),
+      open: true,
+      loadingVersions: true,
+      selectedVersion: preferredVersion || currentVersion || "",
+    });
+
+    try {
+      const response = await api.get("/admin-dashboard/pipeline-config/versions");
+      const versions = extractPipelineVersions(response.data);
+      setDownloadSetup((current) => ({
+        ...current,
+        versions,
+        loadingVersions: false,
+        selectedVersion: current.selectedVersion || versions[versions.length - 1] || "",
+      }));
+    } catch (error) {
+      console.error("Failed to load pipeline versions:", error);
+      setDownloadSetup((current) => ({ ...current, loadingVersions: false }));
+      toast.error("Failed to load pipeline versions.");
+    }
+  }, [currentVersion]);
+
+  const closeDownloadSetup = () => {
+    setDownloadSetup((current) => ({ ...current, open: false }));
+  };
+
+  const selectDownloadSetupVersion = (version: string) => {
+    setDownloadSetup((current) => ({ ...current, selectedVersion: version }));
+    const storedVersion = storeSelectedPipelineVersion(version);
+    if (storedVersion) setCurrentVersion(storedVersion);
+  };
+
+  const createDownloadSetupVersion = async () => {
+    const version = downloadSetup.newVersion.trim();
+    if (!version) {
+      toast.error("Enter a version.");
+      return;
+    }
+
+    if (downloadSetup.versions.includes(version)) {
+      setDownloadSetup((current) => ({
+        ...current,
+        addingVersion: false,
+        newVersion: "",
+        selectedVersion: version,
+      }));
+      toast.info("Version already exists. Selected it.");
+      return;
+    }
+
+    setDownloadSetup((current) => ({ ...current, creatingVersion: true }));
+    try {
+      await api.post("/admin-dashboard/pipeline-config/add", { version });
+      setDownloadSetup((current) => ({
+        ...current,
+        versions: [...current.versions, version].sort((left, right) =>
+          left.localeCompare(right, undefined, { numeric: true, sensitivity: "base" }),
+        ),
+        loadingVersions: false,
+        addingVersion: false,
+        creatingVersion: false,
+        newVersion: "",
+        selectedVersion: version,
+      }));
+      toast.success(`Version ${version} added.`);
+    } catch (error: any) {
+      console.error("Failed to add pipeline version:", error);
+      setDownloadSetup((current) => ({ ...current, creatingVersion: false }));
+      toast.error(error?.response?.data?.message || "Failed to add version.");
+    }
+  };
+
+  const continueDownloadSetup = async () => {
+    if (downloadSetup.step === "version") {
+      if (!downloadSetup.selectedVersion) {
+        toast.error("Select a version.");
+        return;
+      }
+      const version = storeSelectedPipelineVersion(downloadSetup.selectedVersion);
+      setCurrentVersion(version);
+      setDownloadSetup((current) => ({ ...current, step: "server" }));
+      return;
+    }
+
+    if (downloadSetup.step === "server") {
+      if (!downloadSetup.selectedServerId) {
+        toast.error("Select a server.");
+        return;
+      }
+      const version = storeSelectedPipelineVersion(downloadSetup.selectedVersion);
+      setCurrentVersion(version);
+      await Promise.all(
+        (["searchTiles", "routing"] as WorkflowKey[]).map((workflow) =>
+          handleServerSelection(workflow, downloadSetup.selectedServerId, version),
+        ),
+      );
+      toast.success("Download config loaded for Search & Tiles and Routing.");
+      setDownloadSetup((current) => ({ ...current, open: false }));
+      setSearchParams({}, { replace: true });
+    }
+  };
+
+  useEffect(() => {
+    if (searchParams.get("setupDownload") !== "true") return;
+
+    const preferredVersion = String(searchParams.get("version") || "").trim();
+    const setupKey = `setupDownload:${preferredVersion || currentVersion}`;
+    if (setupDownloadOpenKeyRef.current === setupKey) return;
+    setupDownloadOpenKeyRef.current = setupKey;
+    void openDownloadSetup(preferredVersion);
+  }, [currentVersion, openDownloadSetup, searchParams]);
+
+  useEffect(() => {
+    if (initialPrefillAppliedRef.current || loadingServers || servers.length === 0) return;
+    if (searchParams.get("setupDownload") === "true") return;
+
+    const version = String(searchParams.get("version") || "").trim();
+    const serverId = String(searchParams.get("serverId") || "").trim();
+    const workflowParam = String(searchParams.get("workflow") || "").trim();
+    const workflow = workflowParam === "routing" ? "routing" : workflowParam === "searchTiles" ? "searchTiles" : "";
+
+    if (!version || !serverId || !workflow) return;
+
+    initialPrefillAppliedRef.current = true;
+    storeSelectedPipelineVersion(version);
+    setCurrentVersion(version);
+    void handleServerSelection(workflow, serverId, version).then(() => {
+      toast.success(`${workflowCopy[workflow].label} download config loaded.`);
+    });
+    setSearchParams({}, { replace: true });
+  }, [loadingServers, searchParams, servers.length, setSearchParams]);
 
   const fetchServerPathForServer = async (serverId: string) => {
     const version = await fetchCurrentConfigVersion();
@@ -1394,6 +1621,58 @@ export default function Download() {
     }
   };
 
+  const handleProceedToGeneration = async () => {
+    try {
+      const version = currentVersion || (await fetchCurrentConfigVersion());
+      const response = await api.get("/admin-dashboard/download-status", { params: { version } });
+      const searchTilesStatus = getSearchTilesStatusEntry(normalizeDownloadStatusEntries(response.data));
+      const apiSummary = searchTilesStatus?.summary as WorkflowSummary | undefined;
+      const validatedStatus = apiSummary?.validatedStatus;
+
+      if (!searchTilesStatus || !validatedStatus) {
+        toast.error("Download the files, then only move to Generation.");
+        return;
+      }
+
+      if (searchTilesStatus) {
+        const hydratedJob = buildHydratedJob(searchTilesStatus, "searchTiles");
+        setJobs((current) => ({ ...current, searchTiles: hydratedJob ?? current.searchTiles }));
+        if (apiSummary) setStoredSummaries((current) => ({ ...current, searchTiles: apiSummary }));
+      }
+
+      if (validatedStatus === "completed") {
+        navigate("/pipeline?createGeneration=true");
+        return;
+      }
+
+      if (validatedStatus === "failed") {
+        const failedFiles = apiSummary?.statusFiles?.failed ?? [];
+        setProceedNotice({ type: "failed", failedFiles });
+        return;
+      }
+
+      if (validatedStatus === "running") {
+        setProceedNotice({ type: "running" });
+        return;
+      }
+
+      toast.error("Download is not completed. Please wait until validatedStatus is completed before moving to Generation.");
+      return;
+    } catch (error) {
+      console.error("Failed to check download status", error);
+      toast.error("Unable to check download status. Please try again.");
+    }
+  };
+
+  useEffect(() => {
+    if (searchParams.get("proceedToGeneration") !== "true") return;
+
+    const nextParams = new URLSearchParams(searchParams);
+    nextParams.delete("proceedToGeneration");
+    setSearchParams(nextParams, { replace: true });
+    void handleProceedToGeneration();
+  }, [searchParams, setSearchParams]);
+
   return (
     <div className="space-y-6 p-6">
       <section className="rounded-3xl p-6">
@@ -1411,7 +1690,7 @@ export default function Download() {
               </Badge>
             ) : null}
             <Button
-              onClick={() => navigate("/pipeline?createGeneration=true")}
+              onClick={() => void handleProceedToGeneration()}
               className="bg-primary hover:bg-primary/90 text-primary-foreground font-semibold flex items-center gap-2"
             >
               Proceed to Generation <ArrowRight className="w-4 h-4" />
@@ -1798,6 +2077,141 @@ export default function Download() {
         </div>
       </section>
 
+      {downloadSetup.open ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4 backdrop-blur-sm">
+          <div className="w-full max-w-lg overflow-hidden rounded-2xl border border-border bg-card shadow-2xl">
+            <div className="flex items-start justify-between gap-4 border-b border-border px-5 py-4">
+              <div>
+                <h2 className="text-base font-semibold text-foreground">
+                  {downloadSetup.step === "version"
+                    ? "Select pipeline version"
+                    : "Select download server"}
+                </h2>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  {downloadSetup.step === "version"
+                    ? "Choose the config version for this download."
+                    : "Choose the target server. Both download forms will be configured from this server."}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={closeDownloadSetup}
+                className="rounded-lg p-1.5 text-muted-foreground transition hover:bg-muted hover:text-foreground"
+                aria-label="Close download setup"
+                title="Close"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            <div className="space-y-4 px-5 py-5">
+              <div className="flex items-center gap-2 text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
+                <span className={downloadSetup.step === "version" ? "text-primary" : ""}>Version</span>
+                <ChevronRight className="h-3 w-3" />
+                <span className={downloadSetup.step === "server" ? "text-primary" : ""}>Server</span>
+              </div>
+
+              {downloadSetup.step === "version" ? (
+                <div className="space-y-3">
+                  <Label htmlFor="download-setup-version">Version</Label>
+                  <select
+                    id="download-setup-version"
+                    value={downloadSetup.selectedVersion}
+                    onChange={(event) => selectDownloadSetupVersion(event.target.value)}
+                    disabled={downloadSetup.loadingVersions || downloadSetup.addingVersion}
+                    className="h-10 w-full rounded-lg border border-border bg-background px-3 text-sm text-foreground outline-none transition focus:ring-2 focus:ring-ring"
+                  >
+                    <option value="">{downloadSetup.loadingVersions ? "Loading versions..." : "Select version"}</option>
+                    {downloadSetup.versions.map((version) => (
+                      <option key={version} value={version}>{version}</option>
+                    ))}
+                  </select>
+
+                  {downloadSetup.addingVersion ? (
+                    <div className="rounded-xl border border-border bg-muted/20 p-3">
+                      <Label htmlFor="download-setup-new-version">New version</Label>
+                      <div className="mt-2 flex gap-2">
+                        <Input
+                          id="download-setup-new-version"
+                          value={downloadSetup.newVersion}
+                          onChange={(event) => setDownloadSetup((current) => ({ ...current, newVersion: event.target.value }))}
+                          placeholder="v1.2"
+                        />
+                        <Button type="button" onClick={() => void createDownloadSetupVersion()} disabled={downloadSetup.creatingVersion}>
+                          {downloadSetup.creatingVersion ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
+                          Add
+                        </Button>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setDownloadSetup((current) => ({ ...current, addingVersion: false, newVersion: "" }))}
+                        className="mt-2 text-xs font-medium text-muted-foreground transition hover:text-foreground"
+                      >
+                        Use existing version
+                      </button>
+                    </div>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => setDownloadSetup((current) => ({ ...current, addingVersion: true, newVersion: "" }))}
+                      className="inline-flex items-center gap-2 text-xs font-semibold text-primary transition hover:text-primary/80"
+                    >
+                      <Plus className="h-3.5 w-3.5" />
+                      Add new version
+                    </button>
+                  )}
+                </div>
+              ) : null}
+
+              {downloadSetup.step === "server" ? (
+                <div className="space-y-2">
+                  <Label htmlFor="download-setup-server">Server</Label>
+                  <select
+                    id="download-setup-server"
+                    value={downloadSetup.selectedServerId}
+                    onChange={(event) => setDownloadSetup((current) => ({ ...current, selectedServerId: event.target.value }))}
+                    disabled={loadingServers}
+                    className="h-10 w-full rounded-lg border border-border bg-background px-3 text-sm text-foreground outline-none transition focus:ring-2 focus:ring-ring"
+                  >
+                    <option value="">{loadingServers ? "Loading servers..." : "Select server"}</option>
+                    {servers.map((server) => {
+                      const serverId = String(server._id || server.id || "");
+                      return (
+                        <option key={serverId} value={serverId}>
+                          {server.name}{server.ipAddress ? ` - ${server.ipAddress}` : ""}
+                        </option>
+                      );
+                    })}
+                  </select>
+                </div>
+              ) : null}
+
+            </div>
+
+            <div className="flex items-center justify-between gap-3 border-t border-border bg-muted/20 px-5 py-4">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => {
+                  if (downloadSetup.step === "server") setDownloadSetup((current) => ({ ...current, step: "version" }));
+                  else closeDownloadSetup();
+                }}
+              >
+                {downloadSetup.step === "version" ? "Cancel" : "Back"}
+              </Button>
+              <Button
+                type="button"
+                onClick={continueDownloadSetup}
+                disabled={downloadSetup.loadingVersions || downloadSetup.creatingVersion || (downloadSetup.step === "version" && downloadSetup.addingVersion) || loadingServers}
+              >
+                {downloadSetup.loadingVersions ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                {downloadSetup.step === "server" ? "Open Download" : "Next"}
+              </Button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
       <FolderBrowserModal
         browserState={browserState}
         onClose={() => setBrowserState(null)}
@@ -1806,6 +2220,62 @@ export default function Download() {
         onSearch={(value) => setBrowserState((current) => current ? { ...current, search: value } : null)}
         onSelect={(item) => void selectBrowserItem(item)}
       />
+      {proceedNotice ? (
+        <div className="fixed inset-0 z-[110] flex items-center justify-center bg-black/60 px-4 backdrop-blur-sm">
+          <div className="w-full max-w-2xl overflow-hidden rounded-2xl border border-border bg-card shadow-2xl">
+            <div className="flex items-start justify-between gap-4 border-b border-border px-5 py-4">
+              <div>
+                <h3 className="text-base font-semibold">
+                  {proceedNotice.type === "failed" ? "Download validation failed" : "Download in progress"}
+                </h3>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  {proceedNotice.type === "failed"
+                    ? "Some files failed validation. Review the files before moving to Generation."
+                    : "Currently downloading. Once all files are completed, you can move to Generation."}
+                </p>
+              </div>
+              <button
+                type="button"
+                title="Close message"
+                aria-label="Close message"
+                onClick={() => setProceedNotice(null)}
+                className="rounded-md p-1 text-muted-foreground transition hover:bg-muted hover:text-foreground"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+            {proceedNotice.type === "failed" ? (
+              <div className="px-5 py-4">
+                <p className="mb-2 text-sm font-medium">Failed files</p>
+                <ScrollArea className="max-h-72 rounded-xl border border-border/60 bg-muted/20 p-3">
+                  <pre className="whitespace-pre-wrap break-words font-mono text-xs leading-5 text-muted-foreground">
+                    {buildFailedFilesConfirmationMessage(proceedNotice.failedFiles)}
+                  </pre>
+                </ScrollArea>
+              </div>
+            ) : null}
+            <div className="flex items-center justify-end gap-2 border-t border-border bg-muted/20 px-5 py-3">
+              {proceedNotice.type === "failed" ? (
+                <Button type="button" variant="outline" onClick={() => setProceedNotice(null)}>
+                  Cancel
+                </Button>
+              ) : null}
+              <Button
+                type="button"
+                onClick={() => {
+                  if (proceedNotice.type === "failed") {
+                    navigate("/pipeline?createGeneration=true&allowFailedDownload=true");
+                    return;
+                  }
+                  setProceedNotice(null);
+                }}
+              >
+                Okay
+              </Button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }

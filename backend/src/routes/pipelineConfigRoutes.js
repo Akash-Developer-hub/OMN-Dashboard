@@ -10,11 +10,11 @@ const validateN8nApiKey = require('../../middlewares/validateN8nApiKey');
 
 
 /**
- * @route POST /pipeline-config/notify-list
- * @desc Get a list of users to notify for pipeline events
+ * @route GET /pipeline-config/notify-list-admin
+ * @desc Get a list of administrators to notify for pipeline events
  * @access n8n service (x-n8n-api-key header) — bypasses JWT auth
  */
-router.get('/notify-list/:version', validateN8nApiKey, PipelineConfigController.getNotifyList);
+router.get('/notify-list-admin', validateN8nApiKey, PipelineConfigController.getNotifyList);
 
 // Apply authentication & authorization to all routes below
 router.use(authenticate, authorize('admin', 'superadmin', 'vendor'));
@@ -52,10 +52,11 @@ router.patch('/UpdateDownload-path', PipelineConfigController.updateDownloadPath
 router.post('/download-path', PipelineConfigController.PostDownloadPath);
 
 /**
- * @route GET /pipeline-config/current-version
- * @desc Get the latest pipeline configuration version
+ * @route GET /pipeline-config/versions
+ * @desc Get all distinct pipeline configuration versions
  */
-router.get('/current-version', PipelineConfigController.getCurrentVersion);
+router.get('/versions', PipelineConfigController.getVersions);
+
 
 /**
  * @route POST /pipeline-config/server-path

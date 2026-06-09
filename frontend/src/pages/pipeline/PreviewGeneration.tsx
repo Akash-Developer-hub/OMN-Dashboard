@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import {
   CheckCircle2,
   Clock,
@@ -17,12 +18,12 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { api } from "@/utils/api";
+import { resolveSelectedPipelineVersion, storeSelectedPipelineVersion } from "./pipelineVersion";
 
 type PipelineRun = Record<string, any>;
 type ServiceKey = "search" | "tile" | "routing" | string;
 
 const FETCH_PIPELINE_URL = "/admin-dashboard/data-pipeline/fetch-pipeline";
-const CURRENT_VERSION_URL = "/admin-dashboard/pipeline-config/current-version";
 const DOWNLOAD_PATH_CONFIG_URL = "/admin-dashboard/pipeline-config/download-path-config";
 const MULTITHREAD_WEBHOOK_URL = "https://sandbox.vmmaps.com/n8n/webhook/omn/multithread";
 const RUN_ID_LOGS_URL = "https://sandbox.vmmaps.com/n8n/webhook/omn/runId-logs";
@@ -46,10 +47,6 @@ function extractPipelineRuns(payload: any): PipelineRun[] {
   if (Array.isArray(body?.runs)) return body.runs;
   if (Array.isArray(body?.pipelineRuns)) return body.pipelineRuns;
   return body && typeof body === "object" ? [body] : [];
-}
-
-function getVersion(payload: any) {
-  return payload?.data?.version ?? payload?.data?.currentVersion ?? payload?.currentVersion ?? payload?.version ?? "";
 }
 
 function getRunId(run: PipelineRun | null) {
@@ -191,6 +188,7 @@ function statusTone(status: string) {
 }
 
 export default function PreviewGeneration() {
+  const [searchParams] = useSearchParams();
   const [currentVersion, setCurrentVersion] = useState("");
   const [selectedRun, setSelectedRun] = useState<PipelineRun | null>(null);
   const [loading, setLoading] = useState(true);
@@ -205,8 +203,8 @@ export default function PreviewGeneration() {
     else setLoading(true);
 
     try {
-      const versionResponse = await api.get(CURRENT_VERSION_URL);
-      const version = getVersion(versionResponse.data);
+      const version = resolveSelectedPipelineVersion(searchParams);
+      if (version) storeSelectedPipelineVersion(version);
       setCurrentVersion(version);
 
       const pipelineResponse = await api.get(FETCH_PIPELINE_URL, {
@@ -223,7 +221,7 @@ export default function PreviewGeneration() {
       setLoading(false);
       setRefreshing(false);
     }
-  }, []);
+  }, [searchParams]);
 
   useEffect(() => {
     void fetchPreviewData();
@@ -232,7 +230,7 @@ export default function PreviewGeneration() {
   const handleStartMultithread = async () => {
     setMultithreadLoading(true);
     try {
-      const version = currentVersion || (await api.get(CURRENT_VERSION_URL).then((r) => getVersion(r.data)));
+      const version = currentVersion || resolveSelectedPipelineVersion(searchParams);
       const configRes = await api.post(DOWNLOAD_PATH_CONFIG_URL, { version });
       const downloadPaths: any[] = Object.values(configRes.data?.data?.downloadPaths ?? configRes.data?.downloadPaths ?? {}).flat() as any[];
 
@@ -340,7 +338,16 @@ export default function PreviewGeneration() {
         <main className="mx-auto max-w-6xl space-y-4">
           {!selectedRun ? (
             <Card>
-              <CardContent className="p-10 text-center text-sm text-muted-foreground">No recent generation is available for preview.</CardContent>
+              <CardContent className="p-10 text-center text-sm text-muted-foreground">
+                {currentVersion ? (
+                  <>
+                    No recent generation is available for version{" "}
+                    <span className="font-mono font-medium text-foreground">{currentVersion}</span>.
+                  </>
+                ) : (
+                  "No recent generation is available for preview."
+                )}
+              </CardContent>
             </Card>
           ) : (
             <>

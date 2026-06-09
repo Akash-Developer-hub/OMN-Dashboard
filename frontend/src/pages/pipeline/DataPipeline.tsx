@@ -66,6 +66,22 @@ interface PipelineRunPayload {
   [key: string]: any;
 }
 
+type DownloadWorkflowKey = "searchTiles" | "routing";
+type DownloadSetupStep = "version" | "server" | "service";
+
+interface DownloadSetupState {
+  open: boolean;
+  step: DownloadSetupStep;
+  versions: string[];
+  loadingVersions: boolean;
+  addingVersion: boolean;
+  creatingVersion: boolean;
+  newVersion: string;
+  selectedVersion: string;
+  selectedServerId: string;
+  selectedService: DownloadWorkflowKey | "";
+}
+
 // ─── Constants ────────────────────────────────────────────────────────────────
 
 const POLL_INTERVAL_MS = 4000;
@@ -120,6 +136,16 @@ const extractPipelineRuns = (data: any): PipelineRunPayload[] => {
   if (Array.isArray(body?.runs)) return body.runs;
   if (Array.isArray(body?.data)) return body.data;
   return body ? [body] : [];
+};
+
+const extractPipelineVersions = (data: any): string[] => {
+  const body = data?.data ?? data;
+  const versions = body?.versions ?? body?.data?.versions ?? body;
+  if (!Array.isArray(versions)) return [];
+
+  return versions
+    .map((version) => String(version || "").trim())
+    .filter(Boolean);
 };
 
 const getRunServices = (run: PipelineRunPayload) => {
@@ -2080,6 +2106,7 @@ export default function DataPipeline() {
   const [searchParams, setSearchParams] = useSearchParams();
   const [createOpen, setCreateOpen] = useState(false);
   const [createOpenForContrib, setCreateOpenForContrib] = useState(false);
+  const [allowFailedDownloadGeneration, setAllowFailedDownloadGeneration] = useState(false);
 
   const [allServers, setAllServers] = useState<ServerType[]>([]);
   const [allServersLoading, setAllServersLoading] = useState(true);
@@ -2112,29 +2139,158 @@ export default function DataPipeline() {
   const [stagingServerName, setStagingServerName] = useState("");
   const [serviceTransfers, setServiceTransfers] = useState<GenerationServiceTransferMeta[]>([]);
 
-  const [currentVersion, setCurrentVersion] = useState<string | null>(null);
-  const [emptyPipelineVersion, setEmptyPipelineVersion] = useState<string | null>(null);
-  const [downloadStatuses, setDownloadStatuses] = useState<any[]>([]);
+    const [currentVersion, setCurrentVersion] = useState<string | null>(() => new URLSearchParams(window.location.search).get("version")?.trim() || localStorage.getItem("pipeline_version") || null);
+    const [emptyPipelineVersion, setEmptyPipelineVersion] = useState<string | null>(null);
+    const [downloadStatuses, setDownloadStatuses] = useState<any[]>([]);
+    const [downloadStatusesLoaded, setDownloadStatusesLoaded] = useState(false);
+    const [downloadSetup, setDownloadSetup] = useState<DownloadSetupState>({
+      open: false,
+      step: "version",
+      versions: [],
+      loadingVersions: false,
+      addingVersion: false,
+      creatingVersion: false,
+      newVersion: "",
+      selectedVersion: "",
+      selectedServerId: "",
+      selectedService: "",
+    });
 
   const fetchCurrentVersion = useCallback(async () => {
     try {
       const res = await api.get("/admin-dashboard/pipeline-config/current-version");
-      const version = res.data?.version || res.data?.data?.version;
+      const fromApi = (res.data?.version || res.data?.data?.version || "") as string;
+      const version = searchParams.get("version")?.trim() || fromApi.trim() || localStorage.getItem("pipeline_version") || null;
       if (version) {
+        localStorage.setItem("pipeline_version", version);
         setCurrentVersion(version);
-        return String(version);
+        return version;
       }
     } catch (error) {
       console.error("Failed to fetch current version:", error);
     }
     return null;
-  }, []);
+  }, [searchParams]);
 
-  useEffect(() => {
-    if (searchParams.get("createGeneration") !== "true") return;
-    setCreateOpen(true);
-    setSearchParams({}, { replace: true });
-  }, [searchParams, setSearchParams]);
+    useEffect(() => {
+      if (searchParams.get("createGeneration") !== "true") return;
+      const selectedVersion = searchParams.get("version")?.trim() || (currentVersion ?? "") || localStorage.getItem("pipeline_version") || null;
+      if (selectedVersion) {
+        localStorage.setItem("pipeline_version", selectedVersion);
+        setCurrentVersion(selectedVersion);
+      }
+      setAllowFailedDownloadGeneration(searchParams.get("allowFailedDownload") === "true");
+      setCreateOpen(true);
+      const nextParams = new URLSearchParams(searchParams);
+      nextParams.delete("createGeneration");
+      nextParams.delete("allowFailedDownload");
+      setSearchParams(nextParams, { replace: true });
+    }, [currentVersion, searchParams, setSearchParams]);
+
+    const openDownloadSetup = useCallback(async () => {
+      setDownloadSetup({
+        open: true,
+        step: "version",
+        versions: [],
+        loadingVersions: true,
+        addingVersion: false,
+        creatingVersion: false,
+        newVersion: "",
+        selectedVersion: currentVersion || "",
+        selectedServerId: "",
+        selectedService: "",
+      });
+
+      try {
+        const response = await api.get("/admin-dashboard/pipeline-config/versions");
+        const versions = extractPipelineVersions(response.data);
+        setDownloadSetup((current) => ({
+          ...current,
+          versions,
+          loadingVersions: false,
+          selectedVersion: current.selectedVersion || versions[versions.length - 1] || "",
+        }));
+      } catch (error) {
+        console.error("Failed to load pipeline config versions:", error);
+        setDownloadSetup((current) => ({ ...current, loadingVersions: false }));
+        toast.error("Failed to load pipeline versions.");
+      }
+    }, [currentVersion]);
+
+    const closeDownloadSetup = () => {
+      setDownloadSetup((current) => ({ ...current, open: false }));
+    };
+
+    const createDownloadSetupVersion = async () => {
+      const version = downloadSetup.newVersion.trim();
+      if (!version) {
+        toast.error("Enter a version.");
+        return;
+      }
+      if (downloadSetup.versions.includes(version)) {
+        setDownloadSetup((current) => ({
+          ...current,
+          addingVersion: false,
+          newVersion: "",
+          selectedVersion: version,
+        }));
+        toast.info("Version already exists. Selected it.");
+        return;
+      }
+
+      setDownloadSetup((current) => ({ ...current, creatingVersion: true }));
+      try {
+        await api.post("/admin-dashboard/pipeline-config/add", { version });
+        setDownloadSetup((current) => ({
+          ...current,
+          versions: [...current.versions, version].sort((a, b) => a.localeCompare(b, undefined, { numeric: true, sensitivity: "base" })),
+          loadingVersions: false,
+          addingVersion: false,
+          creatingVersion: false,
+          newVersion: "",
+          selectedVersion: version,
+        }));
+        toast.success(`Version ${version} added.`);
+      } catch (error: any) {
+        console.error("Failed to add pipeline version:", error);
+        setDownloadSetup((current) => ({ ...current, creatingVersion: false }));
+        toast.error(error?.response?.data?.message || "Failed to add version.");
+      }
+    };
+
+    const continueDownloadSetup = () => {
+      if (downloadSetup.step === "version") {
+        if (!downloadSetup.selectedVersion) {
+          toast.error("Select a version.");
+          return;
+        }
+        setDownloadSetup((current) => ({ ...current, step: "server" }));
+        return;
+      }
+
+      if (downloadSetup.step === "server") {
+        if (!downloadSetup.selectedServerId) {
+          toast.error("Select a server.");
+          return;
+        }
+        setDownloadSetup((current) => ({ ...current, step: "service" }));
+        return;
+      }
+
+      if (!downloadSetup.selectedService) {
+        toast.error("Select a download service.");
+        return;
+      }
+
+      const params = new URLSearchParams({
+        version: downloadSetup.selectedVersion,
+        serverId: downloadSetup.selectedServerId,
+        workflow: downloadSetup.selectedService,
+      });
+      localStorage.setItem("pipeline_version", downloadSetup.selectedVersion);
+      setCurrentVersion(downloadSetup.selectedVersion);
+      navigate(`/pipeline/download?${params.toString()}`);
+    };
 
   // ── Polling: generation status ─────────────────────────────────────────────
 
@@ -2321,14 +2477,20 @@ export default function DataPipeline() {
   }, []);
 
   const loadDownloadStatuses = useCallback(async () => {
+    setDownloadStatusesLoaded(false);
     try {
       const version = currentVersion || await fetchCurrentVersion();
-      if (!version) return;
+      if (!version) {
+        setDownloadStatuses([]);
+        return;
+      }
       const res = await api.get("/admin-dashboard/download-status", { params: { version } });
       const statuses = res.data?.data?.statuses ?? res.data?.statuses ?? [];
       setDownloadStatuses(statuses);
     } catch (error) {
       console.error("Failed to load download statuses:", error);
+    } finally {
+      setDownloadStatusesLoaded(true);
     }
   }, [currentVersion, fetchCurrentVersion]);
 
@@ -2729,6 +2891,33 @@ export default function DataPipeline() {
 
   // ── Refresh ───────────────────────────────────────────────────────────────
 
+  const hasCompletedSearchTilesDownload = downloadStatuses.some(
+    (status: any) => status?.workflow === "searchTiles" && status?.summary?.validatedStatus === "completed",
+  );
+  const hasFailedSearchTilesDownload = downloadStatuses.some(
+    (status: any) =>
+      status?.workflow === "searchTiles" &&
+      (status?.summary?.validatedStatus === "failed" || status?.status === "failed"),
+  );
+  const canOpenCreateGeneration =
+    hasCompletedSearchTilesDownload ||
+    (allowFailedDownloadGeneration && hasFailedSearchTilesDownload);
+
+  useEffect(() => {
+    if (!downloadStatusesLoaded) return;
+    if (!createOpen || canOpenCreateGeneration) return;
+
+    setCreateOpen(false);
+    setAllowFailedDownloadGeneration(false);
+    if (searchParams.get("createGeneration") === "true") {
+      const nextParams = new URLSearchParams(searchParams);
+      nextParams.delete("createGeneration");
+      nextParams.delete("allowFailedDownload");
+      setSearchParams(nextParams, { replace: true });
+    }
+    toast.error("Download is not completed. Please wait until validatedStatus is completed before moving to Generation.");
+  }, [createOpen, canOpenCreateGeneration, downloadStatusesLoaded, searchParams, setSearchParams]);
+
   const refreshDashboard = useCallback(async () => {
     await Promise.all([loadServers(), loadPOI(), loadCurrentDevelopmentGeneration(), loadDownloadStatuses()]);
   }, [loadServers, loadPOI, loadCurrentDevelopmentGeneration, loadDownloadStatuses]);
@@ -2758,7 +2947,12 @@ export default function DataPipeline() {
               <RefreshCw className="w-4 h-4" />Refresh
             </button>
             <button
-              onClick={() => navigate("/pipeline/download")}
+              onClick={() => {
+                const params = new URLSearchParams();
+                params.set("setupDownload", "true");
+                if (currentVersion) params.set("version", currentVersion);
+                navigate(`/pipeline/download?${params.toString()}`);
+              }}
               className="flex items-center gap-2 bg-primary text-primary-foreground px-4 py-2 rounded-lg text-sm font-medium hover:bg-primary/90 transition-colors"
             >
               <Plus className="w-4 h-4" />Create Generation
@@ -2834,12 +3028,181 @@ export default function DataPipeline() {
         </div>
       </div>
       {/* Dialogs */}
+      {downloadSetup.open && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4 backdrop-blur-sm">
+          <div className="w-full max-w-lg overflow-hidden rounded-2xl border border-border bg-card shadow-2xl">
+            <div className="flex items-start justify-between gap-4 border-b border-border px-5 py-4">
+              <div>
+                <h2 className="text-base font-semibold text-foreground">
+                  {downloadSetup.step === "version"
+                    ? "Select pipeline version"
+                    : downloadSetup.step === "server"
+                      ? "Select download server"
+                      : "Select download service"}
+                </h2>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  {downloadSetup.step === "version"
+                    ? "Choose the config version for this download."
+                    : downloadSetup.step === "server"
+                      ? "Choose the target server for the selected version."
+                      : "Choose which service should open on the Download page."}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={closeDownloadSetup}
+                className="rounded-lg p-1.5 text-muted-foreground transition hover:bg-muted hover:text-foreground"
+                aria-label="Close download setup"
+                title="Close"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            <div className="space-y-4 px-5 py-5">
+              <div className="flex items-center gap-2 text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
+                <span className={downloadSetup.step === "version" ? "text-primary" : ""}>Version</span>
+                <ChevronRight className="h-3 w-3" />
+                <span className={downloadSetup.step === "server" ? "text-primary" : ""}>Server</span>
+                <ChevronRight className="h-3 w-3" />
+                <span className={downloadSetup.step === "service" ? "text-primary" : ""}>Service</span>
+              </div>
+
+              {downloadSetup.step === "version" && (
+                <div className="space-y-3">
+                  <label htmlFor="download-setup-version" className="text-xs font-medium text-foreground">Version</label>
+                  <select
+                    id="download-setup-version"
+                    value={downloadSetup.selectedVersion}
+                    onChange={(event) => setDownloadSetup((current) => ({ ...current, selectedVersion: event.target.value }))}
+                    disabled={downloadSetup.loadingVersions || downloadSetup.addingVersion}
+                    className="h-10 w-full rounded-lg border border-border bg-background px-3 text-sm text-foreground outline-none transition focus:ring-2 focus:ring-ring"
+                  >
+                    <option value="">{downloadSetup.loadingVersions ? "Loading versions..." : "Select version"}</option>
+                    {downloadSetup.versions.map((version) => (
+                      <option key={version} value={version}>{version}</option>
+                    ))}
+                  </select>
+                  {downloadSetup.addingVersion ? (
+                    <div className="rounded-xl border border-border bg-muted/20 p-3">
+                      <label htmlFor="download-setup-new-version" className="text-xs font-medium text-foreground">New version</label>
+                      <div className="mt-2 flex gap-2">
+                        <input
+                          id="download-setup-new-version"
+                          value={downloadSetup.newVersion}
+                          onChange={(event) => setDownloadSetup((current) => ({ ...current, newVersion: event.target.value }))}
+                          placeholder="v1.2"
+                          className="h-10 min-w-0 flex-1 rounded-lg border border-border bg-background px-3 text-sm text-foreground outline-none transition focus:ring-2 focus:ring-ring"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => void createDownloadSetupVersion()}
+                          disabled={downloadSetup.creatingVersion}
+                          className="inline-flex items-center gap-2 rounded-lg bg-primary px-3 py-2 text-sm font-medium text-primary-foreground transition hover:bg-primary/90 disabled:opacity-50"
+                        >
+                          {downloadSetup.creatingVersion ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+                          Add
+                        </button>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setDownloadSetup((current) => ({ ...current, addingVersion: false, newVersion: "" }))}
+                        className="mt-2 text-xs font-medium text-muted-foreground transition hover:text-foreground"
+                      >
+                        Use existing version
+                      </button>
+                    </div>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => setDownloadSetup((current) => ({ ...current, addingVersion: true, newVersion: "" }))}
+                      className="inline-flex items-center gap-2 text-xs font-semibold text-primary transition hover:text-primary/80"
+                    >
+                      <Plus className="h-3.5 w-3.5" />
+                      Add new version
+                    </button>
+                  )}
+                </div>
+              )}
+
+              {downloadSetup.step === "server" && (
+                <div className="space-y-2">
+                  <label htmlFor="download-setup-server" className="text-xs font-medium text-foreground">Server</label>
+                  <select
+                    id="download-setup-server"
+                    value={downloadSetup.selectedServerId}
+                    onChange={(event) => setDownloadSetup((current) => ({ ...current, selectedServerId: event.target.value }))}
+                    disabled={allServersLoading}
+                    className="h-10 w-full rounded-lg border border-border bg-background px-3 text-sm text-foreground outline-none transition focus:ring-2 focus:ring-ring"
+                  >
+                    <option value="">{allServersLoading ? "Loading servers..." : "Select server"}</option>
+                    {allServers.map((server) => {
+                      const serverId = String((server as any)._id || server.id || "");
+                      return (
+                        <option key={serverId} value={serverId}>
+                          {server.name}{server.ipAddress ? ` - ${server.ipAddress}` : ""}
+                        </option>
+                      );
+                    })}
+                  </select>
+                </div>
+              )}
+
+              {downloadSetup.step === "service" && (
+                <div className="grid gap-3 sm:grid-cols-2">
+                  {[
+                    { value: "searchTiles" as DownloadWorkflowKey, label: "Search & Tiles", description: "Open Search & Tiles download config." },
+                    { value: "routing" as DownloadWorkflowKey, label: "Routing", description: "Open Routing download config." },
+                  ].map((service) => {
+                    const selected = downloadSetup.selectedService === service.value;
+                    return (
+                      <button
+                        key={service.value}
+                        type="button"
+                        onClick={() => setDownloadSetup((current) => ({ ...current, selectedService: service.value }))}
+                        className={`rounded-xl border px-4 py-3 text-left transition ${selected ? "border-primary bg-primary/10 text-primary" : "border-border bg-background text-foreground hover:border-primary/50"}`}
+                      >
+                        <span className="block text-sm font-semibold">{service.label}</span>
+                        <span className="mt-1 block text-xs text-muted-foreground">{service.description}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+
+            <div className="flex items-center justify-between gap-3 border-t border-border bg-muted/20 px-5 py-4">
+              <button
+                type="button"
+                onClick={() => {
+                  if (downloadSetup.step === "service") setDownloadSetup((current) => ({ ...current, step: "server" }));
+                  else if (downloadSetup.step === "server") setDownloadSetup((current) => ({ ...current, step: "version" }));
+                  else closeDownloadSetup();
+                }}
+                className="rounded-lg border border-border px-4 py-2 text-sm font-medium text-foreground transition hover:bg-muted"
+              >
+                {downloadSetup.step === "version" ? "Cancel" : "Back"}
+              </button>
+              <button
+                type="button"
+                onClick={continueDownloadSetup}
+                disabled={downloadSetup.loadingVersions || downloadSetup.creatingVersion || (downloadSetup.step === "version" && downloadSetup.addingVersion) || allServersLoading}
+                className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition hover:bg-primary/90 disabled:opacity-50"
+              >
+                {downloadSetup.loadingVersions ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+                {downloadSetup.step === "service" ? "Open Download" : "Next"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       <CreateGeneration
-        open={createOpen}
+        open={createOpen && downloadStatusesLoaded && canOpenCreateGeneration}
         servers={allServers}
         loadingServers={allServersLoading}
         onClose={(meta) => {
           setCreateOpen(false);
+          setAllowFailedDownloadGeneration(false);
           if (meta?.runId || meta?.generationId) handleGenerationCreated(meta as GenerationCreationMeta);
         }}
       />

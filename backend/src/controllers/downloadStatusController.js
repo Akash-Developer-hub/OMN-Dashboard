@@ -60,6 +60,28 @@ function cleanOptionalBoolean(value) {
     return typeof value === 'boolean' ? value : null;
 }
 
+function hasDownloadCompletedLine(logState) {
+    const lines = Array.isArray(logState?.lines) ? logState.lines : [];
+    return lines.some((line) => /All downloads complete\./i.test(String(line || '')));
+}
+
+function normalizeSearchTilesStatus(status, summary, logState) {
+    if (hasDownloadCompletedLine(logState)) return 'completed';
+
+    const hasLogLines = Array.isArray(logState?.lines) && logState.lines.length > 0;
+    const hasSummaryActivity = Number(summary?.totalCount || 0) > 0
+        || Number(summary?.completedCount || 0) > 0
+        || Number(summary?.failedCount || 0) > 0
+        || Number(summary?.processingCount || 0) > 0
+        || Number(summary?.pendingCount || 0) > 0;
+
+    if (hasLogLines || hasSummaryActivity || status === 'completed' || status === 'failed') {
+        return 'running';
+    }
+
+    return status || null;
+}
+
 function isSafeMergeKey(key) {
     return key !== '__proto__' && key !== 'prototype' && key !== 'constructor';
 }
@@ -221,14 +243,20 @@ async function persistStatusUpdate(payload, updatedBy) {
     const targetServer = incomingTargetServer || normalizeObject(existingStatus?.targetServer) || normalizeObject(mergedJob?.targetServer);
     const addMaxspeedAndTurnlanesToOsm = incomingAddMaxspeedAndTurnlanesToOsm ?? existingStatus?.addMaxspeedAndTurnlanesToOsm ?? mergedJob?.addMaxspeedAndTurnlanesToOsm ?? null;
     const maxspeedAndTurnlanesPath = incomingMaxspeedAndTurnlanesPath || cleanOptionalString(existingStatus?.maxspeedAndTurnlanesPath) || cleanOptionalString(mergedJob?.maxspeedAndTurnlanesPath);
-    const status = cleanString(payload.status || incomingSummary?.validatedStatus || incomingJob?.status)
+    const requestedStatus = cleanString(payload.status || incomingSummary?.validatedStatus || incomingJob?.status)
         || cleanString(existingStatus?.status || existingStatus?.summary?.validatedStatus || existingStatus?.job?.status)
         || null;
+    const status = workflow === 'searchTiles'
+        ? normalizeSearchTilesStatus(requestedStatus, mergedSummary, mergedLogState)
+        : requestedStatus;
+    const finalSummary = mergedSummary && workflow === 'searchTiles'
+        ? { ...mergedSummary, validatedStatus: status }
+        : mergedSummary;
 
     const saveResult = await VersionedDownloadStatus.upsertByWorkflow(version, workflow, {
         runId: runId || null,
         job: mergedJob,
-        summary: mergedSummary,
+        summary: finalSummary,
         logState: mergedLogState,
         outputPath,
         logPath,
