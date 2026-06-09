@@ -4,7 +4,7 @@ import {
   Plus, Loader2, ChevronDown, CheckCircle2, AlertCircle, Package,
   ArrowRight, History, MapPin, ExternalLink, Play, Terminal, Zap,
   CheckSquare, Square, Edit, Save, X, Circle, XCircle, AlertTriangle,
-  RefreshCw, Folder, ChevronRight,
+  RefreshCw, Folder, ChevronRight, Server,
 } from "lucide-react";
 import { toast } from "sonner";
 import type { Server as ServerType } from "@/pages/servers/serversApi";
@@ -2114,6 +2114,7 @@ export default function DataPipeline() {
 
   const [currentVersion, setCurrentVersion] = useState<string | null>(null);
   const [emptyPipelineVersion, setEmptyPipelineVersion] = useState<string | null>(null);
+  const [downloadStatuses, setDownloadStatuses] = useState<any[]>([]);
 
   const fetchCurrentVersion = useCallback(async () => {
     try {
@@ -2319,6 +2320,18 @@ export default function DataPipeline() {
     } catch { setApprovedPOICount(0); } finally { setPoiLoading(false); }
   }, []);
 
+  const loadDownloadStatuses = useCallback(async () => {
+    try {
+      const version = currentVersion || await fetchCurrentVersion();
+      if (!version) return;
+      const res = await api.get("/admin-dashboard/download-status", { params: { version } });
+      const statuses = res.data?.data?.statuses ?? res.data?.statuses ?? [];
+      setDownloadStatuses(statuses);
+    } catch (error) {
+      console.error("Failed to load download statuses:", error);
+    }
+  }, [currentVersion, fetchCurrentVersion]);
+
   const loadCurrentDevelopmentGeneration = useCallback(async () => {
     try {
       const version = currentVersion || await fetchCurrentVersion();
@@ -2445,11 +2458,12 @@ export default function DataPipeline() {
   useEffect(() => {
     loadServers();
     loadPOI();
+    loadDownloadStatuses();
     if (!initialPipelineLoadRef.current) {
       initialPipelineLoadRef.current = true;
       loadCurrentDevelopmentGeneration();
     }
-  }, [loadServers, loadPOI, loadCurrentDevelopmentGeneration]);
+  }, [loadServers, loadPOI, loadCurrentDevelopmentGeneration, loadDownloadStatuses]);
 
   // ── Handle new generation created ─────────────────────────────────────────
 
@@ -2716,8 +2730,8 @@ export default function DataPipeline() {
   // ── Refresh ───────────────────────────────────────────────────────────────
 
   const refreshDashboard = useCallback(async () => {
-    await Promise.all([loadServers(), loadPOI(), loadCurrentDevelopmentGeneration()]);
-  }, [loadServers, loadPOI, loadCurrentDevelopmentGeneration]);
+    await Promise.all([loadServers(), loadPOI(), loadCurrentDevelopmentGeneration(), loadDownloadStatuses()]);
+  }, [loadServers, loadPOI, loadCurrentDevelopmentGeneration, loadDownloadStatuses]);
 
   // ── Render ────────────────────────────────────────────────────────────────
 
@@ -2744,7 +2758,7 @@ export default function DataPipeline() {
               <RefreshCw className="w-4 h-4" />Refresh
             </button>
             <button
-              onClick={() => navigate("/pipeline/validation")}
+              onClick={() => navigate("/pipeline/download")}
               className="flex items-center gap-2 bg-primary text-primary-foreground px-4 py-2 rounded-lg text-sm font-medium hover:bg-primary/90 transition-colors"
             >
               <Plus className="w-4 h-4" />Create Generation
@@ -2757,6 +2771,34 @@ export default function DataPipeline() {
       {!poiLoading && approvedPOICount > 0 && (
         <ApprovedPOISection count={approvedPOICount} loading={poiLoading} onStart={() => setCreateOpenForContrib(true)} />
       )}
+
+      {/* Download Servers Banner */}
+      {(() => {
+        const searchTilesSrv = downloadStatuses.find(s => s.workflow === "searchTiles" && s.status === "completed")?.targetServer?.name;
+        const routingSrv = downloadStatuses.find(s => s.workflow === "routing" && s.status === "completed")?.targetServer?.name;
+        if (!searchTilesSrv && !routingSrv) return null;
+        return (
+          <div className="bg-card border border-blue-500/20 rounded-2xl p-4 shadow-sm flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className="w-9 h-9 rounded-lg bg-blue-500/10 flex items-center justify-center">
+                <Server className="w-4 h-4 text-blue-500" />
+              </div>
+              <div>
+                <h2 className="text-sm font-semibold text-foreground">Active Download Servers</h2>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  {searchTilesSrv && (
+                    <span>Search & Tiles: <span className="font-semibold text-blue-600 dark:text-blue-400">{searchTilesSrv}</span></span>
+                  )}
+                  {searchTilesSrv && routingSrv && <span className="mx-2">|</span>}
+                  {routingSrv && (
+                    <span>Routing: <span className="font-semibold text-emerald-600 dark:text-emerald-400">{routingSrv}</span></span>
+                  )}
+                </p>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
       {/* Pipeline cards */}
       <div>

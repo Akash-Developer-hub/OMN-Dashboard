@@ -137,7 +137,7 @@ const emptyServiceForm = (service: GenerationService): ServiceFormState => ({
   sourceServerId: "",
   sourceFilePath: "",
   importFile: null,
-  script: service === "routing" ? "routingTiles.py" : "tilesPipe.py",
+  script: service === "routing" ? "routingTiles.py" : "multithread.py",
   scriptDisplayPath: "",
   levelL1: "",
   levelL2: "",
@@ -197,24 +197,13 @@ const buildBrowserPath = (basePath: string, item: string) => {
 };
 
 const buildCommand = (f: ServiceFormState): string => {
-  if (f.service === "routing" && f.routingGtfsIncluded) {
-    const script    = f.script?.trim() || "routingTiles.py";
-    const inputFilePath = resolveCommandInputPath(f);
-    const input     = resolveRoutingInputName(f, inputFilePath);
-    const rawOsmPath = inputFilePath;
-    const stripFilename = (p: string) => /\.[^/]+$/.test(p) ? p.replace(/\/[^/]+$/, "") : p;
-    const osmPath   = normalizePath(stripFilename(rawOsmPath));
-    const outputPath = f.outputPath.trim() || "<output_path>";
-    return `python3 ${script} ${input} --osm_pbf_path ${osmPath} --data_dir ${outputPath} --bTransit`;
+  if (f.service === "routing") {
+    const script = f.script?.trim() || "routingTiles.py";
+    const gtfsFlag = f.routingGtfsIncluded ? " --bTransit" : "";
+    return `python3 ${script} planet-latest${gtfsFlag}`;
   }
-  const script   = f.script?.trim() || "tilesPipe.py";
-  const filename = resolveFilename(f).split(/[/\\]/).pop()?.replace(/(\.[^.]+)+$/, "") || resolveFilename(f);
-  const layers   = "worldocean:worldplace:main:r2hb:poi:lbw:names";
-  const svcArg   = SERVICE_ARG[f.service];
-  const l1 = f.levelL1.trim();
-  const l2 = f.levelL2.trim();
-  const levels = l1 && l2 ? `${l1}:${l2}` : l1 ? l1 : l2 ? l2 : "<l1>:<l2>";
-  return `python3 ${script} ${filename} ${layers} ${svcArg} unifiedMax ${levels}`;
+  const script = f.script?.trim() || "multithread.py";
+  return `python3 ${script}`;
 };
 
 const shouldUseOutputPath = (service: GenerationService, f: ServiceFormState) =>
@@ -653,6 +642,7 @@ export function CreateGeneration({ open, onClose, preSelectContribution, servers
   const [servers, setServers]               = useState<ServerType[]>([]);
   const [loadingServers, setLoadingServers] = useState(true);
   const [selected, setSelected]             = useState<Set<GenerationService>>(new Set());
+  const [downloadStatuses, setDownloadStatuses] = useState<any[]>([]);
   const [forms, setForms]                   = useState<Record<GenerationService, ServiceFormState>>({
     search:  emptyServiceForm("search"),
     routing: emptyServiceForm("routing"),
@@ -852,11 +842,30 @@ export function CreateGeneration({ open, onClose, preSelectContribution, servers
     }
   }, []);
 
+  const fetchDownloadStatuses = useCallback(async () => {
+    try {
+      const version = await fetchCurrentConfigVersion();
+      if (!version) return;
+      const res = await api.get("/admin-dashboard/download-status", { params: { version } });
+      const statuses = res.data?.data?.statuses ?? res.data?.statuses ?? [];
+      setDownloadStatuses(statuses);
+    } catch (error) {
+      console.error("Failed to load download statuses:", error);
+    }
+  }, [fetchCurrentConfigVersion]);
+
+  const getDownloadServerName = (svc: GenerationService) => {
+    const workflowKey = svc === "routing" ? "routing" : "searchTiles";
+    const status = downloadStatuses.find((s) => s.workflow === workflowKey && s.status === "completed");
+    return status?.targetServer?.name || null;
+  };
+
   useEffect(() => {
     if (open) {
       currentConfigVersionRef.current = "";
       fetchServers();
       fetchApprovedPOI();
+      fetchDownloadStatuses();
       setSelected(preSelectContribution ? new Set<GenerationService>(["search"]) : new Set());
       setForms({
         search:  emptyServiceForm("search"),
@@ -1174,20 +1183,6 @@ export function CreateGeneration({ open, onClose, preSelectContribution, servers
       }
 
       if (!f.script.trim()) return `${svc}: Enter a script`;
-      
-      // Validate file selection based on mode
-      if (f.inputMode === "path") {
-        // For path mode, file MUST be selected from View Files
-        if (!isFileSelectedFromViewFiles(svc)) {
-          return `${svc}: Please select file using View Files option.`;
-        }
-      } else if (f.inputMode === "copy") {
-        if (!f.sourceServerId) return `${svc}: Select a source server.`;
-        if (!f.sourceFilePath.trim()) return `${svc}: Please select source file using View Files option.`;
-        if (!f.inputFile.trim()) return `${svc}: Please select input file name.`;
-      } else if (f.inputMode === "import") {
-        if (!f.importFile) return `${svc}: Select a file to import.`;
-      }
       
       if (shouldUseOutputPath(svc, f) && !f.outputPath.trim()) {
         return `${svc}: Enter an output path.`;
@@ -1601,6 +1596,15 @@ export function CreateGeneration({ open, onClose, preSelectContribution, servers
                                 <div className="flex items-center gap-1.5 mb-1">
                                   <label className="block text-xs font-medium text-foreground">
                                     Target Server <span className="text-red-500">*</span>
+                                    {(() => {
+                                      const downloadServer = getDownloadServerName(key);
+                                      if (!downloadServer) return null;
+                                      return (
+                                        <span className="ml-2 inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-400 font-mono">
+                                          Downloaded on: {downloadServer}
+                                        </span>
+                                      );
+                                    })()}
                                   </label>
                                   <Tooltip>
                                     <TooltipTrigger asChild>
@@ -1791,6 +1795,15 @@ export function CreateGeneration({ open, onClose, preSelectContribution, servers
                                 <div className="flex items-center gap-1.5 mb-1">
                                   <label className="block text-xs font-medium text-foreground">
                                     Target Server <span className="text-red-500">*</span>
+                                    {(() => {
+                                      const downloadServer = getDownloadServerName(key);
+                                      if (!downloadServer) return null;
+                                      return (
+                                        <span className="ml-2 inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-400 font-mono">
+                                          Downloaded on: {downloadServer}
+                                        </span>
+                                      );
+                                    })()}
                                   </label>
                                   <Tooltip>
                                     <TooltipTrigger asChild>
@@ -1827,307 +1840,7 @@ export function CreateGeneration({ open, onClose, preSelectContribution, servers
                                 )}
                               </div>
 
-                              {/* Input File */}
-                              <div>
-                                <div className="flex items-center gap-1.5 mb-2">
-                                  <label className="block text-xs font-medium text-foreground">
-                                    Input File <span className="text-red-500">*</span>
-                                  </label>
-                                  <Tooltip>
-                                    <TooltipTrigger asChild>
-                                      <Info className="w-3.5 h-3.5 text-muted-foreground hover:text-foreground cursor-help" />
-                                    </TooltipTrigger>
-                                    <TooltipContent side="top" className="text-[11px] max-w-[200px]">
-                                      Choose the source of the input file: local path, copy from another server, or direct upload.
-                                    </TooltipContent>
-                                  </Tooltip>
-                                </div>
 
-                                <div className="flex rounded-lg border border-border overflow-hidden mb-3">
-                                  {([
-                                    { mode: "path"   as InputMode, icon: FolderOpen,    label: "Path" },
-                                    { mode: "copy"   as InputMode, icon: ArrowRightLeft, label: "Copy" },
-                                    { mode: "import" as InputMode, icon: Upload,         label: "Import" },
-                                  ]).map(({ mode, icon: Icon, label: ml }) => (
-                                    <button
-                                      key={mode}
-                                      type="button"
-                                      onClick={() => updateForm(key, { inputMode: mode })}
-                                      className={`flex-1 flex items-center justify-center gap-1.5 py-2 text-xs font-medium transition-colors ${
-                                        f.inputMode === mode
-                                          ? "bg-primary text-primary-foreground"
-                                          : "bg-background text-muted-foreground hover:text-foreground hover:bg-muted"
-                                      }`}
-                                    >
-                                      <Icon className="w-3.5 h-3.5" />
-                                      {ml}
-                                    </button>
-                                  ))}
-                                </div>
-
-                                {/* Path mode */}
-                                {f.inputMode === "path" && (
-                                  <>
-                                    <div className="flex items-center gap-1.5 mb-1">
-                                      <label className="block text-xs font-medium text-foreground">File Path <span className="text-red-500">*</span></label>
-                                      <Tooltip>
-                                        <TooltipTrigger asChild>
-                                          <Info className="w-3.5 h-3.5 text-muted-foreground hover:text-foreground cursor-help" />
-                                        </TooltipTrigger>
-                                        <TooltipContent side="top" className="text-[11px] max-w-[200px]">
-                                          The absolute path to the data file on the target server.
-                                        </TooltipContent>
-                                      </Tooltip>
-                                    </div>
-                                    <PathInputWithBrowser
-                                      value={f.filePath}
-                                      onChange={(val) => updateForm(key, { filePath: val })}
-                                      placeholder="/home/data/search.sqlite3"
-                                      serverName={targetServerName}
-                                      showBrowser={openBrowser === `${key}_filePath`}
-                                      onToggleBrowser={() => toggleBrowser(`${key}_filePath`)}
-                                      onCloseBrowser={closeBrowser}
-                                      showViewFiles={true}
-                                      viewFilesLoading={filesState[key]?.loading || false}
-                                      onViewFiles={() => handleViewFiles(key)}
-                                    />
-                                    {/* Existing file list select */}
-                                    {filesState[key]?.show && (
-                                      <div className="mt-2">
-                                        {filesState[key].loading ? (
-                                          <div className="text-xs text-muted-foreground">Loading files…</div>
-                                        ) : filesState[key].list.length > 0 ? (
-                                          <select
-                                            value={selectedPathValue}
-                                            onChange={(e) => {
-                                              const sel = e.target.value;
-                                              if (!sel) return;
-                                              const selNorm = normalizePath(sel);
-                                              const full = selNorm.includes("/")
-                                                ? selNorm
-                                                : (() => {
-                                                    const base = normalizePath(f.filePath || "").trim();
-                                                    const d = base.endsWith("/") ? base : `${base}/`;
-                                                    return d ? `${d}${sel}` : sel;
-                                                  })();
-                                              updateForm(key, { filePath: full });
-                                              setFilesState((prev) => ({ ...prev, [key]: { ...prev[key], show: false } }));
-                                            }}
-                                            className="w-full bg-background border border-border rounded-lg px-3 py-2 text-sm text-foreground appearance-none"
-                                          >
-                                            <option value="">Select a file…</option>
-                                            {filesState[key].list.map((fn) => (
-                                              <option key={fn} value={fn}>{fn}</option>
-                                            ))}
-                                          </select>
-                                        ) : (
-                                          <div className="text-xs text-muted-foreground">No files available.</div>
-                                        )}
-                                      </div>
-                                    )}
-                                  </>
-                                )}
-
-                                {/* Copy mode */}
-                                {f.inputMode === "copy" && (
-                                  <div className="space-y-3">
-                                    <div className="relative">
-                                      <div className="flex items-center gap-1.5 mb-1">
-                                        <label className="block text-xs font-medium text-foreground">
-                                          Source Server <span className="text-red-500">*</span>
-                                        </label>
-                                        <Tooltip>
-                                          <TooltipTrigger asChild>
-                                            <Info className="w-3.5 h-3.5 text-muted-foreground hover:text-foreground cursor-help" />
-                                          </TooltipTrigger>
-                                          <TooltipContent side="top" className="text-[11px] max-w-[200px]">
-                                            The server from which the file will be copied.
-                                          </TooltipContent>
-                                        </Tooltip>
-                                      </div>
-                                      <select
-                                        value={f.sourceServerId}
-                                        onChange={(e) => updateForm(key, { sourceServerId: e.target.value })}
-                                        className="w-full bg-background border border-border rounded-lg px-3 py-2 text-sm text-foreground appearance-none focus:outline-none focus:ring-2 focus:ring-primary/40 transition"
-                                      >
-                                        <option value="">Select source server…</option>
-                                        {PRESET_SERVERS.filter((p) => p.id !== f.targetServerId).map((p) => (
-                                          <option key={p.id} value={p.id}>{p.name.toLowerCase()}</option>
-                                        ))}
-                                        {servers.filter((s) => s.id !== f.targetServerId).map((s) => (
-                                          <option key={s.id} value={s.id}>
-                                            {s.name.toLowerCase()} - ({s.environment})
-                                          </option>
-                                        ))}
-                                      </select>
-                                      <ChevronDown className="w-4 h-4 text-muted-foreground absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none" />
-                                    </div>
-
-                                    <div>
-                                      <div className="flex items-center gap-1.5 mb-1">
-                                        <label className="block text-xs font-medium text-foreground">
-                                          Source File Path <span className="text-red-500">*</span>
-                                        </label>
-                                        <Tooltip>
-                                          <TooltipTrigger asChild>
-                                            <Info className="w-3.5 h-3.5 text-muted-foreground hover:text-foreground cursor-help" />
-                                          </TooltipTrigger>
-                                          <TooltipContent side="top" className="text-[11px] max-w-[200px]">
-                                            The absolute path of the file on the source server.
-                                          </TooltipContent>
-                                        </Tooltip>
-                                      </div>
-                                      <PathInputWithBrowser
-                                        value={f.sourceFilePath}
-                                        onChange={(val) => updateForm(key, { sourceFilePath: val })}
-                                        placeholder="/home/data/search.sqlite3"
-                                        serverName={sourceServerName || targetServerName}
-                                        showBrowser={openBrowser === `${key}_sourceFilePath`}
-                                        onToggleBrowser={() => toggleBrowser(`${key}_sourceFilePath`)}
-                                        onCloseBrowser={closeBrowser}
-                                        showViewFiles={true}
-                                        viewFilesLoading={filesState[key]?.loading || false}
-                                        onViewFiles={() => handleViewFiles(key)}
-                                      />
-                                    </div>
-
-                                    {filesState[key]?.show && (
-                                      <div className="mt-2">
-                                        {filesState[key].loading ? (
-                                          <div className="text-xs text-muted-foreground">Loading files…</div>
-                                        ) : filesState[key].list.length > 0 ? (
-                                          <select
-                                            value={selectedSourceValue}
-                                            onChange={(e) => {
-                                              const sel = e.target.value;
-                                              if (!sel) return;
-                                              const selNorm = normalizePath(sel);
-                                              const full = selNorm.includes("/")
-                                                ? selNorm
-                                                : (() => {
-                                                    const d = dirname(f.sourceFilePath || "");
-                                                    return d ? `${d}${sel}` : sel;
-                                                  })();
-                                              updateForm(key, { sourceFilePath: full, inputFile: selNorm.includes("/") ? selNorm.split("/").pop() || sel : sel });
-                                              setFilesState((prev) => ({ ...prev, [key]: { ...prev[key], show: false } }));
-                                            }}
-                                            className="w-full bg-background border border-border rounded-lg px-3 py-2 text-sm text-foreground appearance-none"
-                                          >
-                                            <option value="">Select a file…</option>
-                                            {filesState[key].list.map((fn) => (
-                                              <option key={fn} value={fn}>{fn}</option>
-                                            ))}
-                                          </select>
-                                        ) : (
-                                          <div className="text-xs text-muted-foreground">No files available.</div>
-                                        )}
-                                      </div>
-                                    )}
-
-                                    <div>
-                                      <div className="flex items-center gap-1.5 mb-1">
-                                        <label className="block text-xs font-medium text-foreground">Input File</label>
-                                        <Tooltip>
-                                          <TooltipTrigger asChild>
-                                            <Info className="w-3.5 h-3.5 text-muted-foreground hover:text-foreground cursor-help" />
-                                          </TooltipTrigger>
-                                          <TooltipContent side="top" className="text-[11px] max-w-[200px]">
-                                            The destination path for the input file on the target server.
-                                          </TooltipContent>
-                                        </Tooltip>
-                                      </div>
-                                      <PathInputWithBrowser
-                                        value={f.filePath}
-                                        onChange={(val) => updateForm(key, { filePath: val })}
-                                        placeholder="/home/data/search_fail.sqlite3"
-                                        serverName={targetServerName}
-                                        showBrowser={openBrowser === `${key}_filePath_dest`}
-                                        onToggleBrowser={() => toggleBrowser(`${key}_filePath_dest`)}
-                                        onCloseBrowser={closeBrowser}
-                                      />
-                                    </div>
-                                  </div>
-                                )}
-
-                                {/* Import mode */}
-                                {f.inputMode === "import" && (
-                                  <div className="space-y-3">
-                                    {/* Input File Path Browser */}
-                                    <div>
-                                      <div className="flex items-center gap-1.5 mb-1">
-                                        <label className="block text-xs font-medium text-foreground">
-                                          Input File <span className="text-red-500">*</span>
-                                        </label>
-                                        <Tooltip>
-                                          <TooltipTrigger asChild>
-                                            <Info className="w-3.5 h-3.5 text-muted-foreground hover:text-foreground cursor-help" />
-                                          </TooltipTrigger>
-                                          <TooltipContent side="top" className="text-[11px] max-w-[200px]">
-                                            Select the file path on the server to import from.
-                                          </TooltipContent>
-                                        </Tooltip>
-                                      </div>
-                                      <PathInputWithBrowser
-                                        value={f.importServerFilePath}
-                                        onChange={(val) => updateForm(key, { importServerFilePath: val })}
-                                        placeholder={!targetServerName ? "Select a server first" : f.hasConfiguredPaths ? "Configured path" : "/home"}
-                                        serverName={targetServerName}
-                                        showBrowser={openBrowser === `${key}_importServerFilePath`}
-                                        onToggleBrowser={() => toggleBrowser(`${key}_importServerFilePath`)}
-                                        onCloseBrowser={closeBrowser}
-                                      />
-                                    </div>
-
-                                    {/* File Upload Area */}
-                                    <label className="flex flex-col items-center justify-center gap-2 border-2 border-dashed border-border rounded-lg py-5 cursor-pointer hover:border-primary/50 hover:bg-muted/30 transition">
-                                      <Upload className="w-5 h-5 text-muted-foreground" />
-                                      {f.importFile ? (
-                                        <>
-                                          <span className="text-xs text-foreground font-medium">{f.importFile.name}</span>
-                                          <span className="text-[11px] text-muted-foreground">
-                                            {(f.importFile.size / 1024 / 1024).toFixed(2)} MB
-                                            {f.importFile.type ? ` - ${f.importFile.type}` : ""}
-                                          </span>
-                                        </>
-                                      ) : (
-                                        <span className="text-xs text-muted-foreground">Click to select a file</span>
-                                      )}
-                                      <input
-                                        type="file"
-                                        className="hidden"
-                                        accept=".osm,.sqlite,.sqlite3"
-                                        onChange={(e) => updateForm(key, { importFile: e.target.files?.[0] ?? null })}
-                                      />
-                                    </label>
-
-                                    {f.importFile && (
-                                      <div className="space-y-2">
-                                        <button
-                                          type="button"
-                                          disabled={importUploading[key] || !f.targetServerId || !f.importServerFilePath.trim()}
-                                          onClick={() => handleImportUpload(key)}
-                                          className="flex w-full items-center justify-center gap-1.5 rounded-lg bg-primary px-3 py-2 text-xs font-medium text-primary-foreground transition-colors hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-50"
-                                        >
-                                          {importUploading[key] ? (
-                                            <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                                          ) : (
-                                            <Upload className="h-3.5 w-3.5" />
-                                          )}
-                                          {importUploading[key] ? `Uploading ${importUploadProgress[key]}%` : "Upload"}
-                                        </button>
-                                        {importUploading[key] && (
-                                          <div className="h-1.5 w-full overflow-hidden rounded-full bg-muted">
-                                            <div
-                                              className="h-full rounded-full bg-primary transition-all"
-                                              style={{ width: `${importUploadProgress[key]}%` }}
-                                            />
-                                          </div>
-                                        )}
-                                      </div>
-                                    )}
-                                  </div>
-                                )}
-                              </div>
 
                               {/* Script Path */}
                               <div>
@@ -2175,7 +1888,7 @@ export function CreateGeneration({ open, onClose, preSelectContribution, servers
                               </div>
 
                               {/* Output Path (shown when routing + GTFS) */}
-                              {shouldUseOutputPath(key, f) && (
+                              {/* {shouldUseOutputPath(key, f) && (
                                 <div>
                                   <div className="flex items-center gap-1.5 mb-1">
                                     <label className="block text-xs font-medium text-foreground">
@@ -2203,10 +1916,10 @@ export function CreateGeneration({ open, onClose, preSelectContribution, servers
                                     onViewFiles={() => handleViewFiles(key)}
                                   />
                                 </div>
-                              )}
+                              )} */}
 
                               {/* Level range */}
-                              {((key === "search" && !f.contributionGtfsIncluded) || (key === "routing" && !f.routingGtfsIncluded) || key === "tile") && (
+                              {/* {((key === "search" && !f.contributionGtfsIncluded) || (key === "routing" && !f.routingGtfsIncluded) || key === "tile") && (
                                 <div>
                                   <div className="flex items-center gap-1.5 mb-1">
                                     <label className="block text-xs font-medium text-foreground">Language Code</label>
@@ -2237,7 +1950,7 @@ export function CreateGeneration({ open, onClose, preSelectContribution, servers
                                     />
                                   </div>
                                 </div>
-                              )}
+                              )} */}
 
                               {/* Contribution Data toggle — search only */}
                               {/* {key === "search" && (
@@ -2556,22 +2269,11 @@ export function CreateGeneration({ open, onClose, preSelectContribution, servers
                           <span className="text-muted-foreground">Target server</span>
                           <span className="max-w-[60%] break-all text-right font-medium text-foreground">{targetServerName || "Not selected"}</span>
                         </div>
-                        <div className="flex items-start justify-between gap-3">
-                          <span className="text-muted-foreground">Source server</span>
-                          <span className="max-w-[60%] break-all text-right font-medium text-foreground">{sourceServerName || "Not required"}</span>
-                        </div>
-                        <div className="flex items-start justify-between gap-3">
-                          <span className="text-muted-foreground">Input mode</span>
-                          <span className="max-w-[60%] text-right font-medium uppercase text-foreground">{form.inputMode}</span>
-                        </div>
-                        <div className="flex items-start justify-between gap-3">
-                          <span className="text-muted-foreground">Input path</span>
-                          <span className="max-w-[60%] break-all text-right font-mono text-foreground">{inputPath}</span>
-                        </div>
-                        <div className="flex items-start justify-between gap-3">
+
+                        {/* <div className="flex items-start justify-between gap-3">
                           <span className="text-muted-foreground">Output path</span>
                           <span className="max-w-[60%] break-all text-right font-mono text-foreground">{outputPath}</span>
-                        </div>
+                        </div> */}
                         <div className="flex items-start justify-between gap-3">
                           <span className="text-muted-foreground">Notify</span>
                           <span className="max-w-[60%] text-right font-medium text-foreground">{forms.search.isnotify ? "Enabled" : "Disabled"}</span>
