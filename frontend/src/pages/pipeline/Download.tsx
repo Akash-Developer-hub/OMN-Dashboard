@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import mockSearchTilesLog from "@/utils/st_z60j63_mpqprzhh.log.txt";
 import osmJson from "@/utils/osm.json";
 import {
+  ArrowRight,
   Folder,
   Home,
   Info,
@@ -824,6 +826,7 @@ function FolderBrowserModal({
 }
 
 export default function Download() {
+  const navigate = useNavigate();
   const [servers, setServers] = useState<Server[]>([]);
   const [loadingServers, setLoadingServers] = useState(true);
   const [forms, setForms] = useState<Record<WorkflowKey, WorkflowFormState>>(() => defaultForms());
@@ -1411,11 +1414,19 @@ const nextLogState: JobLogState = {
               Select a server, browse the destination folder, start the download, and validate the output against the static log and static OSM configuration.
             </p>
           </div>
-          {currentVersion ? (
-            <Badge variant="outline" className="font-mono">
-              Version {currentVersion}
-            </Badge>
-          ) : null}
+          <div className="flex items-center gap-3">
+            {currentVersion ? (
+              <Badge variant="outline" className="font-mono">
+                Version {currentVersion}
+              </Badge>
+            ) : null}
+            <Button
+              onClick={() => navigate("/pipeline?createGeneration=true")}
+              className="bg-primary hover:bg-primary/90 text-primary-foreground font-semibold flex items-center gap-2"
+            >
+              Proceed to Generation <ArrowRight className="w-4 h-4" />
+            </Button>
+          </div>
         </div>
       </section>
 

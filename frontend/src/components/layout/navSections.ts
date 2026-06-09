@@ -39,7 +39,7 @@ export const navSections: NavSection[] = [
   {
     label: "Data Pipeline",
     icon: Database,
-    path: "/pipeline",
+    path: "/pipeline/download",
     permission: "data-pipeline",
     children: [
       { label: "Download", path: "/pipeline/download" },
