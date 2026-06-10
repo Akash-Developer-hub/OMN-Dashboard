@@ -934,6 +934,7 @@ export default function Download() {
   const lastLogPollAtRef = useRef<Record<WorkflowKey, number>>({ searchTiles: 0, routing: 0 });
   const workflowSubmitInFlightRef = useRef<Record<WorkflowKey, boolean>>({ searchTiles: false, routing: false });
   const autoLogRequestKeyRef = useRef<Record<WorkflowKey, string>>({ searchTiles: "", routing: "" });
+  const serverSelectionRequestRef = useRef<Record<WorkflowKey, string>>({ searchTiles: "", routing: "" });
   const initialPrefillAppliedRef = useRef(false);
   const initialVersionParamRef = useRef(String(searchParams.get("version") || "").trim());
   const setupDownloadOpenKeyRef = useRef("");
@@ -971,8 +972,7 @@ export default function Download() {
     const hydrateDownloadStatuses = async () => {
       try {
         const requestedVersion = initialVersionParamRef.current;
-        const versionResponse = await api.get("/admin-dashboard/pipeline-config/current-version");
-        const version = resolveSelectedPipelineVersion(searchParams, requestedVersion || versionResponse.data?.data?.version || versionResponse.data?.version || "v1.0");
+        const version = resolveSelectedPipelineVersion(searchParams, requestedVersion || currentVersion || "v1.0");
         storeSelectedPipelineVersion(version);
         setCurrentVersion(version);
 
@@ -1230,13 +1230,14 @@ export default function Download() {
 
   const getServer = (serverId: string) => servers.find((server) => server._id === serverId || server.id === serverId);
 
-  const fetchCurrentConfigVersion = async () => {
-    const response = await api.get("/admin-dashboard/pipeline-config/current-version");
-    return response.data?.data?.version || response.data?.version || "v1.0";
+  const getSelectedDownloadVersion = (fallback = "") => {
+    const version = resolveSelectedPipelineVersion(searchParams, fallback || currentVersion || "v1.0");
+    if (version) storeSelectedPipelineVersion(version);
+    return version;
   };
 
   const fetchDownloadPathForServer = async (serverId: string, versionOverride?: string) => {
-    const version = versionOverride || currentVersion || (await fetchCurrentConfigVersion());
+    const version = getSelectedDownloadVersion(versionOverride);
     const response = await api.post("/admin-dashboard/pipeline-config/download-path-config", {
       version,
     });
@@ -1245,15 +1246,39 @@ export default function Download() {
   };
 
   const handleServerSelection = async (workflow: WorkflowKey, serverId: string, versionOverride?: string) => {
-    updateForm(workflow, { targetServerId: serverId });
+    const nextServerId = String(serverId || "");
+    const selectedRequestKey = `${nextServerId}:${Date.now()}`;
+    serverSelectionRequestRef.current[workflow] = selectedRequestKey;
 
-    if (!serverId) {
-      updateForm(workflow, { outputPath: "/home", folderName: "", logPath: "/home", scriptPath: "/hom", maxspeedAndTurnlanesPath: "" });
+    setForms((current) => {
+      const isChangingServer = current[workflow].targetServerId !== nextServerId;
+      return {
+        ...current,
+        [workflow]: {
+          ...current[workflow],
+          targetServerId: nextServerId,
+          ...(isChangingServer
+            ? {
+                outputPath: "/home",
+                folderName: "",
+                logPath: "/home",
+                scriptPath: workflow === "searchTiles" ? DEFAULT_SEARCH_TILES_SCRIPT_PATH : "/home",
+                maxspeedAndTurnlanesPath: workflow === "routing" ? DEFAULT_MAXSPEED_SCRIPT_PATH : "",
+              }
+            : {}),
+        },
+      };
+    });
+
+    if (!nextServerId) {
+      updateForm(workflow, { outputPath: "/home", folderName: "", logPath: "/home", scriptPath: "/home", maxspeedAndTurnlanesPath: "" });
       return;
     }
 
     try {
-      const pathInfo = await fetchDownloadPathForServer(serverId, versionOverride);
+      const pathInfo = await fetchDownloadPathForServer(nextServerId, versionOverride);
+      if (serverSelectionRequestRef.current[workflow] !== selectedRequestKey) return;
+
       const nextOutputPath = normalizeBrowsePath(pathInfo?.outputPath || "/home");
       const nextLogPath = normalizeBrowsePath(pathInfo?.logPath || "/home");
       const nextScriptPath = String(pathInfo?.scriptPath || DEFAULT_SEARCH_TILES_SCRIPT_PATH).trim();
@@ -1271,6 +1296,7 @@ export default function Download() {
         toast.info("No download path config found for the selected server. Using default /home paths.");
       }
     } catch (error) {
+      if (serverSelectionRequestRef.current[workflow] !== selectedRequestKey) return;
       console.error("Failed to load download path config", error);
       updateForm(workflow, { outputPath: "/home", folderName: "", logPath: "/home", scriptPath: "", maxspeedAndTurnlanesPath: "" });
       toast.error("Failed to load download path config.");
@@ -1410,13 +1436,6 @@ export default function Download() {
     });
     setSearchParams({}, { replace: true });
   }, [loadingServers, searchParams, servers.length, setSearchParams]);
-
-  const fetchServerPathForServer = async (serverId: string) => {
-    const version = await fetchCurrentConfigVersion();
-    const response = await api.post("/admin-dashboard/pipeline-config/server-path", { version });
-    const serverPaths = response.data?.data?.serverPaths || response.data?.serverPaths || {};
-    return flattenServerPaths(serverPaths).find((path) => (path.targetServerId || path.serverId) === serverId);
-  };
 
   const fetchServerFolders = async (server: Server, path: string) => {
     const copyServerUser = String(server.name || "").trim().toUpperCase();
@@ -1623,7 +1642,11 @@ export default function Download() {
 
   const handleProceedToGeneration = async () => {
     try {
-      const version = currentVersion || (await fetchCurrentConfigVersion());
+      const version = getSelectedDownloadVersion(currentVersion);
+      if (!version) {
+        toast.error("Select a pipeline version.");
+        return;
+      }
       const response = await api.get("/admin-dashboard/download-status", { params: { version } });
       const searchTilesStatus = getSearchTilesStatusEntry(normalizeDownloadStatusEntries(response.data));
       const apiSummary = searchTilesStatus?.summary as WorkflowSummary | undefined;

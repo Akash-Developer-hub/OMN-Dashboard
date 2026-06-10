@@ -86,8 +86,8 @@ interface DownloadSetupState {
 
 const POLL_INTERVAL_MS = 4000;
 const STAGING_DETAILS_FRESHNESS_MS = 15 * 60 * 1000;
-const FETCH_PIPELINE_URL = "http://localhost:3000/api/v1/admin-dashboard/data-pipeline/fetch-pipeline";
-const FETCH_TRANSFERS_URL = "http://localhost:3000/api/v1/admin-dashboard/data-pipeline/fetch-transfers";
+const FETCH_PIPELINE_URL = `${api.defaults.baseURL}/admin-dashboard/data-pipeline/fetch-pipeline`;
+const FETCH_TRANSFERS_URL = `${api.defaults.baseURL}/admin-dashboard/data-pipeline/fetch-transfers`;
 const MOVE_URL = "https://sandbox.vmmaps.com/n8n/webhook/omn/move-service";
 const FILES_URL = "https://sandbox.vmmaps.com/n8n/webhook/omn/list-files";
 const FOLDERS_URL = "https://sandbox.vmmaps.com/n8n/webhook/omn/list-folders";

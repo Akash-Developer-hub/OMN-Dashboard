@@ -451,11 +451,10 @@ export default function DataPipelineLog({ runId }: { runId?: string }) {
   const fetchData = useCallback(async (isRefresh = false, version?: string | null) => {
     if (isRefresh) setRefreshing(true); else setLoading(true);
     try {
-      const FETCH_URL = "http://localhost:3000/api/v1/admin-dashboard/data-pipeline/fetch-pipeline";
       const params = version ? { version } : undefined;
 
       if (effectiveRunId) {
-        const res = await api.get(FETCH_URL, { params: { ...params, runId: effectiveRunId } });
+        const res = await api.get("/admin-dashboard/data-pipeline/fetch-pipeline", { params: { ...params, runId: effectiveRunId } });
         const arr = extractPipelineRuns(res.data ?? res);
         const body = arr.find((i) => i?.runId === effectiveRunId || i?._id === effectiveRunId || i?.id === effectiveRunId) ?? arr[0] ?? null;
         setRuns(body ? [body] : []);
@@ -463,7 +462,7 @@ export default function DataPipelineLog({ runId }: { runId?: string }) {
         setSelectedService(servicesFor(body)[0] ?? null);
         setEmptyVersion(!body && version ? version : null);
       } else {
-        const res = await api.get(FETCH_URL, { params });
+        const res = await api.get("/admin-dashboard/data-pipeline/fetch-pipeline", { params });
         const arr = extractPipelineRuns(res.data ?? res);
         arr.sort((a: any, b: any) => {
           const ta = a?.createdAt ? new Date(a.createdAt).getTime() : 0;
