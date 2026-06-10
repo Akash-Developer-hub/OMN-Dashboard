@@ -1007,6 +1007,9 @@ export default function Download() {
               ...buildEmptyLogState(),
               complete: Boolean(entry.logState.complete),
               lastError: typeof entry.logState.lastError === "string" ? entry.logState.lastError : undefined,
+              lines: Array.isArray(entry.logState.lines)
+                ? entry.logState.lines.map((line: unknown) => String(line || "")).filter(Boolean)
+                : [],
               offset: Number(entry.logState.offset) || 0,
               source: entry.logState.source === "remote" ? "remote" : entry.logState.source === "static" ? "static" : "empty",
             };
@@ -1190,6 +1193,7 @@ export default function Download() {
           logState: {
             complete: jobLogs[workflow].complete,
             lastError: jobLogs[workflow].lastError,
+            lines: jobLogs[workflow].lines,
             offset: jobLogs[workflow].offset,
             source: jobLogs[workflow].source,
           },
@@ -1664,13 +1668,16 @@ export default function Download() {
       }
 
       if (validatedStatus === "completed") {
-        navigate("/pipeline?createGeneration=true");
+        storeSelectedPipelineVersion(version);
+        window.alert("Download completed. Click OK to proceed to Generation.");
+        navigate(`/pipeline?createGeneration=true&version=${encodeURIComponent(version)}`);
         return;
       }
 
       if (validatedStatus === "failed") {
-        const failedFiles = apiSummary?.statusFiles?.failed ?? [];
-        setProceedNotice({ type: "failed", failedFiles });
+        storeSelectedPipelineVersion(version);
+        window.alert("Download validation failed. Click OK to proceed to Generation.");
+        navigate(`/pipeline?createGeneration=true&allowFailedDownload=true&version=${encodeURIComponent(version)}`);
         return;
       }
 
@@ -2254,7 +2261,7 @@ export default function Download() {
                 <p className="mt-1 text-sm text-muted-foreground">
                   {proceedNotice.type === "failed"
                     ? "Some files failed validation. Review the files before moving to Generation."
-                    : "Currently downloading. Once all files are completed, you can move to Generation."}
+                    : "No files have been downloaded yet. Please complete the download before proceeding to Generation."}
                 </p>
               </div>
               <button
@@ -2286,11 +2293,14 @@ export default function Download() {
               <Button
                 type="button"
                 onClick={() => {
+                  const version = getSelectedDownloadVersion(currentVersion);
+                  storeSelectedPipelineVersion(version);
+                  setProceedNotice(null);
                   if (proceedNotice.type === "failed") {
-                    navigate("/pipeline?createGeneration=true&allowFailedDownload=true");
+                    navigate(`/pipeline?createGeneration=true&allowFailedDownload=true&version=${encodeURIComponent(version)}`);
                     return;
                   }
-                  setProceedNotice(null);
+                  navigate(`/pipeline?createGeneration=true&allowFailedDownload=true&version=${encodeURIComponent(version)}`);
                 }}
               >
                 Okay

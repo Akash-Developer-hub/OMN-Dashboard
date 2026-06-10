@@ -3,8 +3,8 @@
 const { getDb } = require('../../config/database');
 const logger = require('../../logs_/logger');
 
-const COLLECTION_PREFIX = 'download_status_';
-const STATUS_DOC_ID = 'download_status';
+const COLLECTION_NAME = 'download_status';
+const STATUS_DOC_ID_PREFIX = 'download_status_';
 const WORKFLOW_KEYS = ['searchTiles', 'routing'];
 const ensuredCollections = new Set();
 
@@ -17,19 +17,34 @@ function sanitizeVersion(version) {
 }
 
 class VersionedDownloadStatus {
-    static collectionNameForVersion(version) {
-        return `${COLLECTION_PREFIX}${sanitizeVersion(version)}`;
+    static documentIdForVersion(version) {
+        return `${STATUS_DOC_ID_PREFIX}${sanitizeVersion(version)}`;
     }
 
-    static collectionForVersion(version) {
-        return getDb().collection(this.collectionNameForVersion(version));
+    static documentIdForDownload(version, createdAt) {
+        const timestamp = String(createdAt || new Date().toISOString())
+            .replace(/[^0-9a-z]/gi, '_')
+            .replace(/^_+|_+$/g, '')
+            .toLowerCase();
+
+        return `${STATUS_DOC_ID_PREFIX}${sanitizeVersion(version)}_${timestamp}`;
+    }
+
+    static collectionNameForVersion() {
+        return COLLECTION_NAME;
+    }
+
+    static collectionForVersion() {
+        return getDb().collection(COLLECTION_NAME);
     }
 
     static toResponse(doc) {
         if (!doc) return null;
+        const documentId = doc._id?.toString?.() || null;
         return {
             ...doc,
-            id: doc._id?.toString?.() || null,
+            documentId,
+            id: this.documentIdForVersion(doc.version),
         };
     }
 
@@ -44,7 +59,8 @@ class VersionedDownloadStatus {
             ...workflowDoc,
             workflow,
             version: versionDoc.version || null,
-            id: versionDoc._id?.toString?.() || null,
+            documentId: versionDoc._id?.toString?.() || null,
+            id: this.documentIdForVersion(versionDoc.version),
         };
     }
 
@@ -111,14 +127,43 @@ class VersionedDownloadStatus {
     static async findVersionDocument(version) {
         await this.ensureIndexes(version).catch(() => {});
 
-        const doc = await this.collectionForVersion(version).findOne({ _id: STATUS_DOC_ID });
+        const doc = await this.collectionForVersion(version).findOne({ _id: this.documentIdForVersion(version) });
+        return this.toResponse(doc);
+    }
+
+    static async findLatestVersionDocument(version) {
+        await this.ensureIndexes(version).catch(() => {});
+
+        const doc = await this.collectionForVersion(version)
+            .find({ version })
+            .sort({ updatedAt: -1, createdAt: -1 })
+            .limit(1)
+            .next();
+
+        return this.toResponse(doc);
+    }
+
+    static async findByRunId(version, workflow, runId) {
+        if (!runId) return null;
+
+        await this.ensureIndexes(version).catch(() => {});
+
+        const doc = await this.collectionForVersion(version)
+            .find({
+                version,
+                [`${workflow}.runId`]: runId,
+            })
+            .sort({ updatedAt: -1, createdAt: -1 })
+            .limit(1)
+            .next();
+
         return this.toResponse(doc);
     }
 
     static async findLegacyByWorkflow(version, workflow) {
         await this.ensureIndexes(version).catch(() => {});
 
-        const doc = await this.collectionForVersion(version).findOne({ workflow });
+        const doc = await this.collectionForVersion(version).findOne({ version, workflow });
         return this.toResponse(doc);
     }
 
@@ -129,8 +174,11 @@ class VersionedDownloadStatus {
         const collection = this.collectionForVersion(version);
 
         try {
-            await collection.createIndex({ workflow: 1 }, { name: 'idx_download_status_workflow', unique: true });
-            await collection.createIndex({ runId: 1 }, { name: 'idx_download_status_runid', sparse: true });
+            await collection.createIndex({ version: 1 }, { name: 'idx_download_status_version' });
+            await collection.createIndex({ version: 1, workflow: 1 }, { name: 'idx_download_status_version_workflow' });
+            await collection.createIndex({ version: 1, runId: 1 }, { name: 'idx_download_status_version_runid', sparse: true });
+            await collection.createIndex({ version: 1, 'searchTiles.runId': 1 }, { name: 'idx_download_status_searchtiles_runid', sparse: true });
+            await collection.createIndex({ version: 1, 'routing.runId': 1 }, { name: 'idx_download_status_routing_runid', sparse: true });
             await collection.createIndex({ updatedAt: -1 }, { name: 'idx_download_status_updated' });
         } catch {
             // Index creation should not block status writes.
@@ -139,8 +187,13 @@ class VersionedDownloadStatus {
         ensuredCollections.add(collectionName);
     }
 
-    static async findByWorkflow(version, workflow) {
-        const versionDoc = await this.findVersionDocument(version);
+    static async findByWorkflow(version, workflow, runId) {
+        const runDoc = await this.findByRunId(version, workflow, runId);
+        const runWorkflowDoc = this.toWorkflowResponse(runDoc, workflow);
+        if (runWorkflowDoc) return runWorkflowDoc;
+        if (runId) return null;
+
+        const versionDoc = await this.findLatestVersionDocument(version);
         const nestedWorkflowDoc = this.toWorkflowResponse(versionDoc, workflow);
         if (nestedWorkflowDoc) return nestedWorkflowDoc;
 
@@ -152,19 +205,22 @@ class VersionedDownloadStatus {
 
         const now = new Date().toISOString();
         const collection = this.collectionForVersion(version);
-        const existingVersionDoc = await collection.findOne({ _id: STATUS_DOC_ID });
+        const existingRunDoc = await this.findByRunId(version, workflow, data?.runId);
+        const documentId = existingRunDoc?._id || this.documentIdForDownload(version, now);
+        const existingVersionDoc = await collection.findOne({ _id: documentId });
         const existingWorkflowDoc = existingVersionDoc && typeof existingVersionDoc[workflow] === 'object' && !Array.isArray(existingVersionDoc[workflow])
             ? existingVersionDoc[workflow]
             : null;
+        const createdAt = existingVersionDoc?.createdAt || now;
         const workflowData = {
             ...data,
             workflow,
             version,
-            createdAt: existingWorkflowDoc?.createdAt || now,
+            createdAt: existingWorkflowDoc?.createdAt || createdAt,
             updatedAt: now,
         };
         const result = await collection.findOneAndUpdate(
-            { _id: STATUS_DOC_ID },
+            { _id: documentId },
             {
                 $set: {
                     [workflow]: workflowData,
@@ -172,7 +228,7 @@ class VersionedDownloadStatus {
                     updatedAt: now,
                 },
                 $setOnInsert: {
-                    createdAt: now,
+                    createdAt,
                 },
             },
             { upsert: true, returnDocument: 'after' }
@@ -182,6 +238,8 @@ class VersionedDownloadStatus {
         logger.info('Versioned download status upsert raw result.', {
             workflow,
             version,
+            collectionName: this.collectionNameForVersion(version),
+            documentId,
             hasValueWrapper: Boolean(result && result.value),
             rawResultKeys: result && typeof result === 'object' ? Object.keys(result) : [],
             resolvedDocKeys: doc && typeof doc === 'object' ? Object.keys(doc) : [],
@@ -196,15 +254,20 @@ class VersionedDownloadStatus {
     static async findAll(version) {
         await this.ensureIndexes(version).catch(() => {});
 
-        const versionDoc = await this.findVersionDocument(version);
-        const nestedStatuses = WORKFLOW_KEYS
-            .map((workflow) => this.toWorkflowResponse(versionDoc, workflow))
-            .filter(Boolean);
+        const versionDocs = await this.collectionForVersion(version)
+            .find({ version })
+            .sort({ updatedAt: -1, createdAt: -1 })
+            .toArray();
+        const nestedStatuses = versionDocs.flatMap((versionDoc) =>
+            WORKFLOW_KEYS
+                .map((workflow) => this.toWorkflowResponse(versionDoc, workflow))
+                .filter(Boolean)
+        );
 
         const workflowsInVersionDoc = new Set(nestedStatuses.map((entry) => entry.workflow));
 
         const legacyDocs = await this.collectionForVersion(version)
-            .find({ workflow: { $in: WORKFLOW_KEYS.filter((workflow) => !workflowsInVersionDoc.has(workflow)) } })
+            .find({ version, workflow: { $in: WORKFLOW_KEYS.filter((workflow) => !workflowsInVersionDoc.has(workflow)) } })
             .sort({ updatedAt: -1 })
             .toArray();
 
@@ -215,22 +278,12 @@ class VersionedDownloadStatus {
     }
 
     static async findLatestDocument() {
-        const db = getDb();
-        const collections = await db.listCollections({}, { nameOnly: true }).toArray();
-        const statusCollections = collections
-            .map((entry) => entry.name)
-            .filter((name) => /^download_status_/i.test(name));
-
-        if (statusCollections.length === 0) return null;
-
-        const candidates = [];
-
-        for (const collectionName of statusCollections) {
-            const doc = await db.collection(collectionName).findOne({}, { sort: { createdAt: -1, updatedAt: -1 } });
-            if (!doc) continue;
-
-            candidates.push(this.buildLatestCandidate(collectionName, doc));
-        }
+        const collectionName = this.collectionNameForVersion();
+        const docs = await getDb().collection(collectionName)
+            .find({})
+            .sort({ updatedAt: -1, createdAt: -1 })
+            .toArray();
+        const candidates = docs.map((doc) => this.buildLatestCandidate(collectionName, doc));
 
         if (candidates.length === 0) return null;
 

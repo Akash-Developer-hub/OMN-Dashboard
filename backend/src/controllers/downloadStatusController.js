@@ -35,6 +35,21 @@ function cleanString(value) {
     return typeof value === 'string' ? value.trim() : '';
 }
 
+function cleanVersionString(value) {
+    if (typeof value === 'string') return value.trim();
+    if (typeof value === 'number' && Number.isFinite(value)) return String(value).trim();
+    return '';
+}
+
+function getRequestedVersion(payload) {
+    return cleanVersionString(payload?.version)
+        || cleanVersionString(payload?.job?.version)
+        || cleanVersionString(payload?.summary?.version)
+        || cleanVersionString(payload?.data?.version)
+        || cleanVersionString(payload?.data?.job?.version)
+        || cleanVersionString(payload?.data?.summary?.version);
+}
+
 async function resolveCurrentVersion() {
     const { configs } = await PipelineConfig.findAll({});
     if (!configs || configs.length === 0) return DEFAULT_VERSION;
@@ -44,7 +59,7 @@ async function resolveCurrentVersion() {
 }
 
 async function resolveRequestedVersion(value) {
-    return cleanString(value) || resolveCurrentVersion();
+    return cleanVersionString(value) || resolveCurrentVersion();
 }
 
 function normalizeObject(value) {
@@ -60,9 +75,32 @@ function cleanOptionalBoolean(value) {
     return typeof value === 'boolean' ? value : null;
 }
 
+function getLogLineText(line) {
+    if (typeof line === 'string') return line;
+    if (!line || typeof line !== 'object') return String(line || '');
+
+    return String(line.message || line.line || line.log || line.text || '');
+}
+
+function collectLogLines(value) {
+    if (!value) return [];
+    if (typeof value === 'string') return value.split(/\r?\n/);
+    if (Array.isArray(value)) return value.flatMap((entry) => collectLogLines(entry));
+    if (typeof value !== 'object') return [String(value)];
+
+    return [
+        ...collectLogLines(value.lines),
+        ...collectLogLines(value.logs),
+        ...collectLogLines(value.logLines),
+        ...collectLogLines(value.log),
+        ...collectLogLines(value.message),
+        getLogLineText(value),
+    ].filter(Boolean);
+}
+
 function hasDownloadCompletedLine(logState) {
-    const lines = Array.isArray(logState?.lines) ? logState.lines : [];
-    return lines.some((line) => /All downloads complete\./i.test(String(line || '')));
+    const lines = collectLogLines(logState);
+    return lines.some((line) => /All downloads complete\.\s*Files saved in\s+['"][^'"]+['"]\.?/i.test(String(line || '')));
 }
 
 function normalizeSearchTilesStatus(status, summary, logState) {
@@ -199,7 +237,8 @@ async function persistStatusUpdate(payload, updatedBy) {
         return { error: 'workflow must be searchTiles or routing.' };
     }
 
-    const version = await resolveRequestedVersion(payload.version);
+    const requestedVersion = getRequestedVersion(payload);
+    const version = await resolveRequestedVersion(requestedVersion);
     const incomingTargetServer = normalizeObject(payload.targetServer);
     const incomingAddMaxspeedAndTurnlanesToOsm = cleanOptionalBoolean(payload.addMaxspeedAndTurnlanesToOsm);
     const incomingMaxspeedAndTurnlanesPath = cleanOptionalString(payload.maxspeedAndTurnlanesPath);
@@ -217,7 +256,7 @@ async function persistStatusUpdate(payload, updatedBy) {
     const incomingScriptPath = cleanOptionalString(payload.scriptPath || incomingJob?.scriptPath);
     const incomingInputFile = cleanOptionalString(payload.inputFile || incomingJob?.inputFile);
     const incomingRunId = cleanString(payload.runId || incomingJob?.runId);
-    const existingStatus = await VersionedDownloadStatus.findByWorkflow(version, workflow);
+    const existingStatus = await VersionedDownloadStatus.findByWorkflow(version, workflow, incomingRunId);
     const additionalTopLevelFields = buildAdditionalTopLevelFields(payload);
     const previousStatus = cleanString(existingStatus?.status || existingStatus?.summary?.validatedStatus || existingStatus?.job?.status);
 
@@ -225,6 +264,8 @@ async function persistStatusUpdate(payload, updatedBy) {
         source: updatedBy || 'unknown',
         workflow,
         version,
+        requestedVersion: requestedVersion || null,
+        collectionName: VersionedDownloadStatus.collectionNameForVersion(version),
         runId: incomingRunId || null,
         hasJob: Boolean(incomingJob),
         hasSummary: Boolean(incomingSummary),

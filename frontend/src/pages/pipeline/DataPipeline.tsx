@@ -2901,7 +2901,7 @@ export default function DataPipeline() {
   );
   const canOpenCreateGeneration =
     hasCompletedSearchTilesDownload ||
-    (allowFailedDownloadGeneration && hasFailedSearchTilesDownload);
+    allowFailedDownloadGeneration;
 
   useEffect(() => {
     if (!downloadStatusesLoaded) return;
