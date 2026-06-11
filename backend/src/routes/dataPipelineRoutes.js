@@ -25,6 +25,13 @@ router.patch('/update', DataPipelineController.updateServiceRun);
 router.patch('/update-results', DataPipelineController.updateResults);
 
 /**
+ * POST /api/v1/admin-dashboard/data-pipeline/monitor-logs
+ * Body: { runId, service, targetServer, sId, logPath, offset? }
+ * Starts backend polling of n8n runId logs and updates service status.
+ */
+router.post('/monitor-logs', DataPipelineController.monitorRunLogs);
+
+/**
  * GET /api/v1/admin-dashboard/data-pipeline
  * ?runId=... or ?limit=...
  */

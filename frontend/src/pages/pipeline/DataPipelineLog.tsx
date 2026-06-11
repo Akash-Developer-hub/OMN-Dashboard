@@ -562,6 +562,18 @@ export default function DataPipelineLog({ runId }: { runId?: string }) {
         if (!logBasePath) throw new Error("Server log path is not configured for the selected server.");
         const logPath = joinLogPath(logBasePath, `${sId}.log`);
 
+        void api.post("/admin-dashboard/data-pipeline/monitor-logs", {
+          runId: runKey,
+          service: selectedService,
+          targetServer,
+          sId,
+          offset: 0,
+          logPath,
+          version: selectedVersion,
+        }).catch((e: any) => {
+          console.warn("Failed to start backend generation log monitor", e?.response?.data ?? e?.message ?? e);
+        });
+
         while (!controller.signal.aborted) {
           try {
             const res = await axios.post(RUN_ID_LOGS_URL, { targetServer, sId, offset, logPath }, { signal: controller.signal, timeout: LOG_REQUEST_TIMEOUT });
@@ -593,7 +605,7 @@ export default function DataPipelineLog({ runId }: { runId?: string }) {
 
     poll();
     return () => { controller.abort(); pendingTimeouts.forEach(clearTimeout); };
-  }, [removeSuccessfulServiceLog, selectedRun, selectedService]);
+  }, [removeSuccessfulServiceLog, selectedRun, selectedService, selectedVersion]);
 
   // ── Scroll-to-bottom ──────────────────────────────────────────────────────
 

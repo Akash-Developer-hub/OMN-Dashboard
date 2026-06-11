@@ -2,10 +2,610 @@
 /* eslint-disable no-inner-declarations */
 'use strict';
 
+const axios = require('axios');
 const ApiResponse = require('../../utils/ApiResponse');
 const DataPipelineRun = require('../models/DataPipelineRun');
 const DataPipelineTransfers = require('../models/DataPipelineTransfers');
+const PipelineConfig = require('../models/PipelineConfig');
 const logger = require('../../logs_/logger');
+const config = require('../config');
+
+const GENERATION_LOG_MONITOR_INTERVAL_MS = Number(process.env.GENERATION_LOG_MONITOR_INTERVAL_MS || 3000);
+const GENERATION_LOG_MONITOR_MAX_DURATION_MS = Number(process.env.GENERATION_LOG_MONITOR_MAX_DURATION_MS || 6 * 60 * 60 * 1000);
+const GENERATION_LOG_MONITOR_REQUEST_TIMEOUT_MS = Number(process.env.GENERATION_LOG_MONITOR_REQUEST_TIMEOUT_MS || 60000);
+const GENERATION_LOG_MONITOR_MAX_LINES = Number(process.env.GENERATION_LOG_MONITOR_MAX_LINES || 25000);
+const activeGenerationLogMonitors = new Map();
+const GENERATION_FAILED_LOG_PATTERN = /NewConnectionError|ConnectionError|MaxRetryError|NetworkError|Connection timed out|Connection|Traceback|Exception|ValueError|TypeError|KeyError|AttributeError|ReadTimeout|ConnectTimeout|TimeoutError|BrokenPipeError/i;
+const SEARCH_TILE_SUCCESS_LOG_PATTERN = /Processing complete|All files processed|Total processed/i;
+const ROUTING_SUCCESS_LOG_PATTERN = /Routing tiles created at/i;
+
+function cleanString(value) {
+    return typeof value === 'string' ? value.trim() : '';
+}
+
+function normalizeRunLogsTargetServer(value) {
+    if (typeof value === 'string') return cleanString(value);
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return '';
+
+    return cleanString(value.name)
+        || cleanString(value.serverName)
+        || cleanString(value.host)
+        || cleanString(value.ipAddress)
+        || cleanString(value.username);
+}
+
+function getLogLineText(line) {
+    if (typeof line === 'string') return line;
+    if (!line || typeof line !== 'object') return String(line || '');
+
+    return String(line.message || line.line || line.log || line.text || '');
+}
+
+function stripAnsi(value) {
+    return String(value || '').replace(/\u001b\[[0-?]*[ -/]*[@-~]/g, '');
+}
+
+function sanitizeLogLine(line) {
+    return stripAnsi(line).replace(/\s+/g, ' ').trim();
+}
+
+function normalizeRunLogLines(payload) {
+    const body = payload && typeof payload === 'object' && 'data' in payload ? payload.data : payload;
+    const record = body && typeof body === 'object' && !Array.isArray(body) ? body : {};
+    const nested = record.data && typeof record.data === 'object' && !Array.isArray(record.data) ? record.data : {};
+    const candidates = [
+        record.logs,
+        record.lines,
+        record.logLines,
+        nested.logs,
+        nested.lines,
+        Array.isArray(body) ? body : null,
+        typeof body === 'string' ? body : null,
+    ];
+    const raw = candidates.find((candidate) => Array.isArray(candidate) || typeof candidate === 'string');
+
+    if (Array.isArray(raw)) {
+        return raw
+            .map((item) => getLogLineText(item))
+            .join('\n')
+            .split(/\r?\n/)
+            .map(sanitizeLogLine)
+            .filter(Boolean)
+            .slice(-GENERATION_LOG_MONITOR_MAX_LINES);
+    }
+
+    if (typeof raw === 'string') {
+        return raw.split(/\r?\n/).map(sanitizeLogLine).filter(Boolean).slice(-GENERATION_LOG_MONITOR_MAX_LINES);
+    }
+
+    if (typeof record.log === 'string') return normalizeRunLogLines(record.log);
+    if (typeof record.message === 'string') return normalizeRunLogLines(record.message);
+
+    return [];
+}
+
+function extractRunLogsOffset(payload, fallbackOffset, lineCount) {
+    const body = payload && typeof payload === 'object' && 'data' in payload ? payload.data : payload;
+    const record = body && typeof body === 'object' && !Array.isArray(body) ? body : {};
+    const nested = record.data && typeof record.data === 'object' && !Array.isArray(record.data) ? record.data : {};
+    const nextOffset = Number(record.newOffset ?? nested.newOffset ?? record.offset ?? nested.offset);
+
+    if (Number.isFinite(nextOffset)) return nextOffset;
+    return Number(fallbackOffset || 0) + Number(lineCount || 0);
+}
+
+function buildGenerationRunLogsPayload(payload, offset) {
+    const targetServer = normalizeRunLogsTargetServer(payload.targetServer)
+        || normalizeRunLogsTargetServer(payload.job?.targetServer);
+    const sId = cleanString(payload.sId || payload.job?.sId);
+    const logPath = cleanString(payload.logPath || payload.job?.logPath);
+
+    return {
+        targetServer,
+        sId,
+        offset: Number.isFinite(Number(offset)) ? Number(offset) : 0,
+        logPath,
+    };
+}
+
+function getGenerationStatusFromLines(service, lines) {
+    const serviceName = cleanString(service).toLowerCase();
+    const hasError = lines.some((line) => GENERATION_FAILED_LOG_PATTERN.test(String(line || '')));
+
+    if (hasError) return 'failed';
+
+    if (serviceName === 'routing') {
+        return lines.some((line) => ROUTING_SUCCESS_LOG_PATTERN.test(String(line || ''))) ? 'success' : 'running';
+    }
+
+    return lines.some((line) => SEARCH_TILE_SUCCESS_LOG_PATTERN.test(String(line || ''))) ? 'success' : 'running';
+}
+
+function normalizeGenerationTerminalStatus(value) {
+    const status = cleanString(value).toLowerCase();
+    if (['success', 'completed', 'complete'].includes(status)) return 'success';
+    if (['failed', 'failure', 'error'].includes(status)) return 'failed';
+    return null;
+}
+
+function extractEmail(value) {
+    return cleanString(value?.email || value?.mail || value?.to || value);
+}
+
+function collectAdminEmails(adminList) {
+    if (!adminList || typeof adminList !== 'object') return [];
+
+    return Array.from(new Set(
+        Object.values(adminList)
+            .map(extractEmail)
+            .filter(Boolean)
+    ));
+}
+
+async function getGenerationNotifyAdminEmails(version) {
+    const { configs } = await PipelineConfig.findAll({ version, limit: 1 });
+    const versionConfig = configs?.[0] || null;
+
+    if (versionConfig) {
+        const emails = collectAdminEmails(versionConfig.adminList);
+        if (emails.length > 0) return emails;
+    }
+
+    const { configs: latestConfigs } = await PipelineConfig.findAll({ limit: 1 });
+    return collectAdminEmails(latestConfigs?.[0]?.adminList);
+}
+
+function shouldSendGenerationMail(statusDoc) {
+    const values = [
+        statusDoc?.isnotify,
+        statusDoc?.result?.[0]?.isnotify,
+        ...Object.values(statusDoc?.services || {}).map((service) => service?.isnotify),
+    ];
+    const explicitFalse = values.some((value) => value === false || cleanString(value).toLowerCase() === 'false');
+    return !explicitFalse;
+}
+
+function getGenerationMailText(statusDoc, serviceName) {
+    const service = cleanString(serviceName);
+    const serviceDoc = getGenerationServiceDoc(statusDoc, service);
+
+    const directText = cleanString(serviceDoc?.text)
+        || cleanString(serviceDoc?.mailText)
+        || cleanString(statusDoc?.text)
+        || cleanString(statusDoc?.mailText);
+    if (directText) return directText;
+
+    const resultEntries = Array.isArray(statusDoc?.result) ? statusDoc.result : [];
+    for (const entry of resultEntries) {
+        const resultServices = entry?.services && typeof entry.services === 'object' && !Array.isArray(entry.services)
+            ? entry.services
+            : {};
+        const resultServiceDoc = service ? resultServices[service] : null;
+        const resultText = cleanString(resultServiceDoc?.text)
+            || cleanString(resultServiceDoc?.mailText)
+            || cleanString(entry?.text)
+            || cleanString(entry?.mailText);
+        if (resultText) return resultText;
+    }
+
+    const serviceId = cleanString(serviceDoc?.sId) || cleanString(statusDoc?.sId);
+    return [serviceId, service].filter(Boolean).join(' - ');
+}
+
+function getGenerationServiceDoc(statusDoc, serviceName) {
+    const service = cleanString(serviceName);
+    const services = statusDoc?.services && typeof statusDoc.services === 'object' && !Array.isArray(statusDoc.services)
+        ? statusDoc.services
+        : {};
+
+    if (service && services[service]) return services[service];
+
+    const resultEntries = Array.isArray(statusDoc?.result) ? statusDoc.result : [];
+    for (const entry of resultEntries) {
+        const resultServices = entry?.services && typeof entry.services === 'object' && !Array.isArray(entry.services)
+            ? entry.services
+            : {};
+        if (service && resultServices[service]) return resultServices[service];
+    }
+
+    return null;
+}
+
+function getGenerationMailSubject(statusDoc, serviceName) {
+    const serviceDoc = getGenerationServiceDoc(statusDoc, serviceName);
+    const serviceId = cleanString(serviceDoc?.sId) || cleanString(statusDoc?.sId);
+    const serverName = normalizeRunLogsTargetServer(serviceDoc?.targetServer || statusDoc?.targetServer)
+        || cleanString(serviceDoc?.targetServerName)
+        || cleanString(serviceDoc?.serverName)
+        || cleanString(statusDoc?.targetServerName)
+        || cleanString(statusDoc?.serverName);
+    const parts = [serviceId, serverName].filter(Boolean);
+
+    return parts.join(' - ');
+}
+
+async function sendGenerationStatusMail(statusDoc, status, serviceName) {
+    const webhookUrl = cleanString(config.n8n?.mailAutoWebhookUrl);
+    if (!webhookUrl || !statusDoc || !status) return;
+    if (!shouldSendGenerationMail(statusDoc)) return;
+
+    let emails = [];
+    try {
+        emails = await getGenerationNotifyAdminEmails(statusDoc.version);
+    } catch (error) {
+        logger.error('Failed to fetch admin notify list for generation status mail.', {
+            version: statusDoc.version || null,
+            runId: statusDoc.runId || null,
+            status,
+            error: error.message,
+        });
+        return;
+    }
+
+    if (emails.length === 0) {
+        logger.warn('Skipping generation status mail because notify admin list is empty.', {
+            version: statusDoc.version || null,
+            runId: statusDoc.runId || null,
+            status,
+        });
+        return;
+    }
+
+    const statusLabel = status === 'success' ? 'Success' : 'Failed';
+    const text = getGenerationMailText(statusDoc, serviceName);
+    const subject = getGenerationMailSubject(statusDoc, serviceName);
+
+    await Promise.all(emails.map(async (to) => {
+        const payload = {
+            to,
+            text,
+            status: statusLabel,
+            subject,
+        };
+
+        try {
+            await axios.post(webhookUrl, payload, { timeout: 30000 });
+            logger.info('Generation status mail webhook triggered successfully.', {
+                to,
+                runId: cleanString(statusDoc.runId) || null,
+                version: statusDoc.version || null,
+                status,
+                service: serviceName || null,
+            });
+        } catch (error) {
+            logger.error('Failed to trigger generation status mail webhook.', {
+                payload,
+                error: error.message,
+                response: error.response?.data,
+            });
+        }
+    }));
+}
+
+async function triggerGenerationStatusMailOnce(statusDoc, status, serviceName) {
+    const runId = cleanString(statusDoc?.runId);
+    const service = cleanString(serviceName);
+    const terminalStatus = normalizeGenerationTerminalStatus(status);
+    if (!runId || !terminalStatus || !service) return;
+
+    const claimedRaw = await DataPipelineRun.collection.findOneAndUpdate(
+        {
+            runId,
+            [`services.${service}.generationMailSent`]: { $ne: true },
+        },
+        {
+            $set: {
+                [`services.${service}.generationMailSent`]: true,
+                [`services.${service}.generationMailStatus`]: terminalStatus,
+                [`services.${service}.generationMailSentAt`]: new Date().toISOString(),
+                generationMailLastService: service,
+                generationMailLastStatus: terminalStatus,
+                generationMailLastSentAt: new Date().toISOString(),
+            },
+        },
+        { returnDocument: 'after' }
+    );
+    const claimedDoc = claimedRaw && claimedRaw.value ? claimedRaw.value : claimedRaw;
+    if (!claimedDoc) return;
+
+    await sendGenerationStatusMail(DataPipelineRun.toResponse(claimedDoc), terminalStatus, service);
+}
+
+async function triggerGenerationStatusMailsForServices(statusDoc) {
+    if (!statusDoc || typeof statusDoc !== 'object') return;
+
+    const services = statusDoc.services && typeof statusDoc.services === 'object' && !Array.isArray(statusDoc.services)
+        ? statusDoc.services
+        : {};
+
+    for (const [serviceName, serviceDoc] of Object.entries(services)) {
+        const terminalStatus = normalizeGenerationTerminalStatus(
+            serviceDoc?.status || serviceDoc?.computedStatus || serviceDoc?.pipelineStatus
+        );
+        if (terminalStatus) {
+            await triggerGenerationStatusMailOnce(statusDoc, terminalStatus, serviceName);
+        }
+    }
+
+    const resultEntries = Array.isArray(statusDoc.result) ? statusDoc.result : [];
+    for (const entry of resultEntries) {
+        const resultServices = entry?.services && typeof entry.services === 'object' && !Array.isArray(entry.services)
+            ? entry.services
+            : {};
+
+        for (const [serviceName, serviceDoc] of Object.entries(resultServices)) {
+            const terminalStatus = normalizeGenerationTerminalStatus(
+                serviceDoc?.status || serviceDoc?.computedStatus || serviceDoc?.pipelineStatus
+            );
+            if (terminalStatus) {
+                await triggerGenerationStatusMailOnce(statusDoc, terminalStatus, serviceName);
+            }
+        }
+    }
+}
+
+async function persistGenerationServiceLog(payload, lines, offset, status) {
+    const runId = cleanString(payload.runId || payload.job?.runId || payload.sId || payload.job?.sId);
+    const service = cleanString(payload.service);
+    if (!runId || !service) return null;
+
+    const now = new Date().toISOString();
+    const logText = lines.join('\n');
+    const updateObj = {
+        updatedAt: now,
+        [`services.${service}.service`]: service,
+        [`services.${service}.status`]: status,
+        [`services.${service}.log`]: logText,
+        [`services.${service}.logState`]: {
+            lines,
+            offset,
+            source: 'remote',
+        },
+        [`${service}Status`]: status,
+    };
+
+    const sId = cleanString(payload.sId || payload.job?.sId);
+    const logPath = cleanString(payload.logPath || payload.job?.logPath);
+    const targetServer = normalizeRunLogsTargetServer(payload.targetServer || payload.job?.targetServer);
+
+    if (sId) updateObj[`services.${service}.sId`] = sId;
+    if (logPath) updateObj[`services.${service}.logPath`] = logPath;
+    if (targetServer) updateObj[`services.${service}.targetServer`] = targetServer;
+
+    const updateOps = {
+        $set: updateObj,
+        $setOnInsert: {
+            runId,
+            createdAt: now,
+        },
+        $addToSet: {
+            servicesList: service,
+        },
+    };
+
+    const savedRaw = await DataPipelineRun.collection.findOneAndUpdate(
+        { runId },
+        updateOps,
+        { upsert: true, returnDocument: 'after' }
+    );
+
+    try {
+        const transferDoc = await DataPipelineTransfers.findByRunId(runId);
+        if (transferDoc) {
+            await DataPipelineTransfers.collection.findOneAndUpdate(
+                { runId },
+                { $set: updateObj, $addToSet: { servicesList: service } },
+                { returnDocument: 'after' }
+            );
+        }
+    } catch (error) {
+        logger.warn('DataPipeline generation log monitor could not update transfer document.', {
+            runId,
+            service,
+            error: error.message,
+        });
+    }
+
+    const savedDocRaw = savedRaw && savedRaw.value ? savedRaw.value : savedRaw;
+    if (['success', 'failed'].includes(status)) {
+        await triggerGenerationStatusMailOnce(savedDocRaw, status, service);
+    }
+
+    return DataPipelineRun.toResponse(savedDocRaw);
+}
+
+async function fetchAndPersistGenerationRunLogs(payload) {
+    const webhookUrl = cleanString(config.n8n?.runIdLogsWebhookUrl);
+    if (!webhookUrl) return { error: 'N8N_RUN_ID_LOGS_WEBHOOK_URL is not configured.' };
+
+    const service = cleanString(payload.service);
+    if (!service) return { error: 'service is required to monitor generation logs.' };
+
+    const runLogsPayload = buildGenerationRunLogsPayload(payload, payload.offset);
+    if (!runLogsPayload.targetServer || !runLogsPayload.sId || !runLogsPayload.logPath) {
+        return { error: 'targetServer, sId, and logPath are required to monitor generation logs.' };
+    }
+
+    logger.info('Calling runId-logs webhook for generation monitor.', {
+        runId: cleanString(payload.runId || payload.job?.runId || runLogsPayload.sId),
+        service,
+        sId: runLogsPayload.sId,
+        offset: runLogsPayload.offset,
+        logPath: runLogsPayload.logPath,
+        targetServer: runLogsPayload.targetServer,
+    });
+
+    const response = await axios.post(webhookUrl, runLogsPayload, { timeout: GENERATION_LOG_MONITOR_REQUEST_TIMEOUT_MS });
+    const lines = normalizeRunLogLines(response.data);
+    const previousLines = Array.isArray(payload.previousLines) ? payload.previousLines : [];
+    const mergedLines = [...previousLines, ...lines].slice(-GENERATION_LOG_MONITOR_MAX_LINES);
+    const nextOffset = extractRunLogsOffset(response.data, runLogsPayload.offset, lines.length);
+    const status = getGenerationStatusFromLines(service, mergedLines);
+    const saved = await persistGenerationServiceLog({
+        ...payload,
+        sId: runLogsPayload.sId,
+        logPath: runLogsPayload.logPath,
+        targetServer: runLogsPayload.targetServer,
+    }, mergedLines, nextOffset, status);
+
+    logger.info('runId-logs webhook response processed for generation monitor.', {
+        runId: cleanString(payload.runId || payload.job?.runId || runLogsPayload.sId),
+        service,
+        sId: runLogsPayload.sId,
+        requestedOffset: runLogsPayload.offset,
+        nextOffset,
+        fetchedLineCount: lines.length,
+        mergedLineCount: mergedLines.length,
+        status,
+        lastLine: mergedLines[mergedLines.length - 1] || null,
+    });
+
+    return {
+        saved,
+        lines: mergedLines,
+        offset: nextOffset,
+        status,
+    };
+}
+
+function startGenerationLogMonitor(payload) {
+    const runId = cleanString(payload.runId || payload.job?.runId);
+    const service = cleanString(payload.service);
+    const monitorKey = [runId, service].join(':');
+
+    if (!runId || !service) return { error: 'runId and service are required to monitor generation logs.' };
+
+    if (activeGenerationLogMonitors.has(monitorKey)) {
+        return { monitorKey, alreadyRunning: true };
+    }
+
+    const state = {
+        payload: { ...payload },
+        startedAt: Date.now(),
+        stopped: false,
+        timer: null,
+    };
+
+    const stop = () => {
+        state.stopped = true;
+        if (state.timer) clearTimeout(state.timer);
+        activeGenerationLogMonitors.delete(monitorKey);
+    };
+
+    const tick = async () => {
+        if (state.stopped) return;
+
+        try {
+            const monitorResult = await fetchAndPersistGenerationRunLogs(state.payload);
+            if (monitorResult.error) {
+                logger.warn('Generation log monitor skipped.', { monitorKey, error: monitorResult.error });
+                stop();
+                return;
+            }
+
+            state.payload = {
+                ...state.payload,
+                offset: monitorResult.offset,
+                previousLines: monitorResult.lines,
+            };
+
+            if (['success', 'failed'].includes(monitorResult.status) || Date.now() - state.startedAt >= GENERATION_LOG_MONITOR_MAX_DURATION_MS) {
+                stop();
+                return;
+            }
+        } catch (error) {
+            logger.error('Generation log monitor failed to fetch logs.', {
+                monitorKey,
+                error: error.message,
+                response: error.response?.data,
+            });
+        }
+
+        if (!state.stopped) state.timer = setTimeout(tick, GENERATION_LOG_MONITOR_INTERVAL_MS);
+    };
+
+    activeGenerationLogMonitors.set(monitorKey, state);
+    setTimeout(tick, 0);
+
+    return { monitorKey, alreadyRunning: false };
+}
+
+function buildGenerationServiceMonitorPayloads(payload) {
+    if (!payload || typeof payload !== 'object') return [];
+
+    const runId = cleanString(payload.runId || payload.job?.runId);
+    const services = payload.services && typeof payload.services === 'object' && !Array.isArray(payload.services)
+        ? payload.services
+        : null;
+
+    if (services && Object.keys(services).length > 0) {
+        const serviceNames = Array.isArray(payload.servicesList) && payload.servicesList.length > 0
+            ? payload.servicesList
+            : Object.keys(services);
+
+        return serviceNames
+            .map((serviceName) => {
+                const service = cleanString(serviceName);
+                const servicePayload = services[service];
+                if (!service || !servicePayload || typeof servicePayload !== 'object') return null;
+
+                const serviceRunId = runId || cleanString(servicePayload.runId || servicePayload.job?.runId);
+
+                return {
+                    ...payload,
+                    ...servicePayload,
+                    runId: serviceRunId,
+                    service,
+                    sId: cleanString(servicePayload.sId),
+                    logPath: cleanString(servicePayload.logPath),
+                    targetServer: servicePayload.targetServer ?? payload.targetServer,
+                    job: {
+                        ...(payload.job || {}),
+                        ...(servicePayload.job || {}),
+                        runId: serviceRunId,
+                        sId: cleanString(servicePayload.sId),
+                        logPath: cleanString(servicePayload.logPath),
+                        targetServer: servicePayload.targetServer ?? payload.targetServer,
+                    },
+                };
+            })
+            .filter(Boolean);
+    }
+
+    return [payload];
+}
+
+function startGenerationLogMonitors(payload, { skipIncomplete = false } = {}) {
+    const servicePayloads = buildGenerationServiceMonitorPayloads(payload);
+    if (servicePayloads.length === 0) return { error: 'Payload is required to monitor generation logs.' };
+
+    const monitors = [];
+    const skipped = [];
+
+    for (const servicePayload of servicePayloads) {
+        const monitor = startGenerationLogMonitor(servicePayload);
+        if (monitor.error) {
+            if (!skipIncomplete) return monitor;
+            skipped.push({
+                service: cleanString(servicePayload.service) || null,
+                error: monitor.error,
+            });
+            continue;
+        }
+
+        monitors.push({
+            service: cleanString(servicePayload.service),
+            sId: cleanString(servicePayload.sId || servicePayload.job?.sId),
+            ...monitor,
+        });
+    }
+
+    if (monitors.length === 0 && !skipIncomplete) {
+        return { error: skipped[0]?.error || 'No generation log monitors could be started.' };
+    }
+
+    return { monitors, skipped };
+}
 
 class DataPipelineController {
     static extractRunIdFromValue = (value, seen = new Set()) => {
@@ -244,6 +844,23 @@ class DataPipelineController {
                 // Handle both response formats from findOneAndUpdate
                 const savedDocRaw = result && result.value ? result.value : result;
                 const savedDoc = savedDocRaw ? DataPipelineRun.toResponse(savedDocRaw) : null;
+                const monitorResult = startGenerationLogMonitors(
+                    {
+                        ...pipelineDoc,
+                        runId,
+                        services,
+                        servicesList: finalServicesList,
+                    },
+                    { skipIncomplete: true }
+                );
+
+                if (monitorResult.monitors?.length > 0) {
+                    logger.info('DataPipeline createRun: generation log monitor(s) started.', {
+                        runId,
+                        monitors: monitorResult.monitors,
+                        skipped: monitorResult.skipped,
+                    });
+                }
 
                 results.push(savedDoc);
             }
@@ -324,6 +941,10 @@ class DataPipelineController {
                 );
 
                 const savedDocRaw = savedRaw && savedRaw.value ? savedRaw.value : savedRaw;
+                if (savedDocRaw) {
+                    await triggerGenerationStatusMailsForServices(savedDocRaw);
+                }
+
                 results.push(savedDocRaw ? DataPipelineRun.toResponse(savedDocRaw) : null);
             }
 
@@ -439,6 +1060,7 @@ class DataPipelineController {
 
                     // Push the final doc state once
                     const finalDoc = await DataPipelineRun.findByRunId(runId);
+                    await triggerGenerationStatusMailsForServices(finalDoc);
                     results.push(finalDoc);
                     continue; // move to next payload item
                 }
@@ -485,6 +1107,15 @@ class DataPipelineController {
                     );
 
                     const finalDocTop = await DataPipelineRun.findByRunId(runId);
+                    await triggerGenerationStatusMailsForServices(finalDocTop);
+                    const monitorResultTop = startGenerationLogMonitors(payloadItem, { skipIncomplete: true });
+                    if (monitorResultTop.monitors?.length > 0) {
+                        logger.info('DataPipeline updateServiceRun: generation log monitor(s) started.', {
+                            runId,
+                            monitors: monitorResultTop.monitors,
+                            skipped: monitorResultTop.skipped,
+                        });
+                    }
                     results.push(finalDocTop);
                     continue;
                 }
@@ -609,6 +1240,27 @@ class DataPipelineController {
                 );
 
                 const savedDocRaw = savedRaw && savedRaw.value ? savedRaw.value : savedRaw;
+                if (savedDocRaw && service) {
+                    const serviceDoc = savedDocRaw.services && typeof savedDocRaw.services === 'object'
+                        ? savedDocRaw.services[service]
+                        : null;
+                    const terminalStatus = normalizeGenerationTerminalStatus(
+                        serviceDoc?.status || serviceDoc?.computedStatus || serviceDoc?.pipelineStatus
+                    );
+                    if (terminalStatus) {
+                        await triggerGenerationStatusMailOnce(savedDocRaw, terminalStatus, service);
+                    }
+
+                    const monitorResult = startGenerationLogMonitors(payloadItem, { skipIncomplete: true });
+                    if (monitorResult.monitors?.length > 0) {
+                        logger.info('DataPipeline updateServiceRun: generation log monitor started.', {
+                            runId,
+                            service,
+                            monitors: monitorResult.monitors,
+                            skipped: monitorResult.skipped,
+                        });
+                    }
+                }
                 const saved = DataPipelineRun.toResponse(savedDocRaw);
 
                 const apiResponse = JSON.parse(JSON.stringify(saved));
@@ -1251,6 +1903,31 @@ class DataPipelineController {
             return ApiResponse.success(res, 200, 'Service status updated.', saved);
         } catch (err) {
             logger.error('DataPipeline updateServiceStatus error:', err && err.message ? err.message : String(err));
+            return ApiResponse.error(res, 500, err && err.message ? err.message : String(err));
+        }
+    };
+
+    /**
+     * POST /api/v1/admin-dashboard/data-pipeline/monitor-logs
+     * Starts backend-owned polling for generation service logs.
+     */
+    static monitorRunLogs = async (req, res) => {
+        try {
+            const monitor = startGenerationLogMonitors(req.body || {});
+            if (monitor.error) return ApiResponse.error(res, 400, monitor.error);
+
+            const alreadyRunning = Array.isArray(monitor.monitors)
+                && monitor.monitors.length > 0
+                && monitor.monitors.every((entry) => entry.alreadyRunning);
+
+            return ApiResponse.success(
+                res,
+                202,
+                alreadyRunning ? 'Generation log monitor already running.' : 'Generation log monitor started.',
+                monitor
+            );
+        } catch (err) {
+            logger.error('DataPipeline monitorRunLogs error:', err && err.message ? err.message : String(err));
             return ApiResponse.error(res, 500, err && err.message ? err.message : String(err));
         }
     };
