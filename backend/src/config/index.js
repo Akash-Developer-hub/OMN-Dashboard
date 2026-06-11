@@ -36,8 +36,11 @@ const config = {
 
     n8n: {
         apiKey: process.env.N8N_API_KEY || '',
+        runIdLogsWebhookUrl: process.env.N8N_RUN_ID_LOGS_WEBHOOK_URL || 'https://sandbox.vmmaps.com/n8n/webhook/omn/runId-logs',
         downloadStatusCompletedWebhookUrl: process.env.N8N_DOWNLOAD_STATUS_COMPLETED_WEBHOOK_URL || '',
+        mailAutoWebhookUrl: process.env.N8N_MAIL_AUTO_WEBHOOK_URL || 'https://sandbox.vmmaps.com/n8n/webhook/omn/mail-auto',
         routingAddMaxspeedWebhookUrl: process.env.N8N_ROUTING_ADDMAXSPEED_WEBHOOK_URL || 'https://sandbox.vmmaps.com/n8n/webhook/omn/addmaxspeed',
+        maxspeedWebhookUrl: process.env.N8N_MAXSPEED_WEBHOOK_URL || 'https://sandbox.vmmaps.com/n8n/webhook/maxspeed',
     },
 };
 

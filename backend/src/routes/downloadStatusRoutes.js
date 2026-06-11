@@ -14,6 +14,7 @@ router.use(authenticate, authorize('admin', 'superadmin', 'vendor'));
 
 router.get('/latest', DownloadStatusController.getLatestDocument);
 router.get('/', DownloadStatusController.getStatuses);
+router.post('/monitor-logs', DownloadStatusController.monitorRunLogs);
 router.put('/', DownloadStatusController.upsertStatus);
 
 module.exports = router;

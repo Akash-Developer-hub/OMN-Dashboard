@@ -124,6 +124,9 @@ type ProceedNotice =
     }
   | {
       type: "running";
+    }
+  | {
+      type: "missing";
     };
 
 type BrowserField = "outputPath" | "logPath" | "scriptPath" | "maxspeedAndTurnlanesPath";
@@ -972,7 +975,9 @@ export default function Download() {
     const hydrateDownloadStatuses = async () => {
       try {
         const requestedVersion = initialVersionParamRef.current;
-        const version = resolveSelectedPipelineVersion(searchParams, requestedVersion || currentVersion || "v1.0");
+        const version = currentVersion
+          ? currentVersion
+          : resolveSelectedPipelineVersion(searchParams, requestedVersion || "v1.0");
         storeSelectedPipelineVersion(version);
         setCurrentVersion(version);
 
@@ -1235,7 +1240,8 @@ export default function Download() {
   const getServer = (serverId: string) => servers.find((server) => server._id === serverId || server.id === serverId);
 
   const getSelectedDownloadVersion = (fallback = "") => {
-    const version = resolveSelectedPipelineVersion(searchParams, fallback || currentVersion || "v1.0");
+    const version = String(fallback || currentVersion || "").trim()
+      || resolveSelectedPipelineVersion(searchParams, "v1.0");
     if (version) storeSelectedPipelineVersion(version);
     return version;
   };
@@ -1623,6 +1629,25 @@ export default function Download() {
         [workflow]: current[workflow] ? { ...current[workflow], status: "running", lastError: undefined } : current[workflow],
       }));
       setAutoPollEnabled((current) => ({ ...current, [workflow]: true }));
+      void api.post("/admin-dashboard/download-status/monitor-logs", {
+        version: getSelectedDownloadVersion(currentVersion),
+        workflow,
+        runId,
+        sId,
+        offset: 0,
+        logPath,
+        outputPath: provisionalJob.outputPath,
+        scriptPath,
+        targetServer: payload.targetServer,
+        job: {
+          ...provisionalJob,
+          status: "running",
+          scriptPath,
+          targetServer: payload.targetServer,
+        },
+      }).catch((monitorError) => {
+        console.error("Failed to start backend log monitor", monitorError);
+      });
       toast.success(`${workflowCopy[workflow].label} download started.`);
     } catch (error) {
       const message = error instanceof Error ? error.message : "Failed to start download.";
@@ -1657,7 +1682,7 @@ export default function Download() {
       const validatedStatus = apiSummary?.validatedStatus;
 
       if (!searchTilesStatus || !validatedStatus) {
-        toast.error("Download the files, then only move to Generation.");
+        setProceedNotice({ type: "missing" });
         return;
       }
 
@@ -2256,12 +2281,19 @@ export default function Download() {
             <div className="flex items-start justify-between gap-4 border-b border-border px-5 py-4">
               <div>
                 <h3 className="text-base font-semibold">
-                  {proceedNotice.type === "failed" ? "Download validation failed" : "Download in progress"}
+                  {proceedNotice.type === "failed"
+                    ? "Download validation failed"
+                    : proceedNotice.type === "running"
+                    ? "Download in progress"
+                    : "Download not completed"}
                 </h3>
                 <p className="mt-1 text-sm text-muted-foreground">
                   {proceedNotice.type === "failed"
                     ? "Some files failed validation. Review the files before moving to Generation."
-                    : "No files have been downloaded yet. Please complete the download before proceeding to Generation."}
+                    : proceedNotice.type === "running"
+                    ? "No files have been downloaded yet. Please complete the download before proceeding to Generation."
+                    : "Download the files, then only move to Generation."
+                  }
                 </p>
               </div>
               <button
@@ -2285,7 +2317,7 @@ export default function Download() {
               </div>
             ) : null}
             <div className="flex items-center justify-end gap-2 border-t border-border bg-muted/20 px-5 py-3">
-              {proceedNotice.type === "failed" ? (
+              {proceedNotice.type !== "running" ? (
                 <Button type="button" variant="outline" onClick={() => setProceedNotice(null)}>
                   Cancel
                 </Button>
@@ -2296,11 +2328,11 @@ export default function Download() {
                   const version = getSelectedDownloadVersion(currentVersion);
                   storeSelectedPipelineVersion(version);
                   setProceedNotice(null);
-                  if (proceedNotice.type === "failed") {
+                  if (proceedNotice.type === "failed" || proceedNotice.type === "missing") {
                     navigate(`/pipeline?createGeneration=true&allowFailedDownload=true&version=${encodeURIComponent(version)}`);
                     return;
                   }
-                  navigate(`/pipeline?createGeneration=true&allowFailedDownload=true&version=${encodeURIComponent(version)}`);
+                  navigate(`/pipeline?createGeneration=true&version=${encodeURIComponent(version)}`);
                 }}
               >
                 Okay
