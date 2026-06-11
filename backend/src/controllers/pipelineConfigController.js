@@ -935,38 +935,48 @@ class PipelineConfigController {
     });
 
 
-    /**
-     * POST /api/v1/admin-dashboard/pipeline-config/server-path
+   /**
+     * GET /api/v1/admin-dashboard/pipeline-config/server-path
      * Fetches serverPathConfig for a particular version.
-     * 
-     * Body:
-     *   version {string} - Pipeline config version (required)
      */
     static getServerPathConfig = asyncHandler(async (req, res) => {
         const payload = req.body || {};
-        const version = cleanString(payload.version);
+        const serverId = cleanString(payload.serverId || payload.targetServerId);
 
-        if (!version) {
-            return ApiResponse.error(res, 400, 'version is required.');
+        if (serverId) {
+            try {
+                const server = await getLatestServerPathConfigForServer(serverId);
+                logger.audit('SERVER_PATH_CONFIG_FETCHED', {
+                    serverId,
+                    requestedBy: req.user?.id,
+                });
+
+                return ApiResponse.success(res, 200, 'Server path config fetched successfully.', {
+                    serverPath: server,
+                    serverPaths: server.serverPaths,
+                });
+            } catch (error) {
+                logger.error('Error fetching server path config', { serverId, error: error.message });
+                return ApiResponse.error(res, error.statusCode || 500, error.message || 'Failed to fetch server path config.');
+            }
         }
 
-        const config = await findConfigByVersion(version);
+        const config = await findLatestConfig();
 
         if (!config) {
-            return ApiResponse.error(res, 404, `No configuration found for version: ${version}`);
+            return ApiResponse.error(res, 404, 'No pipeline configuration found.');
         }
 
         logger.audit('SERVER_PATH_CONFIG_FETCHED', {
-            version,
+            version: config.version || DEFAULT_VERSION,
             requestedBy: req.user?.id,
         });
 
         return ApiResponse.success(res, 200, 'Server path config fetched successfully.', {
-            version,
+            version: config.version || DEFAULT_VERSION,
             serverPaths: normalizeServerPathsForResponse(config.serverPaths),
         });
     });
-
     /**
      * POST /api/v1/admin-dashboard/pipeline-config/download-path-config
      * Fetches download path config for a particular version.

@@ -92,10 +92,8 @@ const fetchNotifyList = async (): Promise<NotifiedAdmin[]> => {
   return res.data?.data?.notifyList ?? [];
 };
 
-const fetchServerPathConfig = async (version: string): Promise<Record<string, ServerPathEntry[]>> => {
-  const res = await api.post("/admin-dashboard/pipeline-config/server-path", {
-    version,
-  });
+const fetchServerPathConfig = async (): Promise<Record<string, ServerPathEntry[]>> => {
+  const res = await api.get("/admin-dashboard/pipeline-config/server-path");
   return res.data?.data?.serverPaths ?? {};
 };
 
@@ -1168,7 +1166,7 @@ export default function PipelineConfig() {
     if (!versionToLoad) return;
     setLoadingServerPaths(true);
     try {
-      const serverPaths = await fetchServerPathConfig(versionToLoad);
+      const serverPaths = await fetchServerPathConfig();
       setServerPathsMap(normalizeServerPathsByServerId(serverPaths));
     } catch (err: any) {
       setServerPathsMap({});

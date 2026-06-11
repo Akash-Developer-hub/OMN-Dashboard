@@ -168,6 +168,14 @@ function joinLogPath(basePath: string, fileName: string) {
   return `${basePath.trim().replace(/\/+$/, "")}/${fileName}`;
 }
 
+async function fetchServerLogBasePath(targetServerId: string, version?: string | null) {
+  const params = version ? { version } : undefined;
+  const res = await api.get("/admin-dashboard/pipeline-config/server-path", { params });
+  const serverPaths = res.data?.data?.serverPaths || res.data?.serverPaths || {};
+  const pathInfo = flattenServerPaths(serverPaths).find((p) => (p.targetServerId || p.serverId) === targetServerId);
+  return pathInfo?.logPath?.trim() ?? null;
+}
+
 function normalizeLogLines(payload: any): string[] {
   const body = payload?.data ?? payload;
   const candidates = [body?.logs, body?.lines, body?.logLines, body?.data?.logs, body?.data?.lines, Array.isArray(body) ? body : null];
@@ -501,13 +509,9 @@ export default function DataPipelineLog({ runId }: { runId?: string }) {
     if (removeLogCallsRef.current.has(removeKey)) return;
     removeLogCallsRef.current.add(removeKey);
     try {
-      if (!selectedVersion) return;
-      const serverPathRes = await api.post("/admin-dashboard/pipeline-config/server-path", { version: selectedVersion });
-      const serverPaths = serverPathRes.data?.data?.serverPaths || serverPathRes.data?.serverPaths || {};
-      const pathInfo = flattenServerPaths(serverPaths).find((p) => (p.targetServerId || p.serverId) === targetServerId);
-      const logPath = pathInfo?.logPath?.trim();
-      if (!logPath) return;
-      await axios.post(REMOVE_LOG_URL, { server: targetServer, sId, logPath: joinLogPath(logPath, `${runKey}_${service}.log`) }, { timeout: LOG_REQUEST_TIMEOUT });
+      const logBasePath = await fetchServerLogBasePath(targetServerId, selectedVersion);
+      if (!logBasePath) return;
+      await axios.post(REMOVE_LOG_URL, { server: targetServer, sId, logPath: joinLogPath(logBasePath, `${sId}.log`) }, { timeout: LOG_REQUEST_TIMEOUT });
     } catch {
       removeLogCallsRef.current.delete(`${runKey}:${service}:${targetServerId}:${sId}`);
     }
@@ -528,15 +532,16 @@ export default function DataPipelineLog({ runId }: { runId?: string }) {
 
   useEffect(() => {
     if (!selectedRun || !selectedService) return;
-    const runKey      = String(selectedRun?.runId ?? selectedRun?.id ?? selectedRun?._id ?? "");
-    const logKey      = `${runKey}:${selectedService}`;
-    const targetServer = targetServerFor(selectedRun, selectedService);
-    const sId         = sIdFor(selectedRun, selectedService);
+    const runKey        = String(selectedRun?.runId ?? selectedRun?.id ?? selectedRun?._id ?? "");
+    const logKey        = `${runKey}:${selectedService}`;
+    const targetServer  = targetServerFor(selectedRun, selectedService);
+    const targetServerId = targetServerIdFor(selectedRun, selectedService);
+    const sId           = sIdFor(selectedRun, selectedService);
 
-    if (!targetServer || !sId) {
+    if (!targetServer || !sId || !targetServerId) {
       setServiceLogs((prev) => ({
         ...prev,
-        [logKey]: { log: "", loading: false, error: !targetServer ? "Target server is missing." : "sId is missing." },
+        [logKey]: { log: "", loading: false, error: !targetServer ? "Target server is missing." : !sId ? "sId is missing." : "Target server id is missing." },
       }));
       return;
     }
@@ -553,9 +558,13 @@ export default function DataPipelineLog({ runId }: { runId?: string }) {
       const fallbackLog = statusFor(selectedService!, selectedRun!).log;
 
       try {
+        const logBasePath = await fetchServerLogBasePath(targetServerId, selectedVersion);
+        if (!logBasePath) throw new Error("Server log path is not configured for the selected server.");
+        const logPath = joinLogPath(logBasePath, `${sId}.log`);
+
         while (!controller.signal.aborted) {
           try {
-            const res = await axios.post(RUN_ID_LOGS_URL, { targetServer, sId, offset }, { signal: controller.signal, timeout: LOG_REQUEST_TIMEOUT });
+            const res = await axios.post(RUN_ID_LOGS_URL, { targetServer, sId, offset, logPath }, { signal: controller.signal, timeout: LOG_REQUEST_TIMEOUT });
             const newLogs = normalizeLogLines(res.data);
             if (newLogs.length > 0) lines.push(...newLogs);
             retryCount = 0;

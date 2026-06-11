@@ -124,10 +124,29 @@ type ProceedNotice =
     }
   | {
       type: "running";
+      serviceName?: string;
+      runId?: string;
     }
   | {
       type: "missing";
     };
+
+type ProceedDownloadStatus = PersistedWorkflowEntry & {
+  runId?: string;
+  status?: JobStatus | string;
+  workflow?: WorkflowKey;
+  targetServer?: {
+    name?: string;
+  } | string;
+  job?: Partial<DownloadJob> & {
+    runId?: string;
+    status?: JobStatus | string;
+    serverName?: string;
+    targetServer?: {
+      name?: string;
+    } | string;
+  };
+};
 
 type BrowserField = "outputPath" | "logPath" | "scriptPath" | "maxspeedAndTurnlanesPath";
 
@@ -196,6 +215,63 @@ const extractPipelineVersions = (payload: unknown): string[] => {
 
 const getSearchTilesStatusEntry = (entries: PersistedWorkflowEntry[]) =>
   entries.find((entry) => entry?.workflow === "searchTiles") ?? null;
+
+const getProceedStatusRunId = (entry: ProceedDownloadStatus) =>
+  String(entry?.runId || entry?.job?.runId || "").trim();
+
+const getProceedStatusValue = (entry: ProceedDownloadStatus) =>
+  String(entry?.status || entry?.job?.status || entry?.summary?.validatedStatus || "").trim().toLowerCase();
+
+const getProceedStatusServiceName = (entry: ProceedDownloadStatus) =>
+  String(
+    entry?.job?.serverName ||
+      (typeof entry?.targetServer === "string" ? entry.targetServer : entry?.targetServer?.name) ||
+      (typeof entry?.job?.targetServer === "string" ? entry.job.targetServer : entry?.job?.targetServer?.name) ||
+      entry?.workflow ||
+      "",
+  ).trim();
+
+const isProceedStatusRunning = (entry: ProceedDownloadStatus) =>
+  ["running", "processing", "in_progress", "started", "queued", "pending"].includes(getProceedStatusValue(entry));
+
+const mapWorkflowToGenService = (workflow?: string) => {
+  if (!workflow) return undefined;
+  if (workflow === "searchTiles") return "search";
+  if (workflow === "routing") return "routing";
+  if (workflow === "tiles" || workflow === "tile") return "tile";
+  return undefined;
+};
+
+const pickTargetServerId = (entry: any) => {
+  return (
+    entry?.targetServer?.id || entry?.targetServer?._id || entry?.job?.targetServer?.id || entry?.job?.targetServer?._id || undefined
+  );
+};
+
+const pickTargetServerName = (entry: any) => {
+  return (
+    (typeof entry?.targetServer === "string" ? entry.targetServer : entry?.targetServer?.name) ||
+    (typeof entry?.job?.targetServer === "string" ? entry.job.targetServer : entry?.job?.targetServer?.name) ||
+    undefined
+  );
+};
+
+const buildCreateGenerationUrl = (
+  version: string,
+  allowDownloadOverride = false,
+  genService?: string | undefined,
+  targetServerId?: string | undefined,
+  targetServerName?: string | undefined,
+) => {
+  const params = new URLSearchParams();
+  params.set("createGeneration", "true");
+  params.set("version", version);
+  if (allowDownloadOverride) params.set("allowFailedDownload", "true");
+  if (genService) params.set("genService", genService);
+  if (targetServerId) params.set("targetServerId", targetServerId);
+  if (!targetServerId && targetServerName) params.set("targetServerName", targetServerName);
+  return `/pipeline?${params.toString()}`;
+};
 
 const emptyDownloadSetup = (): DownloadSetupState => ({
   open: false,
@@ -942,6 +1018,7 @@ export default function Download() {
   const initialVersionParamRef = useRef(String(searchParams.get("version") || "").trim());
   const setupDownloadOpenKeyRef = useRef("");
   const hydratedStatusVersionRef = useRef("");
+  const versionHydrationInFlightRef = useRef(false);
   const jobsRef = useRef(jobs);
   const jobLogsRef = useRef(jobLogs);
 
@@ -973,6 +1050,7 @@ export default function Download() {
 
   useEffect(() => {
     const hydrateDownloadStatuses = async () => {
+      versionHydrationInFlightRef.current = true;
       try {
         const requestedVersion = initialVersionParamRef.current;
         const version = currentVersion
@@ -1038,6 +1116,8 @@ export default function Download() {
         }));
       } catch (error) {
         console.error("Failed to hydrate download statuses", error);
+      } finally {
+        versionHydrationInFlightRef.current = false;
       }
     };
 
@@ -1176,7 +1256,7 @@ export default function Download() {
   }, [autoPollEnabled, jobs, jobLogs, pollWorkflowLogs]);
 
   useEffect(() => {
-    if (!currentVersion) return;
+    if (!currentVersion || versionHydrationInFlightRef.current) return;
 
     const persistStatuses = async () => {
       const summaries: Record<WorkflowKey, WorkflowSummary> = {
@@ -1677,41 +1757,100 @@ export default function Download() {
         return;
       }
       const response = await api.get("/admin-dashboard/download-status", { params: { version } });
-      const searchTilesStatus = getSearchTilesStatusEntry(normalizeDownloadStatusEntries(response.data));
+      const entries = normalizeDownloadStatusEntries(response.data) as ProceedDownloadStatus[];
+      const latestStatusEntry = entries[0] ?? null;
+      const searchTilesStatus = getSearchTilesStatusEntry(entries);
       const apiSummary = searchTilesStatus?.summary as WorkflowSummary | undefined;
-      const validatedStatus = apiSummary?.validatedStatus;
+      const hydratedJob = searchTilesStatus ? buildHydratedJob(searchTilesStatus, "searchTiles") : null;
+      const currentRunIds = new Set(
+        (["searchTiles", "routing"] as WorkflowKey[])
+          .map((workflow) => jobs[workflow]?.runId)
+          .map((runId) => String(runId || "").trim())
+          .filter(Boolean),
+      );
+      const matchingStatus =
+        entries.find((entry) => {
+          const runId = getProceedStatusRunId(entry);
+          return runId && currentRunIds.has(runId);
+        }) ?? null;
+      const validatedStatus = matchingStatus
+        ? getProceedStatusValue(matchingStatus)
+        : String(apiSummary?.validatedStatus || hydratedJob?.status || "").trim().toLowerCase();
+
+      if (searchTilesStatus) {
+        setJobs((current) => ({ ...current, searchTiles: hydratedJob ?? current.searchTiles }));
+        if (apiSummary) setStoredSummaries((current) => ({ ...current, searchTiles: apiSummary }));
+      }
+
+      if (latestStatusEntry) {
+        const latestRunId = getProceedStatusRunId(latestStatusEntry);
+        if (latestRunId) {
+          if (getProceedStatusValue(latestStatusEntry) === "running") {
+            setProceedNotice({
+              type: "running",
+              serviceName: getProceedStatusServiceName(latestStatusEntry),
+              runId: latestRunId,
+            });
+            return;
+          }
+
+          storeSelectedPipelineVersion(version);
+          {
+            const genService = mapWorkflowToGenService(latestStatusEntry?.workflow || matchingStatus?.workflow || undefined);
+            const serverId = pickTargetServerId(latestStatusEntry) || pickTargetServerId(matchingStatus);
+            const serverName = pickTargetServerName(latestStatusEntry) || pickTargetServerName(matchingStatus);
+            navigate(buildCreateGenerationUrl(version, true, genService, serverId, serverName));
+          }
+          return;
+        }
+      }
+
+      if (matchingStatus && isProceedStatusRunning(matchingStatus)) {
+        setProceedNotice({
+          type: "running",
+          serviceName: getProceedStatusServiceName(matchingStatus),
+          runId: getProceedStatusRunId(matchingStatus),
+        });
+        return;
+      }
+
+      if (currentRunIds.size > 0 && !matchingStatus) {
+        setProceedNotice({ type: "missing" });
+        return;
+      }
 
       if (!searchTilesStatus || !validatedStatus) {
         setProceedNotice({ type: "missing" });
         return;
       }
 
-      if (searchTilesStatus) {
-        const hydratedJob = buildHydratedJob(searchTilesStatus, "searchTiles");
-        setJobs((current) => ({ ...current, searchTiles: hydratedJob ?? current.searchTiles }));
-        if (apiSummary) setStoredSummaries((current) => ({ ...current, searchTiles: apiSummary }));
-      }
-
       if (validatedStatus === "completed") {
         storeSelectedPipelineVersion(version);
-        window.alert("Download completed. Click OK to proceed to Generation.");
-        navigate(`/pipeline?createGeneration=true&version=${encodeURIComponent(version)}`);
+        {
+          const genService = mapWorkflowToGenService(latestStatusEntry?.workflow || matchingStatus?.workflow || undefined);
+          const serverId = pickTargetServerId(latestStatusEntry) || pickTargetServerId(matchingStatus);
+          const serverName = pickTargetServerName(latestStatusEntry) || pickTargetServerName(matchingStatus);
+          navigate(buildCreateGenerationUrl(version, false, genService, serverId, serverName));
+        }
         return;
       }
 
       if (validatedStatus === "failed") {
-        storeSelectedPipelineVersion(version);
-        window.alert("Download validation failed. Click OK to proceed to Generation.");
-        navigate(`/pipeline?createGeneration=true&allowFailedDownload=true&version=${encodeURIComponent(version)}`);
+        const failedFiles = apiSummary?.statusFiles?.failed ?? searchTilesSummary.statusFiles.failed;
+        setProceedNotice({ type: "failed", failedFiles });
         return;
       }
 
-      if (validatedStatus === "running") {
-        setProceedNotice({ type: "running" });
+      if (["running", "processing", "in_progress", "started", "queued", "pending"].includes(validatedStatus)) {
+        setProceedNotice({
+          type: "running",
+          serviceName: hydratedJob?.serverName,
+          runId: hydratedJob?.runId,
+        });
         return;
       }
 
-      toast.error("Download is not completed. Please wait until validatedStatus is completed before moving to Generation.");
+      toast.error("Download is not completed. Please wait until the pipeline status is completed before moving to Generation.");
       return;
     } catch (error) {
       console.error("Failed to check download status", error);
@@ -2068,7 +2207,11 @@ export default function Download() {
           <h2 className="text-lg font-semibold">Run logs</h2>
           <p className="text-sm text-muted-foreground">Only the latest run per workflow is shown. Logs are polled from the runId log webhook.</p>
         </div>
-        <Button variant="outline" onClick={() => void refreshLogs()} disabled={refreshing || !jobs.searchTiles}>
+        <Button
+          variant="outline"
+          onClick={() => void refreshLogs()}
+          disabled={refreshing || !(["searchTiles", "routing"] as WorkflowKey[]).some((workflow) => Boolean(jobs[workflow]?.runId))}
+        >
           {refreshing ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RefreshCw className="mr-2 h-4 w-4" />}
           Refresh logs
         </Button>
@@ -2284,15 +2427,15 @@ export default function Download() {
                   {proceedNotice.type === "failed"
                     ? "Download validation failed"
                     : proceedNotice.type === "running"
-                    ? "Download in progress"
-                    : "Download not completed"}
+                    ? "Still downloading the files"
+                    : "There is no failed download"}
                 </h3>
                 <p className="mt-1 text-sm text-muted-foreground">
                   {proceedNotice.type === "failed"
                     ? "Some files failed validation. Review the files before moving to Generation."
                     : proceedNotice.type === "running"
-                    ? "No files have been downloaded yet. Please complete the download before proceeding to Generation."
-                    : "Download the files, then only move to Generation."
+                    ? `The current run on ${proceedNotice.serviceName || "the download service"} is still running. Click OK to continue to Generation, or Cancel to stay on this page.`
+                    : "No download record found for this version. Click OK to proceed to Generation, or Cancel to stay on this page."
                   }
                 </p>
               </div>
@@ -2317,22 +2460,28 @@ export default function Download() {
               </div>
             ) : null}
             <div className="flex items-center justify-end gap-2 border-t border-border bg-muted/20 px-5 py-3">
-              {proceedNotice.type !== "running" ? (
-                <Button type="button" variant="outline" onClick={() => setProceedNotice(null)}>
-                  Cancel
-                </Button>
-              ) : null}
+              <Button type="button" variant="outline" onClick={() => setProceedNotice(null)}>
+                Cancel
+              </Button>
               <Button
                 type="button"
-                onClick={() => {
+                onClick={async () => {
                   const version = getSelectedDownloadVersion(currentVersion);
                   storeSelectedPipelineVersion(version);
                   setProceedNotice(null);
-                  if (proceedNotice.type === "failed" || proceedNotice.type === "missing") {
-                    navigate(`/pipeline?createGeneration=true&allowFailedDownload=true&version=${encodeURIComponent(version)}`);
+                  try {
+                    const response = await api.get("/admin-dashboard/download-status", { params: { version } });
+                    const entries = normalizeDownloadStatusEntries(response.data);
+                    const latest = entries[0] ?? null;
+                    const genService = mapWorkflowToGenService(latest?.workflow || undefined);
+                    const serverId = pickTargetServerId(latest);
+                    const serverName = pickTargetServerName(latest);
+                    navigate(buildCreateGenerationUrl(version, true, genService, serverId, serverName));
+                    return;
+                  } catch (e) {
+                    navigate(buildCreateGenerationUrl(version, true));
                     return;
                   }
-                  navigate(`/pipeline?createGeneration=true&version=${encodeURIComponent(version)}`);
                 }}
               >
                 Okay

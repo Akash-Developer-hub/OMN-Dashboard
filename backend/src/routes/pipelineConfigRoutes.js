@@ -59,11 +59,11 @@ router.get('/versions', PipelineConfigController.getVersions);
 
 
 /**
- * @route POST /pipeline-config/server-path
- * @desc Get serverPathConfig for a particular version
- * @body { version: string }
+ * @route GET /pipeline-config/server-path
+ * @desc Get serverPathConfig shared across pipeline versions
+ * @body { serverId?: string }
  */
-router.post('/server-path', PipelineConfigController.getServerPathConfig);
+router.get('/server-path', PipelineConfigController.getServerPathConfig);
 
 /**
  * @route POST /pipeline-config/download-path-config

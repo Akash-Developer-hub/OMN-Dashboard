@@ -5,6 +5,7 @@ import type { Server as ServerType } from "@/pages/servers/serversApi";
 import { api } from "@/utils/api";
 import { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider } from "@/components/ui/tooltip";
 import { Info } from "lucide-react";
+import { resolveSelectedPipelineVersion, storeSelectedPipelineVersion } from "./pipelineVersion";
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
@@ -200,10 +201,10 @@ const buildCommand = (f: ServiceFormState): string => {
   if (f.service === "routing") {
     const script = f.script?.trim() || "routingTiles.py";
     const gtfsFlag = f.routingGtfsIncluded ? " --bTransit" : "";
-    return `python3 ${script} planet-latest${gtfsFlag}`;
+    return `python3 routingTiles.py southIndia${gtfsFlag}`;
   }
   const script = f.script?.trim() || "multithread.py";
-  return `python3 ${script}`;
+  return `python3 tilesPipe.py southIndia worldocean:worldplace:main:r2hb:poi:lbw:names search unifiedMax hi:ta`;
 };
 
 const shouldUseOutputPath = (service: GenerationService, f: ServiceFormState) =>
@@ -724,22 +725,21 @@ export function CreateGeneration({ open, onClose, preSelectContribution, servers
     return (server?.name || "").toString().toLowerCase();
   };
 
-  const fetchCurrentConfigVersion = useCallback(async () => {
+  const resolveConfigVersion = useCallback(() => {
     if (currentConfigVersionRef.current) return currentConfigVersionRef.current;
-    const res = await api.get("/admin-dashboard/pipeline-config/current-version");
-    const version = res.data?.data?.version || res.data?.version || "v1.0";
-    currentConfigVersionRef.current = version;
+    const version = resolveSelectedPipelineVersion(new URLSearchParams(window.location.search), "v1.0") || "v1.0";
+    currentConfigVersionRef.current = storeSelectedPipelineVersion(version) || version;
     return version;
   }, []);
 
   const fetchServerPathForServer = useCallback(async (serverId: string) => {
-    const version = await fetchCurrentConfigVersion();
-    const res = await api.post("/admin-dashboard/pipeline-config/server-path", { version });
+    const version = resolveConfigVersion();
+    const res = await api.get("/admin-dashboard/pipeline-config/server-path");
     const serverPaths = res.data?.data?.serverPaths || res.data?.serverPaths || {};
     const paths = flattenServerPaths(serverPaths);
     const pathInfo = paths.find((path) => serverIdMatches(path, serverId));
     return { version, pathInfo };
-  }, [fetchCurrentConfigVersion, serverIdMatches]);
+  }, [resolveConfigVersion, serverIdMatches]);
 
   const fetchDownloadPathForServer = useCallback(async (serverId: string, version: string) => {
     try {
@@ -844,7 +844,7 @@ export function CreateGeneration({ open, onClose, preSelectContribution, servers
 
   const fetchDownloadStatuses = useCallback(async () => {
     try {
-      const version = await fetchCurrentConfigVersion();
+      const version = resolveConfigVersion();
       if (!version) return;
       const res = await api.get("/admin-dashboard/download-status", { params: { version } });
       const statuses = res.data?.data?.statuses ?? res.data?.statuses ?? [];
@@ -852,7 +852,7 @@ export function CreateGeneration({ open, onClose, preSelectContribution, servers
     } catch (error) {
       console.error("Failed to load download statuses:", error);
     }
-  }, [fetchCurrentConfigVersion]);
+  }, [resolveConfigVersion]);
 
   const getDownloadServerName = (svc: GenerationService) => {
     const workflowKey = svc === "routing" ? "routing" : "searchTiles";
@@ -877,6 +877,34 @@ export function CreateGeneration({ open, onClose, preSelectContribution, servers
       setOpenBrowser(null);
       if (preSelectContribution) {
         setForms((prev) => ({ ...prev, search: { ...prev.search, searchMode: "contribution" } }));
+      }
+      // Prefill from URL params (when navigating from Download page)
+      try {
+        const params = new URLSearchParams(window.location.search || "");
+        const genService = params.get("genService") as GenerationService | null;
+        const targetServerId = params.get("targetServerId");
+        const targetServerName = params.get("targetServerName");
+        if (genService && (genService === "search" || genService === "routing" || genService === "tile")) {
+          setSelected((prev) => new Set<GenerationService>([...(preSelectContribution ? Array.from(prev) : []), genService]));
+          setActiveService(genService);
+          setForms((prev) => ({
+            ...prev,
+            [genService]: {
+              ...prev[genService],
+              targetServerId: targetServerId || prev[genService].targetServerId,
+            },
+          }));
+
+          // If only server name provided, attempt to resolve to an id
+          if (!targetServerId && targetServerName) {
+            const match = (externalServers || servers).find((s: any) => String(s.name || "").toLowerCase() === String(targetServerName || "").toLowerCase());
+            if (match) {
+              setForms((prev) => ({ ...prev, [genService]: { ...prev[genService], targetServerId: match._id || match.id || prev[genService].targetServerId } }));
+            }
+          }
+        }
+      } catch (e) {
+        // ignore
       }
     }
   }, [open, fetchServers, fetchApprovedPOI, preSelectContribution]);
