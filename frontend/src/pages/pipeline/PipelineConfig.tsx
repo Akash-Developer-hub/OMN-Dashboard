@@ -83,8 +83,11 @@ const fetchAdminUsers = async (): Promise<AdminUser[]> => {
   return res.data?.data?.users ?? [];
 };
 
-const fetchNotifyList = async (): Promise<NotifiedAdmin[]> => {
+const fetchNotifyList = async (version: string): Promise<NotifiedAdmin[]> => {
   const res = await api.get("/admin-dashboard/pipeline-config/notify-list-admin", {
+    params: {
+      version,
+    },
     headers: {
       "X-N8N-API-KEY": import.meta.env.VITE_N8N_API_KEY,
     },
@@ -1143,9 +1146,10 @@ export default function PipelineConfig() {
   }, []);
 
   const loadConfigs = useCallback(async (_versionToLoad = savedVersion) => {
+    if (!_versionToLoad) return;
     setLoadingConfigs(true);
     try {
-      const notifyUsers = await fetchNotifyList();
+      const notifyUsers = await fetchNotifyList(_versionToLoad);
       const notifyMap = notifyUsers.reduce<Record<string, NotifiedAdmin>>((acc, admin) => {
         const key = admin.name || admin.email || admin.id;
         if (key) acc[key] = admin;

@@ -561,30 +561,46 @@ class PipelineConfigController {
     });
 
     /**
-     * GET /api/v1/admin-dashboard/pipeline-config/notify-list
-     * Fetches the merged adminList across all pipeline configurations.
-     */
+  * GET /api/v1/admin-dashboard/pipeline-config/notify-list-admin
+  * Fetches admins from the notify list for a pipeline configuration version.
+  * Query: ?version=v1.0 (optional; falls back to the latest config)
+  */
     static getNotifyList = asyncHandler(async (req, res) => {
         try {
-            const config = await findLatestConfig();
+            const version = cleanString(req.query?.version || req.body?.version);
+            const config = version
+                ? await findConfigByVersion(version)
+                : await findLatestConfig();
 
             if (!config) {
-                return ApiResponse.error(res, 404, 'No pipeline configuration found.');
+                const message = version
+                    ? `No pipeline configuration found for version "${version}".`
+                    : 'No pipeline configuration found.';
+                return ApiResponse.error(res, 404, message);
             }
 
+            const mergedAdminMap = {};
             const adminListObj = config.adminList || {};
-            const notifyList = Object.values(adminListObj).filter(admin => admin && admin.id);
+            for (const [key, admin] of Object.entries(adminListObj)) {
+                if (admin && typeof admin === 'object') {
+                    const mapKey = cleanString(admin.id) || cleanString(admin.email) || key;
+                    if (mapKey && !mergedAdminMap[mapKey]) {
+                        mergedAdminMap[mapKey] = admin;
+                    }
+                }
+            }
 
+            const notifyList = Object.values(mergedAdminMap);
             notifyList.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
 
             logger.audit('NOTIFY_LIST_FETCHED', {
-                version: config.version || DEFAULT_VERSION,
                 count: notifyList.length,
+                version: config.version || version || DEFAULT_VERSION,
                 requestedBy: req.user?.id,
             });
 
             return ApiResponse.success(res, 200, 'Notify list fetched successfully.', {
-                version: config.version || DEFAULT_VERSION,
+                version: config.version || version || DEFAULT_VERSION,
                 notifyList,
             });
         } catch (error) {
@@ -592,7 +608,6 @@ class PipelineConfigController {
             return ApiResponse.error(res, 500, 'Failed to fetch notify list.');
         }
     });
-
 
 
     /**
@@ -910,10 +925,10 @@ class PipelineConfigController {
         });
     });
 
-   /**
-     * GET /api/v1/admin-dashboard/pipeline-config/versions
-     * Fetches all distinct pipeline config versions available in the collection.
-     */
+    /**
+      * GET /api/v1/admin-dashboard/pipeline-config/versions
+      * Fetches all distinct pipeline config versions available in the collection.
+      */
     static getVersions = asyncHandler(async (req, res) => {
         const versions = await PipelineConfig.collection.distinct('version', {
             version: { $exists: true, $ne: null },
@@ -935,10 +950,10 @@ class PipelineConfigController {
     });
 
 
-   /**
-     * GET /api/v1/admin-dashboard/pipeline-config/server-path
-     * Fetches serverPathConfig for a particular version.
-     */
+    /**
+      * GET /api/v1/admin-dashboard/pipeline-config/server-path
+      * Fetches serverPathConfig for a particular version.
+      */
     static getServerPathConfig = asyncHandler(async (req, res) => {
         const payload = req.body || {};
         const serverId = cleanString(payload.serverId || payload.targetServerId);

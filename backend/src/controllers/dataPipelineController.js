@@ -108,9 +108,13 @@ function buildGenerationRunLogsPayload(payload, offset) {
     };
 }
 
-function getGenerationStatusFromLines(service, lines) {
+function hasGenerationFailureLogLine(lines) {
+    return lines.some((line) => GENERATION_FAILED_LOG_PATTERN.test(String(line || '')));
+}
+
+function getGenerationStatusFromLines(service, lines, { errorConfirmed = true } = {}) {
     const serviceName = cleanString(service).toLowerCase();
-    const hasError = lines.some((line) => GENERATION_FAILED_LOG_PATTERN.test(String(line || '')));
+    const hasError = errorConfirmed && hasGenerationFailureLogLine(lines);
 
     if (hasError) return 'failed';
 
@@ -226,8 +230,8 @@ function getGenerationMailSubject(statusDoc, serviceName) {
 
 async function sendGenerationStatusMail(statusDoc, status, serviceName) {
     const webhookUrl = cleanString(config.n8n?.mailAutoWebhookUrl);
-    if (!webhookUrl || !statusDoc || !status) return;
-    if (!shouldSendGenerationMail(statusDoc)) return;
+    if (!webhookUrl || !statusDoc || !status) return { sent: false, recipients: [], reason: 'missing_mail_webhook_or_status' };
+    if (!shouldSendGenerationMail(statusDoc)) return { sent: false, recipients: [], reason: 'generation_mail_disabled' };
 
     let emails = [];
     try {
@@ -239,7 +243,7 @@ async function sendGenerationStatusMail(statusDoc, status, serviceName) {
             status,
             error: error.message,
         });
-        return;
+        return { sent: false, recipients: [], reason: 'notify_list_fetch_failed' };
     }
 
     if (emails.length === 0) {
@@ -248,14 +252,14 @@ async function sendGenerationStatusMail(statusDoc, status, serviceName) {
             runId: statusDoc.runId || null,
             status,
         });
-        return;
+        return { sent: false, recipients: [], reason: 'empty_notify_list' };
     }
 
     const statusLabel = status === 'success' ? 'Success' : 'Failed';
     const text = getGenerationMailText(statusDoc, serviceName);
     const subject = getGenerationMailSubject(statusDoc, serviceName);
 
-    await Promise.all(emails.map(async (to) => {
+    const results = await Promise.all(emails.map(async (to) => {
         const payload = {
             to,
             text,
@@ -272,14 +276,24 @@ async function sendGenerationStatusMail(statusDoc, status, serviceName) {
                 status,
                 service: serviceName || null,
             });
+            console.log(`Generation status mail sent: runId=${cleanString(statusDoc.runId) || 'unknown'} service=${serviceName || 'unknown'} status=${statusLabel} to=${to}`);
+            return { to, sent: true };
         } catch (error) {
             logger.error('Failed to trigger generation status mail webhook.', {
                 payload,
                 error: error.message,
                 response: error.response?.data,
             });
+            return { to, sent: false };
         }
     }));
+
+    const sentRecipients = results.filter((result) => result.sent).map((result) => result.to);
+    return {
+        sent: sentRecipients.length > 0,
+        recipients: sentRecipients,
+        reason: sentRecipients.length > 0 ? null : 'mail_webhook_failed',
+    };
 }
 
 async function triggerGenerationStatusMailOnce(statusDoc, status, serviceName) {
@@ -306,9 +320,9 @@ async function triggerGenerationStatusMailOnce(statusDoc, status, serviceName) {
         { returnDocument: 'after' }
     );
     const claimedDoc = claimedRaw && claimedRaw.value ? claimedRaw.value : claimedRaw;
-    if (!claimedDoc) return;
+    if (!claimedDoc) return { sent: false, recipients: [], reason: 'already_sent_or_missing_run' };
 
-    await sendGenerationStatusMail(DataPipelineRun.toResponse(claimedDoc), terminalStatus, service);
+    return sendGenerationStatusMail(DataPipelineRun.toResponse(claimedDoc), terminalStatus, service);
 }
 
 async function triggerGenerationStatusMailsForServices(statusDoc) {
@@ -344,7 +358,7 @@ async function triggerGenerationStatusMailsForServices(statusDoc) {
     }
 }
 
-async function persistGenerationServiceLog(payload, lines, offset, status) {
+async function persistGenerationServiceLog(payload, lines, offset, status, logStateExtra = {}) {
     const runId = cleanString(payload.runId || payload.job?.runId || payload.sId || payload.job?.sId);
     const service = cleanString(payload.service);
     if (!runId || !service) return null;
@@ -360,6 +374,7 @@ async function persistGenerationServiceLog(payload, lines, offset, status) {
             lines,
             offset,
             source: 'remote',
+            ...logStateExtra,
         },
         [`${service}Status`]: status,
     };
@@ -408,7 +423,16 @@ async function persistGenerationServiceLog(payload, lines, offset, status) {
 
     const savedDocRaw = savedRaw && savedRaw.value ? savedRaw.value : savedRaw;
     if (['success', 'failed'].includes(status)) {
-        await triggerGenerationStatusMailOnce(savedDocRaw, status, service);
+        const mailResult = await triggerGenerationStatusMailOnce(savedDocRaw, status, service);
+        if (status === 'failed' && mailResult?.sent) {
+            logger.info('Generation failed status mail sent for service.', {
+                runId,
+                service,
+                status,
+                recipients: mailResult.recipients,
+            });
+            console.log(`Generation failed status mail sent: runId=${runId} service=${service} recipients=${mailResult.recipients.join(', ')}`);
+        }
     }
 
     return DataPipelineRun.toResponse(savedDocRaw);
@@ -440,22 +464,38 @@ async function fetchAndPersistGenerationRunLogs(payload) {
     const previousLines = Array.isArray(payload.previousLines) ? payload.previousLines : [];
     const mergedLines = [...previousLines, ...lines].slice(-GENERATION_LOG_MONITOR_MAX_LINES);
     const nextOffset = extractRunLogsOffset(response.data, runLogsPayload.offset, lines.length);
-    const status = getGenerationStatusFromLines(service, mergedLines);
+    const currentLinesHaveError = hasGenerationFailureLogLine(lines);
+    const previousErrorPending = payload.errorPending === true;
+    const errorConfirmed = previousErrorPending && currentLinesHaveError;
+    const errorPending = currentLinesHaveError && !errorConfirmed;
+    const status = errorPending
+        ? 'running'
+        : getGenerationStatusFromLines(service, mergedLines, { errorConfirmed });
+    const persistedOffset = errorPending ? runLogsPayload.offset : nextOffset;
     const saved = await persistGenerationServiceLog({
         ...payload,
         sId: runLogsPayload.sId,
         logPath: runLogsPayload.logPath,
         targetServer: runLogsPayload.targetServer,
-    }, mergedLines, nextOffset, status);
+    }, mergedLines, persistedOffset, status, {
+        errorPending,
+        errorConfirmed,
+        lastErrorCheckAt: currentLinesHaveError ? new Date().toISOString() : payload.lastErrorCheckAt || null,
+    });
 
     logger.info('runId-logs webhook response processed for generation monitor.', {
         runId: cleanString(payload.runId || payload.job?.runId || runLogsPayload.sId),
         service,
         sId: runLogsPayload.sId,
         requestedOffset: runLogsPayload.offset,
-        nextOffset,
+        nextOffset: persistedOffset,
+        webhookNextOffset: nextOffset,
         fetchedLineCount: lines.length,
         mergedLineCount: mergedLines.length,
+        currentLinesHaveError,
+        previousErrorPending,
+        errorPending,
+        errorConfirmed,
         status,
         lastLine: mergedLines[mergedLines.length - 1] || null,
     });
@@ -463,7 +503,9 @@ async function fetchAndPersistGenerationRunLogs(payload) {
     return {
         saved,
         lines: mergedLines,
-        offset: nextOffset,
+        offset: persistedOffset,
+        errorPending,
+        lastErrorCheckAt: currentLinesHaveError ? new Date().toISOString() : payload.lastErrorCheckAt || null,
         status,
     };
 }
@@ -507,6 +549,8 @@ function startGenerationLogMonitor(payload) {
                 ...state.payload,
                 offset: monitorResult.offset,
                 previousLines: monitorResult.lines,
+                errorPending: monitorResult.errorPending,
+                lastErrorCheckAt: monitorResult.lastErrorCheckAt,
             };
 
             if (['success', 'failed'].includes(monitorResult.status) || Date.now() - state.startedAt >= GENERATION_LOG_MONITOR_MAX_DURATION_MS) {
@@ -1898,6 +1942,28 @@ class DataPipelineController {
             } catch (otherCollErr) {
                 logger.warn(`DataPipeline updateServiceStatus: Failed to update other collection for runId ${runId}`, { error: otherCollErr.message });
                 // Don't fail the API call if other collection update fails
+            }
+
+            try {
+                const runDocForMail = await DataPipelineRun.findByRunId(runId);
+                if (runDocForMail) {
+                    for (const statusUpdate of statusUpdates) {
+                        const svc = cleanString(statusUpdate.service);
+                        const terminalStatus = normalizeGenerationTerminalStatus(statusUpdate.status);
+                        if (svc && terminalStatus) {
+                            await triggerGenerationStatusMailOnce(runDocForMail, terminalStatus, svc);
+                        }
+                    }
+                } else {
+                    logger.warn('DataPipeline updateServiceStatus: Skipping generation status mail because run document was not found.', {
+                        runId,
+                    });
+                }
+            } catch (mailErr) {
+                logger.error('DataPipeline updateServiceStatus: Failed to trigger generation status mail.', {
+                    runId,
+                    error: mailErr.message,
+                });
             }
 
             return ApiResponse.success(res, 200, 'Service status updated.', saved);
