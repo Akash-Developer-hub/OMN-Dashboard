@@ -451,23 +451,14 @@ export default function MoveAndPack() {
     return lastSlash !== -1 ? rPath.substring(0, lastSlash) : "/home/gaaya/Projects/pipeline/logs";
   }, [routingService]);
 
-  const updateDBServiceStatus = async (stepKey: StepKey, activeServices: string[], status: "running" | "completed" | "failed") => {
+  const updateDBServiceStatus = async (stepKey: StepKey, status: "running" | "completed" | "failed") => {
     if (!selectedRun) return;
     try {
       const runId = getRunId(selectedRun);
-      const statuses = [
-        ...activeServices.map((srv) => ({
-          service: `${srv}_${stepKey}`,
-          status,
-        })),
-        {
-          service: stepKey,
-          status,
-        }
-      ];
       await api.patch("/admin-dashboard/data-pipeline/service-status", {
         runId,
-        statuses,
+        service: stepKey,
+        status,
       });
     } catch (err) {
       console.error(`Failed to update DB service status to ${status} for step ${stepKey}`, err);
@@ -563,7 +554,7 @@ export default function MoveAndPack() {
       }
 
       // Initialize status as running in DB
-      await updateDBServiceStatus(key, activeServices, "running");
+      await updateDBServiceStatus(key, "running");
 
       // Call backend monitor-logs API
       await api.post("/admin-dashboard/data-pipeline/monitor-logs", {
@@ -583,7 +574,7 @@ export default function MoveAndPack() {
       if (isMountedRef.current && runningStepKeyRef.current === key) {
         setStepStatuses((prev) => ({ ...prev, [key]: "failed" }));
         setTerminalLogs((prev) => ({ ...prev, [key]: prev[key] + `\n[SYSTEM ERROR] ${msg}\n` }));
-        void updateDBServiceStatus(key, activeServices, "failed");
+        void updateDBServiceStatus(key, "failed");
         toast.error(msg);
       }
     } finally {
@@ -601,7 +592,7 @@ export default function MoveAndPack() {
       runningStepKeyRef.current = null;
     }
     setStepStatuses((prev) => ({ ...prev, [key]: "completed" }));
-    void updateDBServiceStatus(key, runServices, "completed");
+    void updateDBServiceStatus(key, "completed");
     toast.success(`${key.toUpperCase()} step marked completed manually.`);
     const currentIndex = stepsConfig.findIndex((s) => s.key === key);
     if (currentIndex < stepsConfig.length - 1) {

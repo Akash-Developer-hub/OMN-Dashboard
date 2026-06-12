@@ -27,16 +27,8 @@ function cleanString(value) {
 
 function isValidServiceName(svc) {
     if (!svc || typeof svc !== 'string') return false;
-    const baseServices = ['search', 'tile', 'tiles', 'routing', 'multipart'];
-    const stepKeys = ['move', 'clean', 'verify', 'pack'];
-    const parts = svc.split('_');
-    if (parts.length === 1) {
-        return baseServices.includes(svc.toLowerCase()) || stepKeys.includes(svc.toLowerCase());
-    }
-    if (parts.length === 2) {
-        return baseServices.includes(parts[0].toLowerCase()) && stepKeys.includes(parts[1].toLowerCase());
-    }
-    return false;
+    const validServices = ['search', 'tile', 'tiles', 'routing', 'multipart', 'move', 'clean', 'verify', 'pack'];
+    return validServices.includes(svc.toLowerCase());
 }
 
 function sanitizeRunServices(doc) {
@@ -549,23 +541,6 @@ async function persistGenerationServiceLog(payload, lines, offset, status, logSt
         }
         if (doc) {
             selfHealRunDocument(doc).catch(() => {});
-        }
-        // Filter doc.servicesList to get only the base services (avoiding infinite recursive suffixing)
-        const baseServices = (doc?.servicesList || ['search', 'tile', 'tiles', 'routing', 'multipart'])
-            .filter(srv => srv && !srv.includes('_') && !['move', 'clean', 'verify', 'pack'].includes(srv.toLowerCase()));
-
-        for (const srv of baseServices) {
-            const uniqueSrv = `${srv}_${service}`;
-            updateObj[`services.${uniqueSrv}.service`] = uniqueSrv;
-            updateObj[`services.${uniqueSrv}.status`] = status;
-            updateObj[`services.${uniqueSrv}.log`] = logText;
-            updateObj[`services.${uniqueSrv}.logState`] = {
-                lines,
-                offset,
-                source: 'remote',
-                ...logStateExtra,
-            };
-            updateObj[`${uniqueSrv}Status`] = status;
         }
     }
 
