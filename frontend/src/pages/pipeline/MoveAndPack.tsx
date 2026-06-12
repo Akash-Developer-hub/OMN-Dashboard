@@ -206,6 +206,16 @@ export default function MoveAndPack() {
     return "";
   }, [findAvailabilityServer, movePackConfigs]);
 
+  const getFirstConfiguredMoveTargetPath = useCallback(() => {
+    for (const configList of Object.values(movePackConfigs)) {
+      if (Array.isArray(configList) && configList.length > 0) {
+        const moveTargetPath = String(configList[0]?.moveTargetPath || "").trim();
+        if (moveTargetPath) return moveTargetPath;
+      }
+    }
+    return "";
+  }, [movePackConfigs]);
+
   const handleUpdateServiceConfig = (service: string, key: string, value: any) => {
     setServiceConfigs((prev) => {
       const current = prev[service] || {
@@ -503,20 +513,33 @@ export default function MoveAndPack() {
 
       if (key === "move" && moveParamsArray) {
         bodyPayload = moveParamsArray.map((param) => ({
-          ...param,
-          sId: stepSId,
+          moveSourcePath: param.moveSourcePath,
+          moveTargetPath: param.moveTargetPath,
           logPath: stepLogPath,
+          sId: stepSId,
           runId: getRunId(selectedRun),
           version: currentVersion,
         }));
       } else {
-        bodyPayload = {
-          targetServer,
-          sId: stepSId,
-          logPath: stepLogPath,
-          runId: getRunId(selectedRun),
-          version: currentVersion,
-        };
+        const moveTargetPath = getMoveTargetPathForServer(targetServer) || getFirstConfiguredMoveTargetPath();
+        if (!moveTargetPath) {
+          throw new Error("Move target path is not configured for this pipeline version.");
+        }
+
+        bodyPayload = key === "pack"
+          ? {
+              moveTargetPath,
+              logPath: stepLogPath,
+              version: currentVersion,
+              sId: stepSId,
+              runId: getRunId(selectedRun),
+            }
+          : {
+              moveTargetPath,
+              logPath: stepLogPath,
+              sId: stepSId,
+              runId: getRunId(selectedRun),
+            };
       }
 
       const response = await fetch(stepInfo.webhookUrl, {
