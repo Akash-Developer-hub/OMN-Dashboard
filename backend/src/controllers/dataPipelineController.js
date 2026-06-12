@@ -17,12 +17,108 @@ const GENERATION_LOG_MONITOR_MAX_LINES = Number(process.env.GENERATION_LOG_MONIT
 const activeGenerationLogMonitors = new Map();
 const GENERATION_FAILED_LOG_PATTERN = /newConnectionError|NewConnectionError|connectionError|ConnectionError|MaxRetryError|NetworkError|ValueError|TypeError|KeyError|AttributeError|ConnectionRefusedError|raise err|MaxRetryErrorCaused by NewConnectionError|raise ConnectionError/i;
 const SEARCH_TILE_SUCCESS_LOG_PATTERN = /Processing complete|All files processed|Total processed/i;
-const ROUTING_SUCCESS_LOG_PATTERN = /Routing tiles created at/i;
+const ROUTING_SUCCESS_LOG_PATTERN = /Routing tiles created at|All countries have been processed successfully/i;
 const ROUTING_SERVICE_NAMES = new Set(['routing', 'route']);
 const SEARCH_TILE_SERVICE_NAMES = new Set(['search', 'tile', 'tiles']);
 
 function cleanString(value) {
     return typeof value === 'string' ? value.trim() : '';
+}
+
+function isValidServiceName(svc) {
+    if (!svc || typeof svc !== 'string') return false;
+    const baseServices = ['search', 'tile', 'tiles', 'routing', 'multipart'];
+    const stepKeys = ['move', 'clean', 'verify', 'pack'];
+    const parts = svc.split('_');
+    if (parts.length === 1) {
+        return baseServices.includes(svc.toLowerCase()) || stepKeys.includes(svc.toLowerCase());
+    }
+    if (parts.length === 2) {
+        return baseServices.includes(parts[0].toLowerCase()) && stepKeys.includes(parts[1].toLowerCase());
+    }
+    return false;
+}
+
+function sanitizeRunServices(doc) {
+    if (!doc) return { services: {}, servicesList: [] };
+
+    const services = doc.services && typeof doc.services === 'object' && !Array.isArray(doc.services) ? doc.services : {};
+    const servicesList = Array.isArray(doc.servicesList) ? doc.servicesList : Object.keys(services);
+
+    const filteredServicesList = servicesList.filter(isValidServiceName);
+
+    const filteredServices = {};
+    for (const svc of filteredServicesList) {
+        if (services[svc]) {
+            filteredServices[svc] = services[svc];
+        }
+    }
+
+    return {
+        services: filteredServices,
+        servicesList: filteredServicesList,
+    };
+}
+
+async function selfHealRunDocument(doc) {
+    if (!doc) return;
+    const runId = doc.runId;
+    if (!runId) return;
+
+    const services = doc.services && typeof doc.services === 'object' && !Array.isArray(doc.services) ? doc.services : {};
+    const servicesList = Array.isArray(doc.servicesList) ? doc.servicesList : [];
+
+    const hasInvalidList = servicesList.some(svc => !isValidServiceName(svc));
+    const hasInvalidKeys = Object.keys(services).some(svc => !isValidServiceName(svc));
+
+    if (!hasInvalidList && !hasInvalidKeys) {
+        return; // already clean
+    }
+
+    logger.info(`Self-healing pipeline run document with runId: ${runId}`);
+
+    const cleanServicesList = servicesList.filter(isValidServiceName);
+    const cleanServices = {};
+    const unsetObj = {};
+
+    // Find all keys in services to unset
+    for (const svc of Object.keys(services)) {
+        if (isValidServiceName(svc)) {
+            cleanServices[svc] = services[svc];
+        }
+    }
+
+    // Find any top-level status keys to unset
+    const topLevelKeys = Object.keys(doc);
+    for (const key of topLevelKeys) {
+        if (key.endsWith('Status')) {
+            const svcName = key.substring(0, key.length - 6); // remove 'Status'
+            if (svcName && !isValidServiceName(svcName)) {
+                unsetObj[key] = '';
+            }
+        }
+    }
+
+    const updateObj = {
+        servicesList: cleanServicesList,
+        services: cleanServices,
+        updatedAt: new Date().toISOString(),
+    };
+
+    const updateOps = {
+        $set: updateObj,
+    };
+    if (Object.keys(unsetObj).length > 0) {
+        updateOps.$unset = unsetObj;
+    }
+
+    try {
+        await DataPipelineRun.collection.updateOne({ runId }, updateOps);
+        await DataPipelineTransfers.collection.updateOne({ runId }, updateOps);
+        logger.info(`Successfully self-healed pipeline run document with runId: ${runId}`);
+    } catch (err) {
+        logger.error(`Failed to self-heal pipeline run document with runId: ${runId}`, { error: err.message });
+    }
 }
 
 function normalizeRunLogsTargetServer(value) {
@@ -415,6 +511,11 @@ async function persistGenerationServiceLog(payload, lines, offset, status, logSt
     const service = cleanString(payload.service);
     if (!runId || !service) return null;
 
+    if (!isValidServiceName(service)) {
+        logger.warn('persistGenerationServiceLog: skipping invalid service name.', { runId, service });
+        return null;
+    }
+
     const now = new Date().toISOString();
     const logText = lines.join('\n');
     const updateObj = {
@@ -446,8 +547,14 @@ async function persistGenerationServiceLog(payload, lines, offset, status, logSt
         if (!doc) {
             doc = await DataPipelineTransfers.findByRunId(runId);
         }
-        const services = doc?.servicesList || ['search', 'tile', 'tiles', 'routing'];
-        for (const srv of services) {
+        if (doc) {
+            selfHealRunDocument(doc).catch(() => {});
+        }
+        // Filter doc.servicesList to get only the base services (avoiding infinite recursive suffixing)
+        const baseServices = (doc?.servicesList || ['search', 'tile', 'tiles', 'routing', 'multipart'])
+            .filter(srv => srv && !srv.includes('_') && !['move', 'clean', 'verify', 'pack'].includes(srv.toLowerCase()));
+
+        for (const srv of baseServices) {
             const uniqueSrv = `${srv}_${service}`;
             updateObj[`services.${uniqueSrv}.service`] = uniqueSrv;
             updateObj[`services.${uniqueSrv}.status`] = status;
@@ -472,15 +579,6 @@ async function persistGenerationServiceLog(payload, lines, offset, status, logSt
             servicesList: service,
         },
     };
-
-    if (isMoveAndPack && doc) {
-        const services = doc?.servicesList || ['search', 'tile', 'tiles', 'routing'];
-        updateOps.$addToSet = {
-            servicesList: {
-                $each: [service, ...services.map(srv => `${srv}_${service}`)]
-            }
-        };
-    }
 
     const savedRaw = await DataPipelineRun.collection.findOneAndUpdate(
         { runId },
@@ -676,7 +774,7 @@ function buildGenerationServiceMonitorPayloads(payload) {
 
     const buildServicePayload = (serviceName, servicePayload = {}) => {
         const service = cleanString(serviceName || servicePayload.service);
-        if (!service || !servicePayload || typeof servicePayload !== 'object') return null;
+        if (!service || !isValidServiceName(service) || !servicePayload || typeof servicePayload !== 'object') return null;
 
         const serviceRunId = runId || cleanString(servicePayload.runId || servicePayload.job?.runId);
         const sId = cleanString(servicePayload.sId || servicePayload.job?.sId || payload.sId || payload.job?.sId);
@@ -705,9 +803,9 @@ function buildGenerationServiceMonitorPayloads(payload) {
     };
 
     if (services && Object.keys(services).length > 0) {
-        const serviceNames = Array.isArray(payload.servicesList) && payload.servicesList.length > 0
+        const serviceNames = (Array.isArray(payload.servicesList) && payload.servicesList.length > 0
             ? payload.servicesList
-            : Object.keys(services);
+            : Object.keys(services)).filter(isValidServiceName);
 
         return serviceNames
             .map((serviceName) => buildServicePayload(serviceName, services[cleanString(serviceName)]))
@@ -721,6 +819,11 @@ function buildGenerationServiceMonitorPayloads(payload) {
                 return buildServicePayload(entry?.service, entry);
             })
             .filter(Boolean);
+    }
+
+    // Single payload mode: verify root service is valid before building
+    if (payload.service && !isValidServiceName(payload.service)) {
+        return [];
     }
 
     return [payload];
@@ -1157,6 +1260,10 @@ class DataPipelineController {
                     return ApiResponse.error(res, 400, `Item ${itemIdx}: runId is required.`);
                 }
 
+                if (service && !isValidServiceName(service)) {
+                    return ApiResponse.error(res, 400, `Item ${itemIdx}: invalid service name "${service}".`);
+                }
+
                 // Support payloads with nested result[].services (e.g. update-results style)
                 if (!service && restartStatus === undefined && Array.isArray(payloadItem.result) && payloadItem.result.length > 0 && payloadItem.result.some(r => r && r.services && typeof r.services === 'object')) {
                     // For each service inside result entries, apply an update
@@ -1175,6 +1282,9 @@ class DataPipelineController {
                     // Apply updates per service
                     for (const [svcName, svcData] of Object.entries(serviceEntries)) {
                         const existingDocForSvc = await DataPipelineRun.findByRunId(runId);
+                        if (existingDocForSvc) {
+                            selfHealRunDocument(existingDocForSvc).catch(() => {});
+                        }
                         const isNewForSvc = !existingDocForSvc;
                         const updateObjSvc = { updatedAt: new Date().toISOString() };
 
@@ -1228,8 +1338,10 @@ class DataPipelineController {
                         updateObjTop[k] = v;
                     }
 
+                    const { services: inputServices, servicesList: inputServicesList } = sanitizeRunServices(payloadItem);
+
                     // Set nested service fields using dot notation
-                    for (const [svcName, svcData] of Object.entries(payloadItem.services)) {
+                    for (const [svcName, svcData] of Object.entries(inputServices)) {
                         if (!svcData || typeof svcData !== 'object') continue;
                         for (const [k, v] of Object.entries(svcData)) {
                             if (v === undefined) continue;
@@ -1238,8 +1350,11 @@ class DataPipelineController {
                         updateObjTop[`services.${svcName}.service`] = svcName;
                     }
 
-                    const serviceNames = Object.keys(payloadItem.services);
+                    const serviceNames = inputServicesList;
                     const existingDocTop = await DataPipelineRun.findByRunId(runId);
+                    if (existingDocTop) {
+                        selfHealRunDocument(existingDocTop).catch(() => {});
+                    }
                     const isNewTop = !existingDocTop;
 
                     // $addToSet is the sole owner of servicesList — do NOT put it in $set or $setOnInsert
@@ -1272,6 +1387,9 @@ class DataPipelineController {
                 }
 
                 const existingDoc = await DataPipelineRun.findByRunId(runId);
+                if (existingDoc) {
+                    selfHealRunDocument(existingDoc).catch(() => {});
+                }
                 const isNew = !existingDoc;
                 const existingRootKeys = new Set(existingDoc ? Object.keys(existingDoc) : []);
                 const existingServiceDoc = service && existingDoc && existingDoc.services && typeof existingDoc.services === 'object'
@@ -1908,18 +2026,32 @@ class DataPipelineController {
                 return ApiResponse.error(res, 404, `Pipeline run with runId "${runId}" not found in either collection.`);
             }
 
-            // Ensure services object exists
-            if (!doc.services) doc.services = {};
-            if (!doc.servicesList) doc.servicesList = [];
+            // Trigger self-healing in background if document contains corrupt keys
+            selfHealRunDocument(doc).catch(() => {});
+
+            // Ensure services object exists and sanitize
+            const { services: sanitizedServices, servicesList: sanitizedServicesList } = sanitizeRunServices(doc);
+            doc.services = sanitizedServices;
+            doc.servicesList = sanitizedServicesList;
 
             // Normalize to array of status updates
             const statusUpdates = [];
             if (service && status) {
                 // Single service update
-                statusUpdates.push({ service, status, ...payload });
+                if (isValidServiceName(service)) {
+                    statusUpdates.push({ service, status, ...payload });
+                } else {
+                    return ApiResponse.error(res, 400, `invalid service name "${service}".`);
+                }
             } else if (Array.isArray(statuses)) {
                 // Multiple services update
-                statusUpdates.push(...statuses);
+                for (const entry of statuses) {
+                    if (entry && isValidServiceName(entry.service)) {
+                        statusUpdates.push(entry);
+                    } else {
+                        return ApiResponse.error(res, 400, `invalid service name "${entry?.service || 'unknown'}".`);
+                    }
+                }
             } else {
                 return ApiResponse.error(res, 400, 'Either (service + status) or statuses array is required.');
             }
@@ -2116,16 +2248,17 @@ class DataPipelineController {
 
             function normalize(doc) {
                 if (!doc) return null;
+
+                // Trigger self-healing in background if document contains corrupt keys
+                selfHealRunDocument(doc).catch(() => {});
+
                 const out = {};
                 if (doc._id) out._id = doc._id;
                 out.runId = doc.runId ?? null;
                 out.createdAt = doc.createdAt ?? null;
 
-                const srcServices = doc.services ?? {};
-                out.servicesList = Array.isArray(doc.servicesList)
-                    ? doc.servicesList
-                    : Object.keys(srcServices);
-
+                const { services, servicesList } = sanitizeRunServices(doc);
+                out.servicesList = servicesList;
                 out.services = {};
 
                 // For each service present in servicesList, populate values from top-level keys,
@@ -2134,10 +2267,10 @@ class DataPipelineController {
                     const statusKey = `${svc}Status`;
                     const statusVal = doc[statusKey] !== undefined
                         ? doc[statusKey]
-                        : (srcServices[svc] && srcServices[svc].status !== undefined ? srcServices[svc].status : null);
+                        : (services[svc] && services[svc].status !== undefined ? services[svc].status : null);
 
                     // Build a service object based on the stored service entry but remove any `log` field.
-                    const svcObj = srcServices[svc] ? { ...srcServices[svc] } : { service: svc };
+                    const svcObj = services[svc] ? { ...services[svc] } : { service: svc };
                     if (Object.prototype.hasOwnProperty.call(svcObj, 'log')) delete svcObj.log;
                     svcObj.status = statusVal;
 
@@ -2192,14 +2325,18 @@ class DataPipelineController {
                     );
                 }
 
+                // Trigger self-healing in background if document contains corrupt keys
+                selfHealRunDocument(doc).catch(() => {});
+
+                const { services, servicesList } = sanitizeRunServices(doc);
                 const response = {
                     _id: doc._id,
                     runId: doc.runId,
                     version: doc.version,
                     createdAt: doc.createdAt,
                     updatedAt: doc.updatedAt,
-                    services: doc.services || {},
-                    servicesList: doc.servicesList || [],
+                    services,
+                    servicesList,
                     sshSuccess: doc.sshSuccess,
                     sshStatus: doc.sshStatus,
                 };
@@ -2224,17 +2361,22 @@ class DataPipelineController {
 
             const total = await collection.countDocuments(filter);
 
-            const response = docs.map(doc => ({
-                _id: doc._id,
-                runId: doc.runId,
-                version: doc.version,
-                createdAt: doc.createdAt,
-                updatedAt: doc.updatedAt,
-                services: doc.services || {},
-                servicesList: doc.servicesList || [],
-                sshSuccess: doc.sshSuccess,
-                sshStatus: doc.sshStatus,
-            }));
+            const response = docs.map(doc => {
+                const { services, servicesList } = sanitizeRunServices(doc);
+                // Trigger self-healing in background if document contains corrupt keys
+                selfHealRunDocument(doc).catch(() => {});
+                return {
+                    _id: doc._id,
+                    runId: doc.runId,
+                    version: doc.version,
+                    createdAt: doc.createdAt,
+                    updatedAt: doc.updatedAt,
+                    services,
+                    servicesList,
+                    sshSuccess: doc.sshSuccess,
+                    sshStatus: doc.sshStatus,
+                };
+            });
 
             return ApiResponse.success(res, 200, 'Pipeline runs fetched.', {
                 data: response,
@@ -2295,7 +2437,7 @@ class DataPipelineController {
                 createdAt: transferDoc.createdAt,
                 updatedAt: transferDoc.updatedAt,
                 // Include enriched data from pipeline run
-                servicesList: pipelineRun.servicesList || [],
+                servicesList: sanitizeRunServices(pipelineRun).servicesList,
                 sshSuccess: pipelineRun.sshSuccess,
                 sshStatus: pipelineRun.sshStatus,
             }));

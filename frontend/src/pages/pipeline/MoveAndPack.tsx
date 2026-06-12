@@ -306,10 +306,10 @@ export default function MoveAndPack() {
       });
 
       const extracted = extractPipelineRuns(pipelineResponse.data);
-      // Filter for completed/success multipart runs (checking routing service status)
+      // Filter for completed/success multipart runs (checking multipart service status)
       const completedRuns = extracted.filter((run) => {
-        const rStatus = serviceStatus(run, "routing");
-        return rStatus === "completed" || rStatus === "success";
+        const mStatus = serviceStatus(run, "multipart");
+        return mStatus === "completed" || mStatus === "success";
       });
 
       // Sort completed runs to find the most recent one
