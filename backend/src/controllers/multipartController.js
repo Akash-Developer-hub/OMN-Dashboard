@@ -61,15 +61,6 @@ function normalizeLogLines(payload) {
     return [];
 }
 
-function extractNewOffset(payload, fallbackOffset, lineCount) {
-    const body = payload && typeof payload === 'object' && 'data' in payload ? payload.data : payload;
-    const record = body && typeof body === 'object' && !Array.isArray(body) ? body : {};
-    const nested = record.data && typeof record.data === 'object' && !Array.isArray(record.data) ? record.data : {};
-    const nextOffset = Number(record.newOffset ?? nested.newOffset ?? record.offset ?? nested.offset);
-
-    if (Number.isFinite(nextOffset)) return nextOffset;
-    return Number(fallbackOffset || 0) + Number(lineCount || 0);
-}
 
 function collectAdminEmails(adminList) {
     if (!adminList || typeof adminList !== 'object') return [];
@@ -314,7 +305,7 @@ class MultipartController {
     };
 
     static fetchAndPersistLogs = async (state) => {
-        const { sId, targetServer, logPath, parentRunId, offset, previousLines } = state;
+        const { sId, targetServer, logPath, parentRunId } = state;
         const webhookUrl = config.n8n.runIdLogsWebhookUrl;
 
         if (!webhookUrl) {
@@ -324,7 +315,7 @@ class MultipartController {
         logger.info('Calling runId-logs webhook for multipart routing monitor.', {
             runId: parentRunId,
             sId,
-            offset,
+            offset: 0,
             logPath,
             targetServer,
         });
@@ -332,13 +323,13 @@ class MultipartController {
         const response = await axios.post(webhookUrl, {
             targetServer,
             sId,
-            offset,
+            offset: 0,
             logPath,
         }, { timeout: 60000 });
 
         const newLines = normalizeLogLines(response.data);
-        const mergedLines = [...previousLines, ...newLines];
-        const nextOffset = extractNewOffset(response.data, offset, newLines.length);
+        const mergedLines = newLines;
+        const nextOffset = 0;
 
         // Determine status: look for keyword "All countries have been processed successfully."
         let status = 'running';
