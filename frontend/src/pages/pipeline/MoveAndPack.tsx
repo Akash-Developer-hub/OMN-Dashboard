@@ -54,7 +54,7 @@ const stepsConfig: StepInfo[] = [
     description: "Move generated files to target server",
     icon: Truck,
     webhookUrl: MOVE_DATA_WEBHOOK,
-    successKeywords: ["Move complete", "files moved successfully", "completed successfully", "All countries have been processed successfully"],
+    successKeywords: ["All folders copied successfully"],
     failureKeywords: ["failed", "error", "Connection timed out", "permission denied"],
   },
   {
@@ -63,7 +63,7 @@ const stepsConfig: StepInfo[] = [
     description: "Clean moved database elements in target server",
     icon: Trash2,
     webhookUrl: CLEAN_DATA_WEBHOOK,
-    successKeywords: ["Clean complete", "successfully cleaned", "completed successfully"],
+    successKeywords: ["all data cleaned"],
     failureKeywords: ["failed", "error", "permission denied"],
   },
   {
@@ -72,7 +72,7 @@ const stepsConfig: StepInfo[] = [
     description: "Run verification checks on cleaned OSM data",
     icon: CheckCircle2,
     webhookUrl: VERIFY_DATA_WEBHOOK,
-    successKeywords: ["Verification complete", "successfully verified", "completed successfully", "Verification success"],
+    successKeywords: ["validation completed"],
     failureKeywords: ["failed", "error", "invalid data", "mismatch"],
   },
   {
@@ -81,7 +81,7 @@ const stepsConfig: StepInfo[] = [
     description: "Compress and archive verified database outputs",
     icon: Package,
     webhookUrl: PACK_DATA_WEBHOOK,
-    successKeywords: ["Pack complete", "successfully packed", "completed successfully", "archived successfully"],
+    successKeywords: ["Packup completed"],
     failureKeywords: ["failed", "error", "disk full", "permission denied"],
   },
 ];
@@ -323,20 +323,58 @@ export default function MoveAndPack() {
         setMovePackConfigs({});
       }
 
-      // Reset wizard status
-      setStepStatuses({
-        move: "idle",
-        clean: "idle",
-        verify: "idle",
-        pack: "idle",
-      });
-      setTerminalLogs({
-        move: "",
-        clean: "",
-        verify: "",
-        pack: "",
-      });
-      setActiveStep("move");
+      // Restore wizard status from selected/recent run
+      if (recentRun) {
+        const nextStatuses: Record<StepKey, StepStatus> = {
+          move: "idle",
+          clean: "idle",
+          verify: "idle",
+          pack: "idle",
+        };
+        const nextLogs: Record<StepKey, string> = {
+          move: "",
+          clean: "",
+          verify: "",
+          pack: "",
+        };
+
+        const keys: StepKey[] = ["move", "clean", "verify", "pack"];
+        keys.forEach((k) => {
+          const svcData = recentRun.services?.[k];
+          if (svcData) {
+            const rawStatus = String(svcData.status || "").toLowerCase();
+            if (rawStatus === "success" || rawStatus === "completed") {
+              nextStatuses[k] = "completed";
+            } else if (rawStatus === "failed" || rawStatus === "error") {
+              nextStatuses[k] = "failed";
+            } else if (rawStatus === "running") {
+              nextStatuses[k] = "running";
+            }
+            nextLogs[k] = svcData.log || "";
+          }
+        });
+
+        setStepStatuses(nextStatuses);
+        setTerminalLogs(nextLogs);
+
+        // Find first incomplete step as active step
+        const firstActive = keys.find((k) => nextStatuses[k] !== "completed") || "move";
+        setActiveStep(firstActive);
+      } else {
+        setStepStatuses({
+          move: "idle",
+          clean: "idle",
+          verify: "idle",
+          pack: "idle",
+        });
+        setTerminalLogs({
+          move: "",
+          clean: "",
+          verify: "",
+          pack: "",
+        });
+        setActiveStep("move");
+      }
     } catch (error) {
       toast.error("Failed to load completed runs list.");
     } finally {
@@ -354,6 +392,18 @@ export default function MoveAndPack() {
     logEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [terminalLogs]);
 
+  // Poll backend run status while any step is running
+  useEffect(() => {
+    const isAnyRunning = Object.values(stepStatuses).some((status) => status === "running");
+    if (!isAnyRunning) return;
+
+    const intervalId = setInterval(() => {
+      void fetchRunsData(true);
+    }, 3000);
+
+    return () => clearInterval(intervalId);
+  }, [stepStatuses, fetchRunsData]);
+
   // Extract base log directory and calculate target file path
   const routingService = useMemo(() => selectedRun?.services?.routing ?? {}, [selectedRun]);
   const targetServer = useMemo(() => {
@@ -368,6 +418,29 @@ export default function MoveAndPack() {
     const lastSlash = rPath.lastIndexOf("/");
     return lastSlash !== -1 ? rPath.substring(0, lastSlash) : "/home/gaaya/Projects/pipeline/logs";
   }, [routingService]);
+
+  const updateDBServiceStatus = async (stepKey: StepKey, activeServices: string[], status: "running" | "completed" | "failed") => {
+    if (!selectedRun) return;
+    try {
+      const runId = getRunId(selectedRun);
+      const statuses = [
+        ...activeServices.map((srv) => ({
+          service: `${srv}_${stepKey}`,
+          status,
+        })),
+        {
+          service: stepKey,
+          status,
+        }
+      ];
+      await api.patch("/admin-dashboard/data-pipeline/service-status", {
+        runId,
+        statuses,
+      });
+    } catch (err) {
+      console.error(`Failed to update DB service status to ${status} for step ${stepKey}`, err);
+    }
+  };
 
   const handleRunStep = async (
     stepInfo: StepInfo,
@@ -388,6 +461,10 @@ export default function MoveAndPack() {
       toast.error("Target server or sId is missing in the selected run.");
       return;
     }
+
+    const activeServices = key === "move" && moveParamsArray
+      ? moveParamsArray.map((p) => p.service)
+      : runServices;
 
     setExecuting(true);
     setStepStatuses((prev) => ({ ...prev, [key]: "running" }));
@@ -431,13 +508,7 @@ export default function MoveAndPack() {
         throw new Error(`Webhook responded with status ${response.status}`);
       }
 
-      setTerminalLogs((prev) => ({ ...prev, [key]: prev[key] + `[SYSTEM] Webhook triggered. Starting log stream...\n` }));
-
-      // Poll Logs in Frontend
-      let offset = 0;
-      let complete = false;
-      let attempts = 0;
-      const maxAttempts = 600; // 30 mins max
+      setTerminalLogs((prev) => ({ ...prev, [key]: prev[key] + `[SYSTEM] Webhook triggered. Starting backend log monitor...\n` }));
 
       // Determine the target server for log streaming
       let streamTargetServer = targetServer;
@@ -445,108 +516,28 @@ export default function MoveAndPack() {
         streamTargetServer = moveParamsArray[0].toServer;
       }
 
-      while (!complete && attempts < maxAttempts) {
-        if (!isMountedRef.current || runningStepKeyRef.current !== key) {
-          break;
-        }
-        attempts++;
-        try {
-          const logRes = await fetch(RUN_ID_LOGS_URL, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              targetServer: streamTargetServer,
-              sId: stepSId,
-              offset,
-              logPath: stepLogPath,
-            }),
-          });
+      // Initialize status as running in DB
+      await updateDBServiceStatus(key, activeServices, "running");
 
-          if (!isMountedRef.current || runningStepKeyRef.current !== key) {
-            break;
-          }
+      // Call backend monitor-logs API
+      await api.post("/admin-dashboard/data-pipeline/monitor-logs", {
+        runId: getRunId(selectedRun),
+        service: key, // "move", "clean", "verify", "pack"
+        targetServer: streamTargetServer,
+        sId: stepSId,
+        offset: 0,
+        logPath: stepLogPath,
+        version: currentVersion,
+      });
 
-          if (logRes.ok) {
-            const data = await logRes.json();
-            if (!isMountedRef.current || runningStepKeyRef.current !== key) {
-              break;
-            }
-            const body = data?.data ?? data;
-            const lines: string[] = Array.isArray(body?.logs)
-              ? body.logs.map((l: any) => l?.message || l?.line || l?.log || String(l))
-              : Array.isArray(body)
-              ? body.map((l: any) => l?.message || l?.line || l?.log || String(l))
-              : typeof body?.log === "string"
-              ? body.log.split("\n")
-              : typeof body === "string"
-              ? body.split("\n")
-              : [];
+      toast.success(`${stepInfo.label} started. Log monitoring is active in the backend.`);
 
-            if (lines.length > 0) {
-              const cleanedLines = lines.map((l) => l.replace(/\u001b\[[0-?]*[ -/]*[@-~]/g, "").trim()).filter(Boolean);
-              if (cleanedLines.length > 0 && isMountedRef.current && runningStepKeyRef.current === key) {
-                setTerminalLogs((prev) => ({
-                  ...prev,
-                  [key]: prev[key] + cleanedLines.join("\n") + "\n",
-                }));
-              }
-            }
-
-            const nextOffset = Number(body?.newOffset ?? body?.offset);
-            if (Number.isFinite(nextOffset)) {
-              offset = nextOffset;
-            } else {
-              offset += lines.length;
-            }
-
-            const isN8NComplete = body?.completed === true || body?.complete === true || body?.done === true;
-            
-            // Check success / failure keywords
-            const currentLogText = terminalLogs[key] + lines.join("\n");
-            const isSuccess = stepInfo.successKeywords.some((word) => currentLogText.includes(word));
-            const isFailure = stepInfo.failureKeywords.some((word) => currentLogText.includes(word));
-
-            if (isSuccess && isMountedRef.current && runningStepKeyRef.current === key) {
-              complete = true;
-              setStepStatuses((prev) => ({ ...prev, [key]: "completed" }));
-              toast.success(`${stepInfo.label} finished successfully!`);
-              // Move to next step
-              const currentIndex = stepsConfig.findIndex((s) => s.key === key);
-              if (currentIndex < stepsConfig.length - 1) {
-                setActiveStep(stepsConfig[currentIndex + 1].key);
-              }
-            } else if (isFailure && isMountedRef.current && runningStepKeyRef.current === key) {
-              complete = true;
-              setStepStatuses((prev) => ({ ...prev, [key]: "failed" }));
-              toast.error(`${stepInfo.label} failed.`);
-            } else if (isN8NComplete && isMountedRef.current && runningStepKeyRef.current === key) {
-              // Standard finished without failure keyword is assumed success
-              complete = true;
-              setStepStatuses((prev) => ({ ...prev, [key]: "completed" }));
-              toast.success(`${stepInfo.label} completed.`);
-              const currentIndex = stepsConfig.findIndex((s) => s.key === key);
-              if (currentIndex < stepsConfig.length - 1) {
-                setActiveStep(stepsConfig[currentIndex + 1].key);
-              }
-            }
-          }
-        } catch (pollErr) {
-          console.warn("Logs poll error", pollErr);
-        }
-
-        // Wait 3 seconds before next tick
-        await new Promise((res) => setTimeout(res, 3000));
-      }
-
-      if (attempts >= maxAttempts && isMountedRef.current && runningStepKeyRef.current === key) {
-        setStepStatuses((prev) => ({ ...prev, [key]: "failed" }));
-        setTerminalLogs((prev) => ({ ...prev, [key]: prev[key] + `\n[SYSTEM] Log monitor timed out.\n` }));
-      }
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Failed to run step.";
       if (isMountedRef.current && runningStepKeyRef.current === key) {
         setStepStatuses((prev) => ({ ...prev, [key]: "failed" }));
         setTerminalLogs((prev) => ({ ...prev, [key]: prev[key] + `\n[SYSTEM ERROR] ${msg}\n` }));
+        void updateDBServiceStatus(key, activeServices, "failed");
         toast.error(msg);
       }
     } finally {
@@ -564,6 +555,7 @@ export default function MoveAndPack() {
       runningStepKeyRef.current = null;
     }
     setStepStatuses((prev) => ({ ...prev, [key]: "completed" }));
+    void updateDBServiceStatus(key, runServices, "completed");
     toast.success(`${key.toUpperCase()} step marked completed manually.`);
     const currentIndex = stepsConfig.findIndex((s) => s.key === key);
     if (currentIndex < stepsConfig.length - 1) {

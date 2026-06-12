@@ -99,13 +99,33 @@ function buildGenerationRunLogsPayload(payload, offset) {
         || normalizeRunLogsTargetServer(payload.job?.targetServer);
     const sId = cleanString(payload.sId || payload.job?.sId);
     const logPath = cleanString(payload.logPath || payload.job?.logPath);
+    const service = cleanString(payload.service || payload.job?.service);
+
+    const isMoveAndPack = service && ['move', 'clean', 'verify', 'pack'].includes(service.toLowerCase());
 
     return {
         targetServer,
         sId,
-        offset: Number.isFinite(Number(offset)) ? Number(offset) : 0,
+        offset: isMoveAndPack ? 0 : (Number.isFinite(Number(offset)) ? Number(offset) : 0),
         logPath,
     };
+}
+
+function hasMoveAndPackFailure(service, lines) {
+    const serviceName = cleanString(service).toLowerCase();
+    const isMoveAndPack = ['move', 'clean', 'verify', 'pack'].includes(serviceName);
+    if (!isMoveAndPack) return false;
+
+    const errorKeywords = ["error", "failed", "failure", "exception", "connection timed out", "permission denied", "invalid data", "mismatch", "disk full"];
+    let errorCount = 0;
+    for (const line of lines) {
+        const lineLower = String(line || '').toLowerCase();
+        const hasErr = errorKeywords.some(keyword => lineLower.includes(keyword));
+        if (hasErr) {
+            errorCount++;
+        }
+    }
+    return errorCount > 3;
 }
 
 function hasGenerationFailureLogLine(lines) {
@@ -114,6 +134,24 @@ function hasGenerationFailureLogLine(lines) {
 
 function getGenerationStatusFromLines(service, lines, { errorConfirmed = true } = {}) {
     const serviceName = cleanString(service).toLowerCase();
+
+    if (hasMoveAndPackFailure(serviceName, lines)) {
+        return 'failed';
+    }
+
+    if (serviceName === 'move') {
+        return lines.some((line) => String(line || '').includes("All folders copied successfully")) ? 'success' : 'running';
+    }
+    if (serviceName === 'clean') {
+        return lines.some((line) => String(line || '').includes("all data cleaned")) ? 'success' : 'running';
+    }
+    if (serviceName === 'verify') {
+        return lines.some((line) => String(line || '').includes("validation completed")) ? 'success' : 'running';
+    }
+    if (serviceName === 'pack') {
+        return lines.some((line) => String(line || '').includes("Packup completed")) ? 'success' : 'running';
+    }
+
     const hasError = errorConfirmed && hasGenerationFailureLogLine(lines);
 
     if (hasError) return 'failed';
@@ -387,6 +425,29 @@ async function persistGenerationServiceLog(payload, lines, offset, status, logSt
     if (logPath) updateObj[`services.${service}.logPath`] = logPath;
     if (targetServer) updateObj[`services.${service}.targetServer`] = targetServer;
 
+    const isMoveAndPack = ['move', 'clean', 'verify', 'pack'].includes(service.toLowerCase());
+    let doc = null;
+    if (isMoveAndPack) {
+        doc = await DataPipelineRun.findByRunId(runId);
+        if (!doc) {
+            doc = await DataPipelineTransfers.findByRunId(runId);
+        }
+        const services = doc?.servicesList || ['search', 'tile', 'tiles', 'routing'];
+        for (const srv of services) {
+            const uniqueSrv = `${srv}_${service}`;
+            updateObj[`services.${uniqueSrv}.service`] = uniqueSrv;
+            updateObj[`services.${uniqueSrv}.status`] = status;
+            updateObj[`services.${uniqueSrv}.log`] = logText;
+            updateObj[`services.${uniqueSrv}.logState`] = {
+                lines,
+                offset,
+                source: 'remote',
+                ...logStateExtra,
+            };
+            updateObj[`${uniqueSrv}Status`] = status;
+        }
+    }
+
     const updateOps = {
         $set: updateObj,
         $setOnInsert: {
@@ -397,6 +458,15 @@ async function persistGenerationServiceLog(payload, lines, offset, status, logSt
             servicesList: service,
         },
     };
+
+    if (isMoveAndPack && doc) {
+        const services = doc?.servicesList || ['search', 'tile', 'tiles', 'routing'];
+        updateOps.$addToSet = {
+            servicesList: {
+                $each: [service, ...services.map(srv => `${srv}_${service}`)]
+            }
+        };
+    }
 
     const savedRaw = await DataPipelineRun.collection.findOneAndUpdate(
         { runId },
@@ -462,9 +532,14 @@ async function fetchAndPersistGenerationRunLogs(payload) {
     const response = await axios.post(webhookUrl, runLogsPayload, { timeout: GENERATION_LOG_MONITOR_REQUEST_TIMEOUT_MS });
     const lines = normalizeRunLogLines(response.data);
     const previousLines = Array.isArray(payload.previousLines) ? payload.previousLines : [];
-    const mergedLines = [...previousLines, ...lines].slice(-GENERATION_LOG_MONITOR_MAX_LINES);
+    
+    const isMoveAndPack = ['move', 'clean', 'verify', 'pack'].includes(service.toLowerCase());
+    const mergedLines = isMoveAndPack 
+        ? lines.slice(-GENERATION_LOG_MONITOR_MAX_LINES)
+        : [...previousLines, ...lines].slice(-GENERATION_LOG_MONITOR_MAX_LINES);
+
     const nextOffset = extractRunLogsOffset(response.data, runLogsPayload.offset, lines.length);
-    const currentLinesHaveError = hasGenerationFailureLogLine(lines);
+    const currentLinesHaveError = isMoveAndPack ? false : hasGenerationFailureLogLine(lines);
     const previousErrorPending = payload.errorPending === true;
     const errorConfirmed = previousErrorPending && currentLinesHaveError;
     const errorPending = currentLinesHaveError && !errorConfirmed;
