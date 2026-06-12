@@ -1008,6 +1008,199 @@ class PipelineConfigController {
     });
 
     /**
+     * POST /api/v1/admin-dashboard/pipeline-config/move-pack-path
+     */
+    static PostMovePackPath = asyncHandler(async (req, res) => {
+        const payload = req.body || {};
+        const version = cleanString(payload.version);
+        const targetServerId = cleanString(payload.targetServerId || payload.serverId);
+
+        if (!version) return ApiResponse.error(res, 400, 'version is required.');
+        if (!targetServerId) return ApiResponse.error(res, 400, 'targetServerId is required.');
+
+        let server;
+        try {
+            server = await getServerOrFail(targetServerId, 'targetServerId');
+        } catch (err) {
+            return ApiResponse.error(res, err.statusCode || 400, err.message);
+        }
+
+        const movePackEntry = {
+            targetServerId: server.id,
+            moveSourcePath: cleanString(payload.moveSourcePath) || null,
+            moveTargetPath: cleanString(payload.moveTargetPath) || null,
+            packInputFolder: cleanString(payload.packInputFolder) || null,
+            packOutputPath: cleanString(payload.packOutputPath) || null,
+            commonScriptPath: cleanString(payload.commonScriptPath || payload.scriptPath) || null,
+            logPath: cleanString(payload.logPath) || null,
+        };
+
+        const serverKey = buildServerKey(server);
+        const existingConfig = await findConfigByVersion(version);
+
+        if (existingConfig) {
+            const existingPaths = existingConfig.MovePackPaths || {};
+            const serverGroup = existingPaths[serverKey] || [];
+
+            const alreadyConfigured = serverGroup.some(
+                (p) => p.targetServerId === server.id
+            );
+
+            if (alreadyConfigured) {
+                return ApiResponse.error(
+                    res,
+                    400,
+                    `Move & Pack path for this server is already configured for version ${version}.`
+                );
+            }
+
+            const updatedDoc = await PipelineConfig.collection.findOneAndUpdate(
+                { _id: existingConfig._id },
+                {
+                    $push: { [`MovePackPaths.${serverKey}`]: movePackEntry },
+                    $set: { updatedAt: new Date() },
+                },
+                { returnDocument: 'after' }
+            );
+
+            const updatedConfig = PipelineConfig.toResponse(updatedDoc);
+
+            logger.audit('PIPELINE_MOVE_PACK_PATH_UPDATED', {
+                configId: updatedConfig.id,
+                version,
+                targetServerId: server.id,
+                updatedBy: req.user?.id,
+            });
+
+            return ApiResponse.success(res, 200, 'Move & Pack path added successfully.', {
+                config: updatedConfig,
+            });
+        }
+
+        const created = await PipelineConfig.create({
+            version,
+            status: payload.status || 'added',
+            adminList: payload.adminList || {},
+            serverPaths: {},
+            DownloadPaths: {},
+            MovePackPaths: {
+                [serverKey]: [movePackEntry],
+            },
+        });
+
+        logger.audit('PIPELINE_MOVE_PACK_PATH_CREATED', {
+            configId: created.id,
+            version,
+            targetServerId: server.id,
+            createdBy: req.user?.id,
+        });
+
+        return ApiResponse.success(res, 201, 'Move & Pack path created successfully.', {
+            config: PipelineConfig.toResponse(created),
+        });
+    });
+
+    /**
+     * PATCH /api/v1/admin-dashboard/pipeline-config/UpdateMovePack-path
+     */
+    static updateMovePackPath = asyncHandler(async (req, res) => {
+        const payload = req.body || {};
+        const version = cleanString(payload.version);
+        const targetServerId = cleanString(payload.targetServerId || payload.serverId);
+
+        if (!version) return ApiResponse.error(res, 400, 'version is required.');
+        if (!targetServerId) return ApiResponse.error(res, 400, 'targetServerId is required.');
+
+        let server;
+        try {
+            server = await getServerOrFail(targetServerId, 'targetServerId');
+        } catch (err) {
+            return ApiResponse.error(res, err.statusCode || 400, err.message);
+        }
+
+        const existingConfig = await findConfigByVersion(version);
+        if (!existingConfig) {
+            return ApiResponse.error(res, 404, `No pipeline config found for version "${version}".`);
+        }
+
+        const currentPaths = normalizeServerPathsForResponse(existingConfig.MovePackPaths || {});
+        const existingEntries = flattenServerPaths(currentPaths);
+
+        const existingEntry = existingEntries.find((p) => matchesServerId(p, server.id));
+
+        if (!existingEntry) {
+            return ApiResponse.error(res, 404, `Move & Pack path for server "${server.id}" is not configured in version "${version}".`);
+        }
+
+        const serverKey = buildServerKey(server);
+
+        const updatedEntry = {
+            targetServerId: server.id,
+            moveSourcePath: payload.moveSourcePath !== undefined ? cleanString(payload.moveSourcePath) : existingEntry.moveSourcePath,
+            moveTargetPath: payload.moveTargetPath !== undefined ? cleanString(payload.moveTargetPath) : existingEntry.moveTargetPath,
+            packInputFolder: payload.packInputFolder !== undefined ? cleanString(payload.packInputFolder) : existingEntry.packInputFolder,
+            packOutputPath: payload.packOutputPath !== undefined ? cleanString(payload.packOutputPath) : existingEntry.packOutputPath,
+            commonScriptPath: (payload.commonScriptPath || payload.scriptPath) !== undefined ? cleanString(payload.commonScriptPath || payload.scriptPath) : existingEntry.commonScriptPath,
+            logPath: payload.logPath !== undefined ? cleanString(payload.logPath) : existingEntry.logPath,
+        };
+
+        const mergedPaths = { ...currentPaths };
+        mergedPaths[serverKey] = mergedPaths[serverKey]
+            ? mergedPaths[serverKey].filter((p) => !matchesServerId(p, server.id))
+            : [];
+
+        mergedPaths[serverKey].push(updatedEntry);
+
+        const updatedDoc = await PipelineConfig.collection.findOneAndUpdate(
+            { _id: existingConfig._id },
+            { $set: { MovePackPaths: mergedPaths, updatedAt: new Date() } },
+            { returnDocument: 'after' }
+        );
+
+        const updatedConfig = PipelineConfig.toResponse(updatedDoc);
+
+        logger.audit('PIPELINE_MOVE_PACK_PATH_UPDATED', {
+            configId: updatedConfig.id,
+            version,
+            targetServerId: server.id,
+            serverKey,
+            updatedBy: req.user?.id,
+        });
+
+        return ApiResponse.success(res, 200, 'Move & Pack path updated successfully.', {
+            config: updatedConfig,
+        });
+    });
+
+    /**
+     * POST /api/v1/admin-dashboard/pipeline-config/move-pack-path-config
+     */
+    static getMovePackPathConfig = asyncHandler(async (req, res) => {
+        const payload = req.body || {};
+        const version = cleanString(payload.version);
+
+        if (!version) {
+            return ApiResponse.error(res, 400, 'version is required.');
+        }
+
+        const config = await findConfigByVersion(version);
+
+        if (!config) {
+            return ApiResponse.error(res, 404, `No configuration found for version: ${version}`);
+        }
+
+        logger.audit('MOVE_PACK_PATH_CONFIG_FETCHED', {
+            version,
+            requestedBy: req.user?.id,
+        });
+
+        return ApiResponse.success(res, 200, 'Move & Pack path config fetched successfully.', {
+            version,
+            movePackPaths: normalizeServerPathsForResponse(config.MovePackPaths || {}),
+        });
+    });
+
+    /**
      * GET /admin-dashboard/auth/users
      * Returns a paginated, filterable list of all admin users.
      * Supports: ?page=1&limit=10&role=admin&isActive=true&search=john

@@ -16,6 +16,11 @@ router.post('/start', MultipartController.startMultipart);
 router.get('/status/:sId', MultipartController.getStatus);
 
 /**
+ * POST /api/v1/admin-dashboard/multipart/stop/:sId
+ */
+router.post('/stop/:sId', MultipartController.stopMultipart);
+
+/**
  * POST /api/v1/admin-dashboard/multipart/monitor-logs
  */
 router.post('/monitor-logs', MultipartController.monitorMultipartLogs);

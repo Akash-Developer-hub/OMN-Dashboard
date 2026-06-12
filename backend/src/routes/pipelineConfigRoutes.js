@@ -52,6 +52,19 @@ router.patch('/UpdateDownload-path', PipelineConfigController.updateDownloadPath
 router.post('/download-path', PipelineConfigController.PostDownloadPath);
 
 /**
+ * @route PATCH /pipeline-config/UpdateMovePack-path
+ * @desc Update move & pack path configuration for a specific server in a pipeline config.
+ */
+router.patch('/UpdateMovePack-path', PipelineConfigController.updateMovePackPath);
+
+/**
+ * @route POST /pipeline-config/move-pack-path
+ * @desc Add move & pack path configuration for a specific server in a pipeline config.
+ * @body { version, targetServerId, moveSourcePath, moveTargetPath, packInputFolder, packOutputPath, commonScriptPath, logPath }
+ */
+router.post('/move-pack-path', PipelineConfigController.PostMovePackPath);
+
+/**
  * @route GET /pipeline-config/versions
  * @desc Get all distinct pipeline configuration versions
  */
@@ -71,6 +84,13 @@ router.get('/server-path', PipelineConfigController.getServerPathConfig);
  * @body { version: string }
  */
 router.post('/download-path-config', PipelineConfigController.getDownloadPathConfig);
+
+/**
+ * @route POST /pipeline-config/move-pack-path-config
+ * @desc Get movePackPathConfig for a particular version
+ * @body { version: string }
+ */
+router.post('/move-pack-path-config', PipelineConfigController.getMovePackPathConfig);
 
 router.get('/details', PipelineConfigController.getAdminUsers);
 

@@ -74,6 +74,11 @@ interface ServerPathEntry {
   multithreadscriptpath?: string;
   multithreadoutputpath?: string;
   maxspeedscriptpath?: string;
+  moveSourcePath?: string;
+  moveTargetPath?: string;
+  packInputFolder?: string;
+  packOutputPath?: string;
+  commonScriptPath?: string;
 }
 
 // ─── API Calls ────────────────────────────────────────────────────────────────
@@ -102,6 +107,13 @@ const fetchDownloadPathConfig = async (version: string): Promise<Record<string, 
     version,
   });
   return res.data?.data?.downloadPaths ?? {};
+};
+
+const fetchMovePackPathConfig = async (version: string): Promise<Record<string, ServerPathEntry[]>> => {
+  const res = await api.post("/admin-dashboard/pipeline-config/move-pack-path-config", {
+    version,
+  });
+  return res.data?.data?.movePackPaths ?? {};
 };
 
 const fetchAvailabilityServers = async (): Promise<AvailabilityServer[]> => {
@@ -166,6 +178,20 @@ const addDownloadPaths = async (version: string, serverId: string, paths: Pick<S
   return res.data;
 };
 
+const addMovePackPaths = async (version: string, serverId: string, paths: Pick<ServerPathEntry, "moveSourcePath" | "moveTargetPath" | "packInputFolder" | "packOutputPath" | "commonScriptPath" | "logPath">): Promise<any> => {
+  const res = await api.post("/admin-dashboard/pipeline-config/move-pack-path", {
+    version,
+    targetServerId: serverId,
+    moveSourcePath: paths.moveSourcePath,
+    moveTargetPath: paths.moveTargetPath,
+    packInputFolder: paths.packInputFolder,
+    packOutputPath: paths.packOutputPath,
+    commonScriptPath: paths.commonScriptPath,
+    logPath: paths.logPath,
+  });
+  return res.data;
+};
+
 // ─── NEW: Update Server Paths API ─────────────────────────────────────────────
 const updateServerPaths = async (version: string, serverId: string, paths: Omit<ServerPathEntry, "targetServerId">): Promise<any> => {
   const res = await api.patch("/admin-dashboard/pipeline-config/UpdateServer-path", {
@@ -197,6 +223,24 @@ const updateDownloadPaths = async (
     multithreadscriptpath: paths.multithreadscriptpath,
     multithreadoutputpath: paths.multithreadoutputpath,
     maxspeedscriptpath: paths.maxspeedscriptpath,
+  });
+  return res.data;
+};
+
+const updateMovePackPaths = async (
+  version: string,
+  serverId: string,
+  paths: Pick<ServerPathEntry, "moveSourcePath" | "moveTargetPath" | "packInputFolder" | "packOutputPath" | "commonScriptPath" | "logPath">
+): Promise<any> => {
+  const res = await api.patch("/admin-dashboard/pipeline-config/UpdateMovePack-path", {
+    version,
+    targetServerId: serverId,
+    moveSourcePath: paths.moveSourcePath,
+    moveTargetPath: paths.moveTargetPath,
+    packInputFolder: paths.packInputFolder,
+    packOutputPath: paths.packOutputPath,
+    commonScriptPath: paths.commonScriptPath,
+    logPath: paths.logPath,
   });
   return res.data;
 };
@@ -396,14 +440,44 @@ const ServerCard = ({ server, serverPaths, onAddPath, onViewPath }: ServerCardPr
 
 interface PathFormProps {
   server: AvailabilityServer;
-  paths: { inputPath: string; outputPath: string; folder: string; scriptPath: string; backupPath: string; logPath: string; multithreadscriptpath: string; multithreadoutputpath: string; maxspeedscriptpath: string };
-  setPaths: React.Dispatch<React.SetStateAction<{ inputPath: string; outputPath: string; folder: string; scriptPath: string; backupPath: string; logPath: string; multithreadscriptpath: string; multithreadoutputpath: string; maxspeedscriptpath: string }>>;
+  paths: {
+    inputPath: string;
+    outputPath: string;
+    folder: string;
+    scriptPath: string;
+    backupPath: string;
+    logPath: string;
+    multithreadscriptpath: string;
+    multithreadoutputpath: string;
+    maxspeedscriptpath: string;
+    moveSourcePath: string;
+    moveTargetPath: string;
+    packInputFolder: string;
+    packOutputPath: string;
+    commonScriptPath: string;
+  };
+  setPaths: React.Dispatch<React.SetStateAction<{
+    inputPath: string;
+    outputPath: string;
+    folder: string;
+    scriptPath: string;
+    backupPath: string;
+    logPath: string;
+    multithreadscriptpath: string;
+    multithreadoutputpath: string;
+    maxspeedscriptpath: string;
+    moveSourcePath: string;
+    moveTargetPath: string;
+    packInputFolder: string;
+    packOutputPath: string;
+    commonScriptPath: string;
+  }>>;
   submitting: boolean;
   onSubmit: () => void;
   onClose: () => void;
   submitLabel: string;
   isEdit?: boolean;
-  mode?: "server" | "download";
+  mode?: "server" | "download" | "movePack";
 }
 
 const PathFormFields = ({ server, paths, setPaths, submitting, onSubmit, onClose, submitLabel, isEdit = false, mode = "server" }: PathFormProps) => {
@@ -555,15 +629,70 @@ const PathFormFields = ({ server, paths, setPaths, submitting, onSubmit, onClose
         </svg>
       ),
     },
+    {
+      key: "moveSourcePath" as const,
+      label: "Move Source Path",
+      placeholder: "/home/user/Projects/pipeline/Gen",
+      icon: (
+        <svg className="w-3.5 h-3.5 text-sky-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4" />
+        </svg>
+      ),
+    },
+    {
+      key: "moveTargetPath" as const,
+      label: "Move Target Path",
+      placeholder: "/home/user/TargetServer/moved",
+      icon: (
+        <svg className="w-3.5 h-3.5 text-emerald-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+        </svg>
+      ),
+    },
+    {
+      key: "packInputFolder" as const,
+      label: "Pack Input Folder",
+      placeholder: "/home/user/TargetServer/moved",
+      icon: (
+        <svg className="w-3.5 h-3.5 text-indigo-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
+        </svg>
+      ),
+    },
+    {
+      key: "packOutputPath" as const,
+      label: "Pack Output Path",
+      placeholder: "/home/user/TargetServer/packed",
+      icon: (
+        <svg className="w-3.5 h-3.5 text-teal-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+        </svg>
+      ),
+    },
+    {
+      key: "commonScriptPath" as const,
+      label: "Common Script Path",
+      placeholder: "/home/user/Projects/pipeline/scripts",
+      icon: (
+        <svg className="w-3.5 h-3.5 text-violet-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4" />
+        </svg>
+      ),
+    },
     ].filter((field) => {
       if (mode === "download") {
         return ["outputPath", "folder", "scriptPath", "logPath", "multithreadscriptpath", "multithreadoutputpath", "maxspeedscriptpath"].includes(field.key);
+      }
+      if (mode === "movePack") {
+        return ["moveSourcePath", "moveTargetPath", "packInputFolder", "packOutputPath", "commonScriptPath", "logPath"].includes(field.key);
       }
       return ["inputPath", "outputPath", "scriptPath", "backupPath", "logPath"].includes(field.key);
     });
 
   const isValid = mode === "download"
     ? paths.outputPath.trim() && paths.scriptPath.trim() && paths.logPath.trim()
+    : mode === "movePack"
+    ? paths.moveSourcePath.trim() && paths.moveTargetPath.trim() && paths.packInputFolder.trim() && paths.packOutputPath.trim() && paths.commonScriptPath.trim() && paths.logPath.trim()
     : paths.inputPath.trim() && paths.outputPath.trim() && paths.scriptPath.trim() && paths.logPath.trim();
 
   return (
@@ -689,11 +818,26 @@ interface AddPathModalProps {
   onClose: () => void;
   onSubmit: (paths: Omit<ServerPathEntry, "targetServerId">) => Promise<void>;
   submitting: boolean;
-  mode?: "server" | "download";
+  mode?: "server" | "download" | "movePack";
 }
 
 const AddPathModal = ({ server, onClose, onSubmit, submitting, mode = "server" }: AddPathModalProps) => {
-  const [paths, setPaths] = useState({ inputPath: "/home", outputPath: "/home", folder: "/home", scriptPath: "/home", backupPath: "/home", logPath: "/home", multithreadscriptpath: "/home", multithreadoutputpath: "/home", maxspeedscriptpath: "/home" });
+  const [paths, setPaths] = useState({
+    inputPath: "/home",
+    outputPath: "/home",
+    folder: "/home",
+    scriptPath: "/home",
+    backupPath: "/home",
+    logPath: "/home",
+    multithreadscriptpath: "/home",
+    multithreadoutputpath: "/home",
+    maxspeedscriptpath: "/home",
+    moveSourcePath: "/home",
+    moveTargetPath: "/home",
+    packInputFolder: "/home",
+    packOutputPath: "/home",
+    commonScriptPath: "/home"
+  });
 
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
@@ -743,7 +887,7 @@ interface EditPathModalProps {
   onClose: () => void;
   onSubmit: (paths: Omit<ServerPathEntry, "targetServerId">) => Promise<void>;
   submitting: boolean;
-  mode?: "server" | "download";
+  mode?: "server" | "download" | "movePack";
 }
 
 const EditPathModal = ({ server, existingEntry, onClose, onSubmit, submitting, mode = "server" }: EditPathModalProps) => {
@@ -759,6 +903,29 @@ const EditPathModal = ({ server, existingEntry, onClose, onSubmit, submitting, m
         multithreadscriptpath: existingEntry.multithreadscriptpath || "/home",
         multithreadoutputpath: existingEntry.multithreadoutputpath || "/home",
         maxspeedscriptpath: existingEntry.maxspeedscriptpath || "/home",
+        moveSourcePath: "",
+        moveTargetPath: "",
+        packInputFolder: "",
+        packOutputPath: "",
+        commonScriptPath: ""
+      };
+    }
+    if (mode === "movePack") {
+      return {
+        inputPath: "",
+        outputPath: "",
+        folder: "",
+        scriptPath: "",
+        backupPath: "",
+        logPath: existingEntry.logPath || "/home",
+        multithreadscriptpath: "",
+        multithreadoutputpath: "",
+        maxspeedscriptpath: "",
+        moveSourcePath: existingEntry.moveSourcePath || "/home",
+        moveTargetPath: existingEntry.moveTargetPath || "/home",
+        packInputFolder: existingEntry.packInputFolder || "/home",
+        packOutputPath: existingEntry.packOutputPath || "/home",
+        commonScriptPath: existingEntry.commonScriptPath || "/home"
       };
     }
     return {
@@ -771,6 +938,11 @@ const EditPathModal = ({ server, existingEntry, onClose, onSubmit, submitting, m
       multithreadscriptpath: "",
       multithreadoutputpath: "",
       maxspeedscriptpath: "",
+      moveSourcePath: "",
+      moveTargetPath: "",
+      packInputFolder: "",
+      packOutputPath: "",
+      commonScriptPath: ""
     };
   });
 
@@ -824,7 +996,7 @@ interface ViewPathModalProps {
   paths: ServerPathEntry[];
   onClose: () => void;
   onEdit: (entry: ServerPathEntry) => void; // NEW
-  mode?: "server" | "download";
+  mode?: "server" | "download" | "movePack";
 }
 
 const ViewPathModal = ({ server, paths, onClose, onEdit, mode = "server" }: ViewPathModalProps) => (
@@ -878,11 +1050,13 @@ const ViewPathModal = ({ server, paths, onClose, onEdit, mode = "server" }: View
                   icon={<svg className="w-3.5 h-3.5 text-sky-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" /></svg>}
                 />
               )}
-              <PathRow
-                label="Output Path"
-                value={entry.outputPath || "Not configured"}
-                icon={<svg className="w-3.5 h-3.5 text-emerald-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>}
-              />
+              {mode !== "movePack" && (
+                <PathRow
+                  label="Output Path"
+                  value={entry.outputPath || "Not configured"}
+                  icon={<svg className="w-3.5 h-3.5 text-emerald-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>}
+                />
+              )}
               {mode === "download" && (
                 <PathRow
                   label="Folder"
@@ -890,11 +1064,13 @@ const ViewPathModal = ({ server, paths, onClose, onEdit, mode = "server" }: View
                   icon={<svg className="w-3.5 h-3.5 text-indigo-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" /></svg>}
                 />
               )}
-              <PathRow
-                label="Script Path"
-                value={entry.scriptPath || "Not configured"}
-                icon={<svg className="w-3.5 h-3.5 text-violet-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4" /></svg>}
-              />
+              {mode !== "movePack" && (
+                <PathRow
+                  label="Script Path"
+                  value={entry.scriptPath || "Not configured"}
+                  icon={<svg className="w-3.5 h-3.5 text-violet-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4" /></svg>}
+                />
+              )}
               {mode === "server" && (
                 <PathRow
                   label="Backup Path"
@@ -902,11 +1078,13 @@ const ViewPathModal = ({ server, paths, onClose, onEdit, mode = "server" }: View
                   icon={<svg className="w-3.5 h-3.5 text-amber-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4" /></svg>}
                 />
               )}
-              <PathRow
-                label="Log Path"
-                value={entry.logPath || "Not configured"}
-                icon={<svg className="w-3.5 h-3.5 text-rose-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>}
-              />
+              {mode !== "movePack" && (
+                <PathRow
+                  label="Log Path"
+                  value={entry.logPath || "Not configured"}
+                  icon={<svg className="w-3.5 h-3.5 text-rose-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>}
+                />
+              )}
               {mode === "download" && (
                 <>
                   <PathRow
@@ -923,6 +1101,40 @@ const ViewPathModal = ({ server, paths, onClose, onEdit, mode = "server" }: View
                     label="Max Speed Script Path"
                     value={entry.maxspeedscriptpath || "Not configured"}
                     icon={<svg className="w-3.5 h-3.5 text-orange-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>}
+                  />
+                </>
+              )}
+              {mode === "movePack" && (
+                <>
+                  <PathRow
+                    label="Move Source Path"
+                    value={entry.moveSourcePath || "Not configured"}
+                    icon={<svg className="w-3.5 h-3.5 text-sky-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4" /></svg>}
+                  />
+                  <PathRow
+                    label="Move Target Path"
+                    value={entry.moveTargetPath || "Not configured"}
+                    icon={<svg className="w-3.5 h-3.5 text-emerald-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>}
+                  />
+                  <PathRow
+                    label="Pack Input Folder"
+                    value={entry.packInputFolder || "Not configured"}
+                    icon={<svg className="w-3.5 h-3.5 text-indigo-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" /></svg>}
+                  />
+                  <PathRow
+                    label="Pack Output Path"
+                    value={entry.packOutputPath || "Not configured"}
+                    icon={<svg className="w-3.5 h-3.5 text-teal-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>}
+                  />
+                  <PathRow
+                    label="Common Script Path"
+                    value={entry.commonScriptPath || "Not configured"}
+                    icon={<svg className="w-3.5 h-3.5 text-violet-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4" /></svg>}
+                  />
+                  <PathRow
+                    label="Log Path"
+                    value={entry.logPath || "Not configured"}
+                    icon={<svg className="w-3.5 h-3.5 text-rose-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>}
                   />
                 </>
               )}
@@ -950,6 +1162,7 @@ export default function PipelineConfig() {
   const [availabilityServers, setAvailabilityServers] = useState<AvailabilityServer[]>([]);
   const [serverPathsMap, setServerPathsMap] = useState<Record<string, ServerPathEntry[]>>({});
   const [downloadPathsMap, setDownloadPathsMap] = useState<Record<string, ServerPathEntry[]>>({});
+  const [movePackPathsMap, setMovePackPathsMap] = useState<Record<string, ServerPathEntry[]>>({});
   const [version, setVersion] = useState("");
   const [savedVersion, setSavedVersion] = useState("");
 
@@ -970,6 +1183,7 @@ export default function PipelineConfig() {
   const [loadingServers, setLoadingServers] = useState(true);
   const [loadingServerPaths, setLoadingServerPaths] = useState(false);
   const [loadingDownloadPaths, setLoadingDownloadPaths] = useState(false);
+  const [loadingMovePackPaths, setLoadingMovePackPaths] = useState(false);
   const [savingVersion, setSavingVersion] = useState(false);
 
   // ── Version Confirmation State ──────────────────────────────────────────
@@ -993,7 +1207,7 @@ export default function PipelineConfig() {
   const itemsPerPage = 10;
 
   // Active tab for main section
-  const [activeTab, setActiveTab] = useState<"admins" | "servers" | "downloadConfig" | "rules">("admins");
+  const [activeTab, setActiveTab] = useState<"admins" | "servers" | "downloadConfig" | "movePackConfig" | "rules">("admins");
   const [notifyPanelOpen, setNotifyPanelOpen] = useState(false);
 
   // Validation Rules State
@@ -1125,7 +1339,7 @@ export default function PipelineConfig() {
   const [editPathEntry, setEditPathEntry] = useState<ServerPathEntry | null>(null);
   const [editPathServer, setEditPathServer] = useState<AvailabilityServer | null>(null);
   const [submittingEditPath, setSubmittingEditPath] = useState(false);
-  const [editMode, setEditMode] = useState<"server" | "download">("server");
+  const [editMode, setEditMode] = useState<"server" | "download" | "movePack">("server");
 
 
 
@@ -1190,6 +1404,20 @@ export default function PipelineConfig() {
     }
   }, [savedVersion]);
 
+  const loadMovePackPathConfig = useCallback(async (versionToLoad = savedVersion) => {
+    if (!versionToLoad) return;
+    setLoadingMovePackPaths(true);
+    try {
+      const movePackPaths = await fetchMovePackPathConfig(versionToLoad);
+      setMovePackPathsMap(normalizeServerPathsByServerId(movePackPaths));
+    } catch (err: any) {
+      setMovePackPathsMap({});
+      showToast(err.response?.data?.message || "Failed to load Move & Pack path config.", "error");
+    } finally {
+      setLoadingMovePackPaths(false);
+    }
+  }, [savedVersion]);
+
   const loadServers = useCallback(async () => {
     setLoadingServers(true);
     try {
@@ -1220,7 +1448,10 @@ export default function PipelineConfig() {
     if (activeTab === "downloadConfig" && savedVersion) {
       loadDownloadPathConfig(savedVersion);
     }
-  }, [activeTab, loadDownloadPathConfig, loadServerPathConfig, savedVersion]);
+    if (activeTab === "movePackConfig" && savedVersion) {
+      loadMovePackPathConfig(savedVersion);
+    }
+  }, [activeTab, loadDownloadPathConfig, loadServerPathConfig, loadMovePackPathConfig, savedVersion]);
 
   const handleSaveVersion = async () => {
     const cleanVersion = version.trim() || "v1.0";
@@ -1237,6 +1468,9 @@ export default function PipelineConfig() {
         }
         if (activeTab === "downloadConfig") {
           await loadDownloadPathConfig(cleanVersion);
+        }
+        if (activeTab === "movePackConfig") {
+          await loadMovePackPathConfig(cleanVersion);
         }
         setIsVersionEditable(false);
 
@@ -1371,6 +1605,44 @@ export default function PipelineConfig() {
         return;
       }
 
+      if (addPathMode === "movePack") {
+        const response = await addMovePackPaths(savedVersion, addPathServer._id, {
+          moveSourcePath: paths.moveSourcePath || "",
+          moveTargetPath: paths.moveTargetPath || "",
+          packInputFolder: paths.packInputFolder || "",
+          packOutputPath: paths.packOutputPath || "",
+          commonScriptPath: paths.commonScriptPath || "",
+          logPath: paths.logPath || "",
+        });
+        if (response?.success) {
+          setMovePackPathsMap((prev) => ({
+            ...prev,
+            [addPathServer._id]: [
+              ...(prev[addPathServer._id] ?? []),
+              {
+                targetServerId: addPathServer._id,
+                inputPath: "",
+                outputPath: "",
+                scriptPath: "",
+                backupPath: "",
+                logPath: paths.logPath || "",
+                moveSourcePath: paths.moveSourcePath,
+                moveTargetPath: paths.moveTargetPath,
+                packInputFolder: paths.packInputFolder,
+                packOutputPath: paths.packOutputPath,
+                commonScriptPath: paths.commonScriptPath,
+              },
+            ],
+          }));
+          showToast(`Move & Pack paths saved for ${addPathServer.name}.`, "success");
+          setAddPathServer(null);
+          await loadMovePackPathConfig(savedVersion);
+        } else {
+          showToast(response?.message || "Failed to save Move & Pack paths.", "error");
+        }
+        return;
+      }
+
       const response = await addServerPaths(savedVersion, addPathServer.name.toLowerCase(), addPathServer._id, paths);
       if (response?.success) {
         const updatedConfig = response.data?.config;
@@ -1433,6 +1705,35 @@ export default function PipelineConfig() {
           }
         } else {
           showToast(response?.message || "Failed to update download paths.", "error");
+        }
+      } else if (editMode === "movePack") {
+        const response = await updateMovePackPaths(savedVersion, editPathServer._id, {
+          moveSourcePath: paths.moveSourcePath,
+          moveTargetPath: paths.moveTargetPath,
+          packInputFolder: paths.packInputFolder,
+          packOutputPath: paths.packOutputPath,
+          commonScriptPath: paths.commonScriptPath,
+          logPath: paths.logPath,
+        });
+
+        if (response?.success) {
+          setMovePackPathsMap((prev) => {
+            const existing = prev[editPathServer._id] ?? [];
+            const updated = existing.map((entry) =>
+              entry.targetServerId === editPathEntry.targetServerId
+                ? { ...entry, moveSourcePath: paths.moveSourcePath, moveTargetPath: paths.moveTargetPath, packInputFolder: paths.packInputFolder, packOutputPath: paths.packOutputPath, commonScriptPath: paths.commonScriptPath, logPath: paths.logPath }
+                : entry
+            );
+            return { ...prev, [editPathServer._id]: updated };
+          });
+          showToast(`Move & Pack paths updated for ${editPathServer.name}.`, "success");
+          setEditPathEntry(null);
+          setEditPathServer(null);
+          if (viewPathServer?._id === editPathServer._id) {
+            await loadMovePackPathConfig(savedVersion);
+          }
+        } else {
+          showToast(response?.message || "Failed to update Move & Pack paths.", "error");
         }
       } else {
         const response = await updateServerPaths(savedVersion, editPathServer._id, paths);
@@ -1497,6 +1798,19 @@ export default function PipelineConfig() {
     setAddPathServer(server);
   };
 
+  const handleOpenAddMovePackPath = (server: AvailabilityServer) => {
+    setAddPathMode("movePack");
+    setAddPathServer(server);
+  };
+
+  const handleOpenMovePackPath = async (server: AvailabilityServer) => {
+    setViewPathMode("movePack");
+    setViewPathServer(server);
+    if (savedVersion) {
+      await loadMovePackPathConfig(savedVersion);
+    }
+  };
+
   const filtered = adminUsers.filter(
     (u) =>
       u.name.toLowerCase().includes(search.toLowerCase()) ||
@@ -1509,7 +1823,13 @@ export default function PipelineConfig() {
   const totalNotifyPages = Math.ceil(notifiedList.length / itemsPerPage);
   const paginatedNotified = notifiedList.slice((notifyPage - 1) * itemsPerPage, notifyPage * itemsPerPage);
 
-  const configuredServerCount = Object.keys(activeTab === "downloadConfig" ? downloadPathsMap : serverPathsMap).length;
+  const configuredServerCount = Object.keys(
+    activeTab === "downloadConfig"
+      ? downloadPathsMap
+      : activeTab === "movePackConfig"
+      ? movePackPathsMap
+      : serverPathsMap
+  ).length;
 
   return (
     <div className="min-h-screen bg-background p-6 lg:p-10">
@@ -1686,6 +2006,12 @@ export default function PipelineConfig() {
               className={`px-5 py-2 rounded-lg text-sm font-semibold transition-all flex items-center gap-2 ${activeTab === "downloadConfig" ? "bg-background shadow-sm text-foreground" : "text-muted-foreground hover:text-foreground"}`}
             >
               Download Config
+            </button>
+            <button
+              onClick={() => setActiveTab("movePackConfig")}
+              className={`px-5 py-2 rounded-lg text-sm font-semibold transition-all flex items-center gap-2 ${activeTab === "movePackConfig" ? "bg-background shadow-sm text-foreground" : "text-muted-foreground hover:text-foreground"}`}
+            >
+              Move & Pack Config
             </button>
             <button
               onClick={() => setActiveTab("rules")}
@@ -1910,6 +2236,65 @@ export default function PipelineConfig() {
                         serverPaths={downloadPathsMap[server._id]}
                         onAddPath={handleOpenAddDownloadPath}
                         onViewPath={handleOpenDownloadPath}
+                      />
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Move & Pack Config Tab */}
+          {activeTab === "movePackConfig" && (
+            <div>
+              {loadingServers || loadingMovePackPaths ? (
+                <Spinner />
+              ) : availabilityServers.length === 0 ? (
+                <div className="bg-card rounded-2xl border border-border text-center py-16">
+                  <div className="w-14 h-14 bg-muted rounded-2xl flex items-center justify-center mx-auto mb-4">
+                    <svg className="w-7 h-7 text-muted-foreground" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M5 12h14M5 12a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v4a2 2 0 01-2 2M5 12a2 2 0 00-2 2v4a2 2 0 002 2h14a2 2 0 002-2v-4a2 2 0 00-2-2" />
+                    </svg>
+                  </div>
+                  <p className="text-sm font-semibold text-foreground">No servers available</p>
+                  <p className="text-xs text-muted-foreground mt-1">No Move & Pack config servers were found.</p>
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  <div className="rounded-2xl border border-border bg-card px-5 py-4">
+                    <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                      <div>
+                        <h2 className="text-base font-semibold text-foreground">Move & Pack Config</h2>
+                        <p className="text-xs text-muted-foreground mt-1">
+                          Move & Pack paths loaded from version <span className="font-semibold text-foreground">{savedVersion || version || "v1.0"}</span>.
+                        </p>
+                      </div>
+                      <button
+                        onClick={() => loadMovePackPathConfig(savedVersion)}
+                        disabled={loadingMovePackPaths}
+                        className="inline-flex items-center justify-center gap-2 rounded-xl border border-border bg-secondary px-4 py-2 text-xs font-semibold text-secondary-foreground transition-all hover:bg-secondary/80 active:scale-95 disabled:cursor-not-allowed disabled:opacity-60"
+                      >
+                        <svg
+                          className={`w-3.5 h-3.5 ${loadingMovePackPaths ? "animate-spin" : ""}`}
+                          fill="none"
+                          stroke="currentColor"
+                          viewBox="0 0 24 24"
+                        >
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                        </svg>
+                        Refresh Path Config
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    {availabilityServers.map((server) => (
+                      <ServerCard
+                        key={`move-pack-config-${server._id}`}
+                        server={server}
+                        serverPaths={movePackPathsMap[server._id]}
+                        onAddPath={handleOpenAddMovePackPath}
+                        onViewPath={handleOpenMovePackPath}
                       />
                     ))}
                   </div>

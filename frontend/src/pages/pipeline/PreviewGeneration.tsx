@@ -196,6 +196,7 @@ export default function PreviewGeneration() {
   const [routingLogError, setRoutingLogError] = useState<string | null>(null);
   const [multithreadLoading, setMultithreadLoading] = useState(false);
   const [activeMultipartSId, setActiveMultipartSId] = useState<string | null>(null);
+  const [stopLoading, setStopLoading] = useState(false);
 
   const fetchPreviewData = useCallback(async (isRefresh = false) => {
     if (isRefresh) setRefreshing(true);
@@ -366,6 +367,22 @@ export default function PreviewGeneration() {
     }
   };
 
+  const handleStopMultipart = async () => {
+    if (!activeMultipartSId) return;
+    setStopLoading(true);
+    try {
+      await api.post(`/admin-dashboard/multipart/stop/${activeMultipartSId}`);
+      toast.success("Multipart process stopped.");
+      setActiveMultipartSId(null);
+      void fetchPreviewData();
+    } catch (error) {
+      console.error("Failed to stop multipart process:", error);
+      toast.error("Failed to stop multipart process.");
+    } finally {
+      setStopLoading(false);
+    }
+  };
+
   const services = useMemo(() => servicesFor(selectedRun), [selectedRun]);
 
   if (loading) {
@@ -507,6 +524,19 @@ export default function PreviewGeneration() {
                               <Button type="button" size="sm" onClick={() => void handleStartMultithread()} disabled={multithreadLoading}>
                                 {multithreadLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Play className="mr-2 h-4 w-4" />}
                                 Start MultiPart
+                              </Button>
+                            ) : null}
+
+                            {isRouting && activeMultipartSId ? (
+                              <Button
+                                type="button"
+                                variant="destructive"
+                                size="sm"
+                                onClick={() => void handleStopMultipart()}
+                                disabled={stopLoading}
+                              >
+                                {stopLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                                Stop Polling
                               </Button>
                             ) : null}
                           </div>

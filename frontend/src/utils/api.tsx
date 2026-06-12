@@ -112,7 +112,7 @@ api.interceptors.response.use(
     } catch (refreshError) {
       notifyTokenRefreshed(null);
       clearAuthStorage();
-      window.location.assign("/omndashboard/login");
+      window.location.assign("/nedashboard/login");
       return Promise.reject(refreshError);
     } finally {
       isRefreshing = false;

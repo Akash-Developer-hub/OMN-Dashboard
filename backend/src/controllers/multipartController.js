@@ -169,10 +169,23 @@ class MultipartController {
             }
 
             const routingService = doc.services?.routing || {};
+            const status = routingService.status || 'unknown';
+
+            // If status is running in DB but no active log monitor is in memory, resume it!
+            if (status === 'running' && sId && !activeMultipartLogMonitors.has(sId)) {
+                logger.info(`Resuming log monitor for ${sId} on getStatus check.`);
+                MultipartController.startLogMonitor({
+                    sId,
+                    targetServer: routingService.targetServer,
+                    logPath: routingService.logPath,
+                    parentRunId: doc.runId,
+                });
+            }
+
             const responseData = {
                 runId: doc.runId,
                 sId: routingService.sId || sId,
-                status: routingService.status || 'unknown',
+                status,
                 logs: routingService.log || '',
                 offset: routingService.logState?.offset || 0,
                 updatedAt: doc.updatedAt,
@@ -181,6 +194,51 @@ class MultipartController {
             return ApiResponse.success(res, 200, 'Multipart run status fetched.', responseData);
         } catch (err) {
             logger.error('Multipart getStatus error:', err.message);
+            return ApiResponse.error(res, 500, err.message);
+        }
+    };
+
+    static stopMultipart = async (req, res) => {
+        try {
+            const { sId } = req.params;
+
+            // Stop background monitor if running in memory
+            if (activeMultipartLogMonitors.has(sId)) {
+                const state = activeMultipartLogMonitors.get(sId);
+                state.stopped = true;
+                if (state.timer) clearTimeout(state.timer);
+                activeMultipartLogMonitors.delete(sId);
+                logger.info(`Stopped multipart log monitor for ${sId} via API request.`);
+            }
+
+            // Find matching data pipeline run document in DB
+            let doc = await DataPipelineRun.collection.findOne({ 'services.routing.sId': sId });
+            if (!doc) {
+                doc = await DataPipelineRun.findByRunId(sId);
+            }
+
+            if (!doc) {
+                return ApiResponse.error(res, 404, 'Multipart run not found.');
+            }
+
+            const parentRunId = doc.runId;
+            const now = new Date().toISOString();
+
+            // Mark routing service status as failed so it stops polling and stops displaying as running
+            await DataPipelineRun.collection.findOneAndUpdate(
+                { runId: parentRunId },
+                {
+                    $set: {
+                        updatedAt: now,
+                        'services.routing.status': 'failed',
+                        'routingStatus': 'failed',
+                    }
+                }
+            );
+
+            return ApiResponse.success(res, 200, 'Multipart process stopped successfully.');
+        } catch (err) {
+            logger.error('Multipart stop error:', err.message);
             return ApiResponse.error(res, 500, err.message);
         }
     };
