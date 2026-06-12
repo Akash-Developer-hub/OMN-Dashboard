@@ -18,6 +18,7 @@ const contributionGenerationRoutes = require('./contributionGenerationRoutes');
 const roleRoutes = require('./roleRoutes');
 const validationRoutes = require('./validationRoutes');
 const serviceHealthRoutes = require('./serviceHealthRoutes');
+const multipartRoutes = require('./multipartRoutes');
 
 router.use('/auth', adminDashboardAuthRoutes);
 router.use('/users', adminDashboardUserRoutes);
@@ -34,6 +35,7 @@ router.use('/pipeline-config', pipelineConfigRoutes);
 router.use('/download-status', downloadStatusRoutes);
 router.use('/validation', validationRoutes);
 router.use('/service-health', serviceHealthRoutes);
+router.use('/multipart', multipartRoutes);
 
 module.exports = router;
 

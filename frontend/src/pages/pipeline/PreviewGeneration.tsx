@@ -25,8 +25,6 @@ type ServiceKey = "search" | "tile" | "routing" | string;
 
 const FETCH_PIPELINE_URL = "/admin-dashboard/data-pipeline/fetch-pipeline";
 const DOWNLOAD_PATH_CONFIG_URL = "/admin-dashboard/pipeline-config/download-path-config";
-const MULTITHREAD_WEBHOOK_URL = "https://sandbox.vmmaps.com/n8n/webhook/omn/multithread";
-const RUN_ID_LOGS_URL = "https://sandbox.vmmaps.com/n8n/webhook/omn/runId-logs";
 
 const serviceMeta: Record<string, { label: string; icon: typeof Search; tone: string }> = {
   search: { label: "Search", icon: Search, tone: "border-blue-500/20 bg-blue-500/10 text-blue-600" },
@@ -197,6 +195,7 @@ export default function PreviewGeneration() {
   const [routingLogText, setRoutingLogText] = useState("");
   const [routingLogError, setRoutingLogError] = useState<string | null>(null);
   const [multithreadLoading, setMultithreadLoading] = useState(false);
+  const [activeMultipartSId, setActiveMultipartSId] = useState<string | null>(null);
 
   const fetchPreviewData = useCallback(async (isRefresh = false) => {
     if (isRefresh) setRefreshing(true);
@@ -226,6 +225,62 @@ export default function PreviewGeneration() {
   useEffect(() => {
     void fetchPreviewData();
   }, [fetchPreviewData]);
+
+  // Automatically resume polling if page is reloaded and the run is already running
+  useEffect(() => {
+    if (selectedRun) {
+      const status = serviceStatus(selectedRun, "routing");
+      const sId = serviceField(selectedRun, "routing", "sId");
+      if (status === "running" && sId) {
+        setActiveMultipartSId(sId);
+        setRoutingLogsVisible(true);
+      }
+    }
+  }, [selectedRun]);
+
+  // Log polling effect
+  useEffect(() => {
+    if (!activeMultipartSId) return;
+
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    let isAborted = false;
+
+    const poll = async () => {
+      try {
+        const response = await api.get(`/admin-dashboard/multipart/status/${activeMultipartSId}`);
+        if (isAborted) return;
+
+        const runData = response.data?.data;
+        if (runData) {
+          setRoutingLogText(runData.logs || "No logs yet.");
+          if (runData.status !== "running") {
+            if (runData.status === "success") {
+              toast.success("Multipart process completed successfully!");
+            } else {
+              toast.error("Multipart process failed.");
+            }
+            setActiveMultipartSId(null);
+            // Refresh parent run data to get the updated status/logs in the main UI
+            void fetchPreviewData();
+            return;
+          }
+        }
+      } catch (error) {
+        console.error("Failed to poll multipart status", error);
+      }
+
+      if (!isAborted) {
+        timer = setTimeout(poll, 3000);
+      }
+    };
+
+    void poll();
+
+    return () => {
+      isAborted = true;
+      if (timer) clearTimeout(timer);
+    };
+  }, [activeMultipartSId, fetchPreviewData]);
 
   const handleStartMultithread = async () => {
     setMultithreadLoading(true);
@@ -268,32 +323,40 @@ export default function PreviewGeneration() {
         Array.from({ length }, () => Math.floor(Math.random() * 36).toString(36)).join("");
 
       const sId = `st_${randomBase36(7)}_${randomBase36(8)}`;
+      const logPath = extractLogPath(logBasePath, sId);
+      const parentRunId = getRunId(selectedRun);
 
-      const multithreadResponse = await fetch(MULTITHREAD_WEBHOOK_URL, {
+      setRoutingLogText("");
+      setRoutingLogError(null);
+      setRoutingLogsVisible(true);
+
+      // Trigger the external webhook directly from the frontend
+      const multithreadResponse = await fetch("https://sandbox.vmmaps.com/n8n/webhook/omn/multipart", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ targetServer, sId, inputPath, multithreadscriptpath, multithreadoutputpath }),
       });
 
-      if (!multithreadResponse.ok) throw new Error(`Multithread request failed with status ${multithreadResponse.status}`);
+      if (!multithreadResponse.ok) {
+        throw new Error(`Multipart webhook request failed with status ${multithreadResponse.status}`);
+      }
 
-      const logPath = extractLogPath(logBasePath, sId);
-      setRoutingLogText("");
-      setRoutingLogError(null);
-      setRoutingLogsVisible(true);
-
-      const logsResponse = await fetch(RUN_ID_LOGS_URL, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ targetServer, sId, offset: 0, logPath }),
+      const startRes = await api.post("/admin-dashboard/multipart/start", {
+        targetServer,
+        sId,
+        inputPath,
+        multithreadscriptpath,
+        multithreadoutputpath,
+        logPath,
+        parentRunId,
       });
 
-      if (!logsResponse.ok) throw new Error(`Log request failed with status ${logsResponse.status}`);
+      if (startRes.data?.success === false) {
+        throw new Error(startRes.data?.message || "Failed to start multipart process in backend.");
+      }
 
-      const logsPayload = await logsResponse.json();
-      const logs = normalizeRunIdLogs(logsPayload).join("\n");
-      setRoutingLogText(logs || `No logs returned from ${RUN_ID_LOGS_URL}.`);
-      toast.success("Multithread process started and logs fetched successfully.");
+      setActiveMultipartSId(sId);
+      toast.success("Multipart process started successfully.");
     } catch (error) {
       const message = error instanceof Error ? error.message : "Failed to start multithread process.";
       setRoutingLogError(message);
@@ -377,8 +440,8 @@ export default function PreviewGeneration() {
                   const Icon = meta.icon;
                   const status = serviceStatus(selectedRun, service);
                   const isRouting = service === "routing";
-                  const showLogsTab = isRouting && routingLogsVisible;
                   const logText = serviceLogText(selectedRun, service);
+                  const showLogsTab = isRouting && (routingLogsVisible || Boolean(logText));
                   const details = [
                     {
                       label: "Input file",
@@ -443,7 +506,7 @@ export default function PreviewGeneration() {
                             {isRouting && !routingLogsVisible ? (
                               <Button type="button" size="sm" onClick={() => void handleStartMultithread()} disabled={multithreadLoading}>
                                 {multithreadLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Play className="mr-2 h-4 w-4" />}
-                                Start Multithread
+                                Start MultiPart
                               </Button>
                             ) : null}
                           </div>

@@ -32,6 +32,7 @@ import NotFound from "./pages/NotFound.tsx";
 import DataPipelineLog from "./pages/pipeline/DataPipelineLog.tsx";
 import PipelineConfig from "./pages/pipeline/PipelineConfig.tsx";
 import PreviewGeneration from "./pages/pipeline/PreviewGeneration.tsx";
+import MoveAndPack from "./pages/pipeline/MoveAndPack.tsx";
 
 const queryClient = new QueryClient();
 
@@ -64,6 +65,7 @@ const App = () => (
               <Route path='/pipeline/log' element={<DataPipelineLog />} />
               <Route path="/pipeline/preview" element={<PreviewGeneration />} />
               <Route path="/pipeline/config" element={<PipelineConfig />} />
+              <Route path="/pipeline/move-pack" element={<MoveAndPack />} />
               <Route path="/pipeline/logs" element={<PlaceholderPage title="Generation Logs" description="View previous generation logs and download outputs." />} />
               <Route path="/pipeline/pipeline" element={<PlaceholderPage title="Pipeline" description="Manage and monitor data pipelines." />} />
               <Route path="/roles" element={<RolesAccess />} />
