@@ -47,6 +47,14 @@ type StepInfo = {
   failureKeywords: string[];
 };
 
+type ServerDetails = {
+  id: string;
+  name: string;
+  host: string;
+  port: string;
+  username: string;
+};
+
 const stepsConfig: StepInfo[] = [
   {
     key: "move",
@@ -107,6 +115,21 @@ function getRunId(run: PipelineRun | null) {
   return String(run?.runId ?? run?._id ?? run?.id ?? "");
 }
 
+function pickServerName(server: any) {
+  return String(server?.name ?? server?.host ?? server?.ipAddress ?? "");
+}
+
+function toServerDetails(server: any): ServerDetails | null {
+  if (!server) return null;
+  return {
+    id: String(server?._id ?? server?.id ?? ""),
+    name: String(server?.name ?? ""),
+    host: String(server?.ipAddress ?? server?.host ?? ""),
+    port: String(server?.port ?? "22"),
+    username: String(server?.username ?? server?.user ?? ""),
+  };
+}
+
 export default function MoveAndPack() {
   const [searchParams] = useSearchParams();
   const [currentVersion, setCurrentVersion] = useState("");
@@ -149,31 +172,39 @@ export default function MoveAndPack() {
     overrideTarget: boolean;
   }>>({});
 
+  const findAvailabilityServer = useCallback((serverIdOrName: string) => {
+    if (!serverIdOrName) return null;
+    return availabilityServers.find(
+      (s) =>
+        s.name === serverIdOrName ||
+        s.host === serverIdOrName ||
+        s.ipAddress === serverIdOrName ||
+        s._id === serverIdOrName ||
+        s.id === serverIdOrName
+    ) ?? null;
+  }, [availabilityServers]);
+
   const getMoveSourcePathForServer = useCallback((serverIdOrName: string) => {
     if (!serverIdOrName) return "";
-    const srvObj = availabilityServers.find(
-      (s) => s.name === serverIdOrName || s.host === serverIdOrName || s._id === serverIdOrName
-    );
+    const srvObj = findAvailabilityServer(serverIdOrName);
     if (!srvObj) return "";
     const configList = movePackConfigs[srvObj._id];
     if (Array.isArray(configList) && configList.length > 0) {
       return configList[0].moveSourcePath || "";
     }
     return "";
-  }, [availabilityServers, movePackConfigs]);
+  }, [findAvailabilityServer, movePackConfigs]);
 
   const getMoveTargetPathForServer = useCallback((serverIdOrName: string) => {
     if (!serverIdOrName) return "";
-    const srvObj = availabilityServers.find(
-      (s) => s.name === serverIdOrName || s.host === serverIdOrName || s._id === serverIdOrName
-    );
+    const srvObj = findAvailabilityServer(serverIdOrName);
     if (!srvObj) return "";
     const configList = movePackConfigs[srvObj._id];
     if (Array.isArray(configList) && configList.length > 0) {
       return configList[0].moveTargetPath || "";
     }
     return "";
-  }, [availabilityServers, movePackConfigs]);
+  }, [findAvailabilityServer, movePackConfigs]);
 
   const handleUpdateServiceConfig = (service: string, key: string, value: any) => {
     setServiceConfigs((prev) => {
@@ -253,15 +284,6 @@ export default function MoveAndPack() {
     return Array.from(servers).filter(Boolean);
   }, [selectedRun]);
 
-  const handleMoveServiceChange = (serviceName: string) => {
-    setMoveService(serviceName);
-    const srvData = selectedRun?.services?.[serviceName];
-    const srvServer = srvData?.targetServer || srvData?.server || srvData?.serverName || srvData?.targetServerName || "";
-    if (srvServer) {
-      setMoveFromServer(srvServer);
-    }
-  };
-
   useEffect(() => {
     isMountedRef.current = true;
     return () => {
@@ -313,8 +335,8 @@ export default function MoveAndPack() {
 
       // Fetch Move & Pack configurations
       try {
-        const movePackRes = await api.post("/admin-dashboard/pipeline-config/move-pack-path-config", {
-          version,
+        const movePackRes = await api.get("/admin-dashboard/pipeline-config/move-pack-path-config", {
+          params: { version },
         });
         const fetchedConfigs = movePackRes.data?.data?.movePackPaths ?? movePackRes.data?.data ?? {};
         setMovePackConfigs(fetchedConfigs);
@@ -448,6 +470,7 @@ export default function MoveAndPack() {
       service: string;
       fromServer: string;
       toServer: string;
+      targetServer?: ServerDetails | null;
       moveSourcePath: string;
       moveTargetPath: string;
     }[]
@@ -573,7 +596,7 @@ export default function MoveAndPack() {
 
         const srvData = selectedRun?.services?.[srv];
         const defaultFromServer = srvData?.targetServer || srvData?.server || srvData?.serverName || srvData?.targetServerName || runServers[0] || "";
-        const defaultToServer = availabilityServers[0]?.name || availabilityServers[0]?.host || "";
+        const defaultToServer = pickServerName(availabilityServers[0]);
 
         newConfigs[srv] = {
           fromServer: defaultFromServer,
@@ -991,11 +1014,14 @@ export default function MoveAndPack() {
                             const config = serviceConfigs[srv];
                             const dbSource = getMoveSourcePathForServer(config.fromServer);
                             const dbTarget = getMoveTargetPathForServer(config.toServer);
+                            const toServer = findAvailabilityServer(config.toServer);
+                            const targetServerDetails = toServerDetails(toServer);
                             
                             return {
                               service: srv,
                               fromServer: config.fromServer,
                               toServer: config.toServer,
+                              targetServer: targetServerDetails,
                               moveSourcePath: (dbSource && !config.overrideSource) ? dbSource : config.customSourcePath,
                               moveTargetPath: (dbTarget && !config.overrideTarget) ? dbTarget : config.customTargetPath,
                             };

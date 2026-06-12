@@ -90,7 +90,7 @@ router.post('/download-path-config', PipelineConfigController.getDownloadPathCon
  * @desc Get movePackPathConfig for a particular version
  * @body { version: string }
  */
-router.post('/move-pack-path-config', PipelineConfigController.getMovePackPathConfig);
+router.get('/move-pack-path-config', PipelineConfigController.getMovePackPathConfig);
 
 router.get('/details', PipelineConfigController.getAdminUsers);
 

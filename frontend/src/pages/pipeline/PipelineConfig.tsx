@@ -113,8 +113,8 @@ const fetchDownloadPathConfig = async (version: string): Promise<Record<string, 
 };
 
 const fetchMovePackPathConfig = async (version: string): Promise<Record<string, ServerPathEntry[]>> => {
-  const res = await api.post("/admin-dashboard/pipeline-config/move-pack-path-config", {
-    version,
+  const res = await api.get("/admin-dashboard/pipeline-config/move-pack-path-config", {
+    params: { version },
   });
   return res.data?.data?.movePackPaths ?? {};
 };
@@ -541,6 +541,12 @@ const PathFormFields = ({ server, paths, setPaths, submitting, onSubmit, onClose
     }
   };
 
+  const modeFieldKeys = mode === "download"
+    ? ["outputPath", "folder", "scriptPath", "logPath", "multithreadscriptpath", "multithreadoutputpath", "maxspeedscriptpath"]
+    : mode === "movePack"
+    ? ["moveSourcePath", "moveTargetPath", "packInputFolder", "packOutputPath", "commonScriptPath", "logPath"]
+    : ["inputPath", "outputPath", "scriptPath", "backupPath", "logPath"];
+
   const fields = [
     {
       key: "inputPath" as const,
@@ -682,15 +688,9 @@ const PathFormFields = ({ server, paths, setPaths, submitting, onSubmit, onClose
         </svg>
       ),
     },
-    ].filter((field) => {
-      if (mode === "download") {
-        return ["outputPath", "folder", "scriptPath", "logPath", "multithreadscriptpath", "multithreadoutputpath", "maxspeedscriptpath"].includes(field.key);
-      }
-      if (mode === "movePack") {
-        return ["moveSourcePath", "moveTargetPath", "packInputFolder", "packOutputPath", "commonScriptPath", "logPath"].includes(field.key);
-      }
-      return ["inputPath", "outputPath", "scriptPath", "backupPath", "logPath"].includes(field.key);
-    });
+    ]
+    .filter((field) => modeFieldKeys.includes(field.key))
+    .sort((a, b) => modeFieldKeys.indexOf(a.key) - modeFieldKeys.indexOf(b.key));
 
   const isValid = mode === "download"
     ? paths.outputPath.trim() && paths.scriptPath.trim() && paths.logPath.trim()
@@ -1333,9 +1333,9 @@ export default function PipelineConfig() {
 
   // Server Path Modals
   const [addPathServer, setAddPathServer] = useState<AvailabilityServer | null>(null);
-  const [addPathMode, setAddPathMode] = useState<"server" | "download">("server");
+  const [addPathMode, setAddPathMode] = useState<"server" | "download" | "movePack">("server");
   const [viewPathServer, setViewPathServer] = useState<AvailabilityServer | null>(null);
-  const [viewPathMode, setViewPathMode] = useState<"server" | "download">("server");
+  const [viewPathMode, setViewPathMode] = useState<"server" | "download" | "movePack">("server");
   const [submittingPath, setSubmittingPath] = useState(false);
 
   // ── NEW: Edit Path state ──────────────────────────────────────────────────
@@ -1826,6 +1826,11 @@ export default function PipelineConfig() {
   const paginatedAdmins = filtered.slice((adminPage - 1) * itemsPerPage, adminPage * itemsPerPage);
   const totalNotifyPages = Math.ceil(notifiedList.length / itemsPerPage);
   const paginatedNotified = notifiedList.slice((notifyPage - 1) * itemsPerPage, notifyPage * itemsPerPage);
+  const getPathMapByMode = (mode: "server" | "download" | "movePack") => {
+    if (mode === "download") return downloadPathsMap;
+    if (mode === "movePack") return movePackPathsMap;
+    return serverPathsMap;
+  };
 
   const configuredServerCount = Object.keys(
     activeTab === "downloadConfig"
@@ -2623,7 +2628,7 @@ export default function PipelineConfig() {
       {viewPathServer && (
         <ViewPathModal
           server={viewPathServer}
-          paths={(viewPathMode === "download" ? downloadPathsMap : serverPathsMap)[viewPathServer._id] ?? []}
+          paths={getPathMapByMode(viewPathMode)[viewPathServer._id] ?? []}
           onClose={() => setViewPathServer(null)}
           onEdit={handleOpenEdit}
           mode={viewPathMode}

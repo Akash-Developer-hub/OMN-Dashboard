@@ -1188,30 +1188,64 @@ class PipelineConfigController {
     });
 
     /**
-     * POST /api/v1/admin-dashboard/pipeline-config/move-pack-path-config
+     * GET /api/v1/admin-dashboard/pipeline-config/move-pack-path-config
+     *
+     * Supports ?version=<version>. When a version is supplied, return only the
+     * Move & Pack paths for that version so updates do not get masked by paths
+     * from older/newer config documents.
      */
     static getMovePackPathConfig = asyncHandler(async (req, res) => {
-        const payload = req.body || {};
+        const payload = {
+            ...(req.query || {}),
+            ...(req.body || {}),
+        };
         const version = cleanString(payload.version);
 
-        if (!version) {
-            return ApiResponse.error(res, 400, 'version is required.');
+        if (version) {
+            const config = await findConfigByVersion(version);
+
+            if (!config) {
+                return ApiResponse.error(res, 404, `No configuration found for version: ${version}`);
+            }
+
+            logger.audit('MOVE_PACK_PATH_CONFIG_FETCHED', {
+                version,
+                requestedBy: req.user?.id,
+            });
+
+            return ApiResponse.success(res, 200, 'Move & Pack path config fetched successfully.', {
+                version,
+                movePackPaths: normalizeServerPathsForResponse(config.MovePackPaths || {}),
+            });
         }
 
-        const config = await findConfigByVersion(version);
+        // No version supplied: keep the legacy aggregate response for existing callers.
+        const docs = await PipelineConfig.collection.find({}).sort({ createdAt: -1 }).toArray();
+        const configs = (docs || []).map((d) => PipelineConfig.toResponse(d)).filter(Boolean);
 
-        if (!config) {
-            return ApiResponse.error(res, 404, `No configuration found for version: ${version}`);
+        if (!configs.length) {
+            return ApiResponse.error(res, 404, 'No configuration found.');
+        }
+
+        const aggregated = {};
+        for (const cfg of configs) {
+            const normalized = normalizeServerPathsForResponse(cfg.MovePackPaths || {});
+            for (const [serverKey, paths] of Object.entries(normalized)) {
+                aggregated[serverKey] = aggregated[serverKey] || [];
+                for (const p of paths) {
+                    // include version for traceability
+                    aggregated[serverKey].push({ ...p, version: cfg.version || null });
+                }
+            }
         }
 
         logger.audit('MOVE_PACK_PATH_CONFIG_FETCHED', {
-            version,
             requestedBy: req.user?.id,
+            count: Object.keys(aggregated).length,
         });
 
         return ApiResponse.success(res, 200, 'Move & Pack path config fetched successfully.', {
-            version,
-            movePackPaths: normalizeServerPathsForResponse(config.MovePackPaths || {}),
+            movePackPaths: aggregated,
         });
     });
 
