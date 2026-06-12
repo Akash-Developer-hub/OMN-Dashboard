@@ -41,6 +41,7 @@ const config = {
         mailAutoWebhookUrl: process.env.N8N_MAIL_AUTO_WEBHOOK_URL || 'https://sandbox.vmmaps.com/n8n/webhook/omn/mail-auto',
         routingAddMaxspeedWebhookUrl: process.env.N8N_ROUTING_ADDMAXSPEED_WEBHOOK_URL || 'https://sandbox.vmmaps.com/n8n/webhook/omn/addmaxspeed',
         maxspeedWebhookUrl: process.env.N8N_MAXSPEED_WEBHOOK_URL || 'https://sandbox.vmmaps.com/n8n/webhook/maxspeed',
+        multipartWebhookUrl: process.env.N8N_MULTIPART_WEBHOOK_URL || 'https://sandbox.vmmaps.com/n8n/webhook/omn/multipart',
     },
 };
 
