@@ -15,9 +15,11 @@ const GENERATION_LOG_MONITOR_MAX_DURATION_MS = Number(process.env.GENERATION_LOG
 const GENERATION_LOG_MONITOR_REQUEST_TIMEOUT_MS = Number(process.env.GENERATION_LOG_MONITOR_REQUEST_TIMEOUT_MS || 60000);
 const GENERATION_LOG_MONITOR_MAX_LINES = Number(process.env.GENERATION_LOG_MONITOR_MAX_LINES || 25000);
 const activeGenerationLogMonitors = new Map();
-const GENERATION_FAILED_LOG_PATTERN = /NewConnectionError|ConnectionError|MaxRetryError|NetworkError|Connection timed out|Connection|Traceback|Exception|ValueError|TypeError|KeyError|AttributeError|ReadTimeout|ConnectTimeout|TimeoutError|BrokenPipeError/i;
+const GENERATION_FAILED_LOG_PATTERN = /newConnectionError|NewConnectionError|connectionError|ConnectionError|MaxRetryError|NetworkError|ValueError|TypeError|KeyError|AttributeError|ConnectionRefusedError|raise err|MaxRetryErrorCaused by NewConnectionError|raise ConnectionError/i;
 const SEARCH_TILE_SUCCESS_LOG_PATTERN = /Processing complete|All files processed|Total processed/i;
 const ROUTING_SUCCESS_LOG_PATTERN = /Routing tiles created at/i;
+const ROUTING_SERVICE_NAMES = new Set(['routing', 'route']);
+const SEARCH_TILE_SERVICE_NAMES = new Set(['search', 'tile', 'tiles']);
 
 function cleanString(value) {
     return typeof value === 'string' ? value.trim() : '';
@@ -112,17 +114,29 @@ function hasGenerationFailureLogLine(lines) {
     return lines.some((line) => GENERATION_FAILED_LOG_PATTERN.test(String(line || '')));
 }
 
+function isRoutingGenerationService(service) {
+    return ROUTING_SERVICE_NAMES.has(cleanString(service).toLowerCase());
+}
+
+function isSearchTileGenerationService(service) {
+    return SEARCH_TILE_SERVICE_NAMES.has(cleanString(service).toLowerCase());
+}
+
 function getGenerationStatusFromLines(service, lines, { errorConfirmed = true } = {}) {
     const serviceName = cleanString(service).toLowerCase();
     const hasError = errorConfirmed && hasGenerationFailureLogLine(lines);
 
     if (hasError) return 'failed';
 
-    if (serviceName === 'routing') {
+    if (isRoutingGenerationService(serviceName)) {
         return lines.some((line) => ROUTING_SUCCESS_LOG_PATTERN.test(String(line || ''))) ? 'success' : 'running';
     }
 
-    return lines.some((line) => SEARCH_TILE_SUCCESS_LOG_PATTERN.test(String(line || ''))) ? 'success' : 'running';
+    if (isSearchTileGenerationService(serviceName)) {
+        return lines.some((line) => SEARCH_TILE_SUCCESS_LOG_PATTERN.test(String(line || ''))) ? 'success' : 'running';
+    }
+
+    return 'running';
 }
 
 function normalizeGenerationTerminalStatus(value) {
@@ -581,6 +595,39 @@ function buildGenerationServiceMonitorPayloads(payload) {
     const services = payload.services && typeof payload.services === 'object' && !Array.isArray(payload.services)
         ? payload.services
         : null;
+    const serviceEntries = Array.isArray(payload.services)
+        ? payload.services
+        : (Array.isArray(payload.statuses) ? payload.statuses : null);
+
+    const buildServicePayload = (serviceName, servicePayload = {}) => {
+        const service = cleanString(serviceName || servicePayload.service);
+        if (!service || !servicePayload || typeof servicePayload !== 'object') return null;
+
+        const serviceRunId = runId || cleanString(servicePayload.runId || servicePayload.job?.runId);
+        const sId = cleanString(servicePayload.sId || servicePayload.job?.sId || payload.sId || payload.job?.sId);
+        const logPath = cleanString(servicePayload.logPath || servicePayload.job?.logPath || payload.logPath || payload.job?.logPath);
+        const targetServer = servicePayload.targetServer ?? servicePayload.job?.targetServer ?? payload.targetServer ?? payload.job?.targetServer;
+
+        return {
+            ...payload,
+            ...servicePayload,
+            runId: serviceRunId,
+            service,
+            sId,
+            logPath,
+            targetServer,
+            previousLines: [],
+            errorPending: false,
+            job: {
+                ...(payload.job || {}),
+                ...(servicePayload.job || {}),
+                runId: serviceRunId,
+                sId,
+                logPath,
+                targetServer,
+            },
+        };
+    };
 
     if (services && Object.keys(services).length > 0) {
         const serviceNames = Array.isArray(payload.servicesList) && payload.servicesList.length > 0
@@ -588,30 +635,15 @@ function buildGenerationServiceMonitorPayloads(payload) {
             : Object.keys(services);
 
         return serviceNames
-            .map((serviceName) => {
-                const service = cleanString(serviceName);
-                const servicePayload = services[service];
-                if (!service || !servicePayload || typeof servicePayload !== 'object') return null;
+            .map((serviceName) => buildServicePayload(serviceName, services[cleanString(serviceName)]))
+            .filter(Boolean);
+    }
 
-                const serviceRunId = runId || cleanString(servicePayload.runId || servicePayload.job?.runId);
-
-                return {
-                    ...payload,
-                    ...servicePayload,
-                    runId: serviceRunId,
-                    service,
-                    sId: cleanString(servicePayload.sId),
-                    logPath: cleanString(servicePayload.logPath),
-                    targetServer: servicePayload.targetServer ?? payload.targetServer,
-                    job: {
-                        ...(payload.job || {}),
-                        ...(servicePayload.job || {}),
-                        runId: serviceRunId,
-                        sId: cleanString(servicePayload.sId),
-                        logPath: cleanString(servicePayload.logPath),
-                        targetServer: servicePayload.targetServer ?? payload.targetServer,
-                    },
-                };
+    if (serviceEntries && serviceEntries.length > 0) {
+        return serviceEntries
+            .map((entry) => {
+                if (typeof entry === 'string') return buildServicePayload(entry, payload);
+                return buildServicePayload(entry?.service, entry);
             })
             .filter(Boolean);
     }

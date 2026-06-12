@@ -1206,6 +1206,10 @@ export default function Download() {
 
       if (completed) {
         setAutoPollEnabled((current) => ({ ...current, [workflow]: false }));
+        setJobs((current) => ({
+          ...current,
+          [workflow]: current[workflow] ? { ...current[workflow], status: "completed", lastError: undefined } : current[workflow],
+        }));
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : "Failed to fetch logs.";

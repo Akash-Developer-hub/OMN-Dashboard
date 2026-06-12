@@ -395,7 +395,7 @@ function TerminalLog({
       : isDark ? "text-zinc-200" : "text-slate-800";
 
   return (
-    <div className={`h-full font-mono text-xs leading-relaxed overflow-auto p-3 rounded-b-lg ${shellClass}`}>
+    <div className={`min-h-full font-mono text-xs leading-relaxed p-3 rounded-b-lg ${shellClass}`}>
       {loading && !logText ? (
         <span className={`inline-flex items-center gap-2 ${mutedClass}`}>
           <Loader2 className="w-3.5 h-3.5 animate-spin" /> Fetching logs…
@@ -445,7 +445,7 @@ export default function DataPipelineLog({ runId }: { runId?: string }) {
   const [runsCollapsed,     setRunsCollapsed]     = useState(false);
   const [logTheme,          setLogTheme]          = useState<"dark" | "light">("dark");
 
-  const logBottomRef              = useRef<HTMLDivElement | null>(null);
+  const logScrollRef              = useRef<HTMLDivElement | null>(null);
   const shouldStickToBottomRef    = useRef(true);
   const removeLogCallsRef         = useRef<Set<string>>(new Set());
   const selectedRunRef            = useRef<PipelinePayload | null>(null);
@@ -615,13 +615,19 @@ export default function DataPipelineLog({ runId }: { runId?: string }) {
 
   useEffect(() => {
     shouldStickToBottomRef.current = true;
-    requestAnimationFrame(() => logBottomRef.current?.scrollIntoView({ block: "end" }));
+    requestAnimationFrame(() => {
+      const el = logScrollRef.current;
+      if (el) el.scrollTop = el.scrollHeight;
+    });
   }, [activeRunKey, selectedService]);
 
   useEffect(() => {
     if (!shouldStickToBottomRef.current) return;
-    requestAnimationFrame(() => logBottomRef.current?.scrollIntoView({ block: "end" }));
-  }, [activeLogText]);
+    requestAnimationFrame(() => {
+      const el = logScrollRef.current;
+      if (el) el.scrollTop = el.scrollHeight;
+    });
+  }, [activeLogText, activeLogState?.loading]);
 
   // ─── Helpers ─────────────────────────────────────────────────────────────
 
@@ -957,6 +963,7 @@ export default function DataPipelineLog({ runId }: { runId?: string }) {
 
               {/* ★ Idea 3: dark terminal log */}
               <div
+                ref={logScrollRef}
                 className={`flex-1 overflow-auto ${logTheme === "dark" ? "bg-[#0d1117]" : "bg-white"}`}
                 onScroll={(e) => {
                   const el = e.currentTarget;
@@ -976,7 +983,6 @@ export default function DataPipelineLog({ runId }: { runId?: string }) {
                     </span>
                   </div>
                 )}
-                <div ref={logBottomRef} />
               </div>
             </div>
           )}
