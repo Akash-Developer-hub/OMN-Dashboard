@@ -162,6 +162,14 @@ function getServerLabel(server: any) {
   return [name, environment, ipAddress].filter(Boolean).join(" - ");
 }
 
+function toServerConfigKey(value: any) {
+  return String(value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "");
+}
+
 export default function MoveAndPack() {
   const [searchParams] = useSearchParams();
   const [currentVersion, setCurrentVersion] = useState("");
@@ -220,27 +228,55 @@ export default function MoveAndPack() {
     return toServerDetails(selectedTargetServer);
   }, [selectedTargetServer]);
 
-  const getMoveSourcePathForServer = useCallback((serverIdOrName: string) => {
+  const getMovePackConfigListForServer = useCallback((serverIdOrName: string) => {
     if (!serverIdOrName) return "";
     const srvObj = findAvailabilityServer(serverIdOrName);
-    if (!srvObj) return "";
-    const configList = movePackConfigs[srvObj._id];
+    const lookupKeys = [
+      serverIdOrName,
+      toServerConfigKey(serverIdOrName),
+      srvObj?._id,
+      srvObj?.id,
+      srvObj?.name,
+      srvObj?.serverName,
+      srvObj?.host,
+      srvObj?.ipAddress,
+      toServerConfigKey(srvObj?.name),
+      toServerConfigKey(srvObj?.serverName),
+      toServerConfigKey(srvObj?.host),
+    ].filter(Boolean).map(String);
+
+    for (const key of lookupKeys) {
+      const configList = movePackConfigs[key];
+      if (Array.isArray(configList) && configList.length > 0) return configList;
+    }
+
+    for (const configList of Object.values(movePackConfigs)) {
+      if (!Array.isArray(configList)) continue;
+      const match = configList.find((item: any) =>
+        lookupKeys.includes(String(item?.targetServerId ?? "")) ||
+        lookupKeys.includes(String(item?.serverId ?? ""))
+      );
+      if (match) return configList;
+    }
+
+    return "";
+  }, [findAvailabilityServer, movePackConfigs]);
+
+  const getMoveSourcePathForServer = useCallback((serverIdOrName: string) => {
+    const configList = getMovePackConfigListForServer(serverIdOrName);
     if (Array.isArray(configList) && configList.length > 0) {
       return configList[0].moveSourcePath || "";
     }
     return "";
-  }, [findAvailabilityServer, movePackConfigs]);
+  }, [getMovePackConfigListForServer]);
 
   const getMoveTargetPathForServer = useCallback((serverIdOrName: string) => {
-    if (!serverIdOrName) return "";
-    const srvObj = findAvailabilityServer(serverIdOrName);
-    if (!srvObj) return "";
-    const configList = movePackConfigs[srvObj._id];
+    const configList = getMovePackConfigListForServer(serverIdOrName);
     if (Array.isArray(configList) && configList.length > 0) {
       return configList[0].moveTargetPath || "";
     }
     return "";
-  }, [findAvailabilityServer, movePackConfigs]);
+  }, [getMovePackConfigListForServer]);
 
   const getFirstConfiguredMoveTargetPath = useCallback(() => {
     for (const configList of Object.values(movePackConfigs)) {
@@ -266,12 +302,20 @@ export default function MoveAndPack() {
       const updated = { ...current, [key]: value };
 
       if (key === "fromServer") {
+        const configuredSourcePath = getMoveSourcePathForServer(String(value));
         updated.overrideSource = false;
-        updated.customSourcePath = "";
+        updated.customSourcePath = configuredSourcePath;
       }
       if (key === "toServer") {
+        const configuredTargetPath = getMoveTargetPathForServer(String(value));
         updated.overrideTarget = false;
-        updated.customTargetPath = "";
+        updated.customTargetPath = configuredTargetPath;
+      }
+      if (key === "customSourcePath") {
+        updated.overrideSource = true;
+      }
+      if (key === "customTargetPath") {
+        updated.overrideTarget = true;
       }
 
       return {
@@ -473,15 +517,20 @@ export default function MoveAndPack() {
     if (!selectedTargetServerId) return;
     setServiceConfigs((prev) => {
       const next = Object.entries(prev).reduce<Record<string, ServiceMoveConfig>>((acc, [service, config]) => {
+        const configuredTargetPath =
+          selectedTargetServerDetails
+            ? getMoveTargetPathForServer(selectedTargetServerId) || getMoveTargetPathForServer(selectedTargetServerDetails.name)
+            : "";
         acc[service] = {
           ...config,
           toServer: selectedTargetServerId,
+          customTargetPath: config.overrideTarget ? config.customTargetPath : configuredTargetPath,
         };
         return acc;
       }, {});
       return next;
     });
-  }, [selectedTargetServerId]);
+  }, [getMoveTargetPathForServer, selectedTargetServerDetails, selectedTargetServerId]);
 
   // Auto scroll logs console to bottom
   useEffect(() => {
@@ -575,10 +624,8 @@ export default function MoveAndPack() {
       if (key === "move" && moveParamsArray) {
         bodyPayload = moveParamsArray.map((param) => ({
           sourceServer: param.sourceServer,
-          sourceServerDetails: param.sourceServer,
           fromServer: param.fromServer,
           targetServer: param.targetServer,
-          targetServerDetails: param.targetServer,
           toServer: param.toServer,
           moveSourcePath: param.moveSourcePath,
           moveTargetPath: param.moveTargetPath,
@@ -599,7 +646,6 @@ export default function MoveAndPack() {
         bodyPayload = key === "pack"
           ? {
               targetServer: selectedTargetServerDetails,
-              targetServerDetails: selectedTargetServerDetails,
               moveTargetPath,
               logPath: stepLogPath,
               version: currentVersion,
@@ -608,7 +654,6 @@ export default function MoveAndPack() {
             }
           : {
               targetServer: selectedTargetServerDetails,
-              targetServerDetails: selectedTargetServerDetails,
               moveTargetPath,
               logPath: stepLogPath,
               sId: stepSId,
@@ -694,7 +739,7 @@ export default function MoveAndPack() {
 
     if (step.key === "move") {
       const newSelected: Record<string, boolean> = {};
-      const newConfigs: Record<string, any> = {};
+      const newConfigs: Record<string, ServiceMoveConfig> = {};
 
       runServices.forEach((srv) => {
         newSelected[srv] = true;
@@ -702,12 +747,17 @@ export default function MoveAndPack() {
         const srvData = selectedRun?.services?.[srv];
         const defaultFromServer = srvData?.targetServer || srvData?.server || srvData?.serverName || srvData?.targetServerName || runServers[0] || "";
         const defaultToServer = selectedTargetServerId || getServerValue(availabilityServers[0]);
+        const configuredSourcePath = getMoveSourcePathForServer(defaultFromServer);
+        const configuredTargetPath =
+          selectedTargetServerDetails
+            ? getMoveTargetPathForServer(defaultToServer) || getMoveTargetPathForServer(selectedTargetServerDetails.name)
+            : "";
 
         newConfigs[srv] = {
           fromServer: defaultFromServer,
           toServer: defaultToServer,
-          customSourcePath: "",
-          customTargetPath: "",
+          customSourcePath: configuredSourcePath,
+          customTargetPath: configuredTargetPath,
           overrideSource: false,
           overrideTarget: false,
         };
@@ -1090,6 +1140,8 @@ export default function MoveAndPack() {
                           selectedTargetServerDetails
                             ? getMoveTargetPathForServer(selectedTargetServerId) || getMoveTargetPathForServer(selectedTargetServerDetails.name)
                             : "";
+                        const sourceServerDetails = toServerDetails(findAvailabilityServer(config.fromServer));
+                        const sourceServerName = sourceServerDetails?.name || config.fromServer || "-";
 
                         return (
                           <div key={srv} className={`border rounded-2xl p-4 transition-all duration-200 ${isSelected ? "border-primary bg-primary/5 shadow-sm" : "border-border bg-card opacity-60"}`}>
@@ -1116,16 +1168,9 @@ export default function MoveAndPack() {
                                   {/* From Server */}
                                   <div className="space-y-1.5">
                                     <label className="text-[9px] font-bold text-muted-foreground uppercase tracking-wider">From Server</label>
-                                    <select
-                                      value={config.fromServer}
-                                      onChange={(e) => handleUpdateServiceConfig(srv, "fromServer", e.target.value)}
-                                      className="w-full bg-background border border-input rounded-xl px-3 py-2 text-xs font-semibold outline-none focus:ring-2 focus:ring-primary cursor-pointer"
-                                    >
-                                      {runServers.map((s) => (
-                                        <option key={s} value={s}>{s}</option>
-                                      ))}
-                                      {runServers.length === 0 && <option value="">No servers</option>}
-                                    </select>
+                                    <div className="w-full rounded-xl border border-input bg-muted/40 px-3 py-2 text-xs font-semibold text-foreground">
+                                      {sourceServerName}
+                                    </div>
                                   </div>
 
                                   {/* To Server */}
@@ -1133,7 +1178,7 @@ export default function MoveAndPack() {
                                     <label className="text-[9px] font-bold text-muted-foreground uppercase tracking-wider">To Server</label>
                                     <div className="w-full rounded-xl border border-input bg-muted/40 px-3 py-2 text-xs font-semibold text-foreground">
                                       {selectedTargetServerDetails
-                                        ? getServerLabel(selectedTargetServer)
+                                        ? selectedTargetServerDetails.name
                                         : "Select target server"}
                                     </div>
                                   </div>
@@ -1142,81 +1187,85 @@ export default function MoveAndPack() {
                                 {/* Source Path Section */}
                                 <div className="space-y-1 bg-background/50 p-2.5 rounded-xl border border-border/40">
                                   <label className="text-[9px] font-bold text-muted-foreground uppercase tracking-widest block">Source Path</label>
-                                  {dbSourcePath && !config.overrideSource ? (
-                                    <div className="flex items-center justify-between gap-3 mt-1">
-                                      <span className="text-xs font-mono text-foreground break-all">{dbSourcePath}</span>
-                                      <button
-                                        type="button"
-                                        onClick={() => handleUpdateServiceConfig(srv, "overrideSource", true)}
-                                        className="text-[10px] font-bold text-primary hover:underline shrink-0"
-                                      >
-                                        Edit
-                                      </button>
-                                    </div>
-                                  ) : (
-                                    <div className="space-y-1.5 mt-1">
-                                      <input
-                                        type="text"
-                                        value={config.customSourcePath || ""}
-                                        onChange={(e) => handleUpdateServiceConfig(srv, "customSourcePath", e.target.value)}
-                                        placeholder="Enter Move Source Path"
-                                        className="w-full bg-background border border-input rounded-lg px-3 py-1.5 text-xs font-mono focus:ring-2 focus:ring-primary outline-none"
-                                        required
-                                      />
-                                      {dbSourcePath && (
-                                        <div className="flex items-center justify-between">
-                                          <span className="text-[9px] text-amber-500 font-semibold">Custom override</span>
+                                  <div className="space-y-1.5 mt-1">
+                                    <input
+                                      type="text"
+                                      value={config.customSourcePath || dbSourcePath || ""}
+                                      onChange={(e) => handleUpdateServiceConfig(srv, "customSourcePath", e.target.value)}
+                                      placeholder="Enter Move Source Path"
+                                      className="w-full bg-background border border-input rounded-lg px-3 py-1.5 text-xs font-mono focus:ring-2 focus:ring-primary outline-none"
+                                      required
+                                    />
+                                    {dbSourcePath ? (
+                                      <div className="flex items-center justify-between">
+                                        <span className="text-[9px] text-muted-foreground font-semibold">
+                                          {config.overrideSource ? "Custom override" : "Auto-filled from Move & Pack config"}
+                                        </span>
+                                        {config.overrideSource ? (
                                           <button
                                             type="button"
-                                            onClick={() => handleUpdateServiceConfig(srv, "overrideSource", false)}
+                                            onClick={() =>
+                                              setServiceConfigs((prev) => ({
+                                                ...prev,
+                                                [srv]: {
+                                                  ...config,
+                                                  customSourcePath: dbSourcePath,
+                                                  overrideSource: false,
+                                                },
+                                              }))
+                                            }
                                             className="text-[9px] text-muted-foreground hover:text-foreground hover:underline"
                                           >
-                                            Reset to Default
+                                            Reset to Config
                                           </button>
-                                        </div>
-                                      )}
-                                    </div>
-                                  )}
+                                        ) : null}
+                                      </div>
+                                    ) : (
+                                      <div className="text-[9px] text-muted-foreground">No configured source path found for this server.</div>
+                                    )}
+                                  </div>
                                 </div>
 
                                 {/* Target Path Section */}
                                 <div className="space-y-1 bg-background/50 p-2.5 rounded-xl border border-border/40">
                                   <label className="text-[9px] font-bold text-muted-foreground uppercase tracking-widest block">Target Path</label>
-                                  {dbTargetPath && !config.overrideTarget ? (
-                                    <div className="flex items-center justify-between gap-3 mt-1">
-                                      <span className="text-xs font-mono text-foreground break-all">{dbTargetPath}</span>
-                                      <button
-                                        type="button"
-                                        onClick={() => handleUpdateServiceConfig(srv, "overrideTarget", true)}
-                                        className="text-[10px] font-bold text-primary hover:underline shrink-0"
-                                      >
-                                        Edit
-                                      </button>
-                                    </div>
-                                  ) : (
-                                    <div className="space-y-1.5 mt-1">
-                                      <input
-                                        type="text"
-                                        value={config.customTargetPath || ""}
-                                        onChange={(e) => handleUpdateServiceConfig(srv, "customTargetPath", e.target.value)}
-                                        placeholder="Enter Move Target Path"
-                                        className="w-full bg-background border border-input rounded-lg px-3 py-1.5 text-xs font-mono focus:ring-2 focus:ring-primary outline-none"
-                                        required
-                                      />
-                                      {dbTargetPath && (
-                                        <div className="flex items-center justify-between">
-                                          <span className="text-[9px] text-amber-500 font-semibold">Custom override</span>
+                                  <div className="space-y-1.5 mt-1">
+                                    <input
+                                      type="text"
+                                      value={config.customTargetPath || dbTargetPath || ""}
+                                      onChange={(e) => handleUpdateServiceConfig(srv, "customTargetPath", e.target.value)}
+                                      placeholder="Enter Move Target Path"
+                                      className="w-full bg-background border border-input rounded-lg px-3 py-1.5 text-xs font-mono focus:ring-2 focus:ring-primary outline-none"
+                                      required
+                                    />
+                                    {dbTargetPath ? (
+                                      <div className="flex items-center justify-between">
+                                        <span className="text-[9px] text-muted-foreground font-semibold">
+                                          {config.overrideTarget ? "Custom override" : "Auto-filled from Move & Pack config"}
+                                        </span>
+                                        {config.overrideTarget ? (
                                           <button
                                             type="button"
-                                            onClick={() => handleUpdateServiceConfig(srv, "overrideTarget", false)}
+                                            onClick={() =>
+                                              setServiceConfigs((prev) => ({
+                                                ...prev,
+                                                [srv]: {
+                                                  ...config,
+                                                  customTargetPath: dbTargetPath,
+                                                  overrideTarget: false,
+                                                },
+                                              }))
+                                            }
                                             className="text-[9px] text-muted-foreground hover:text-foreground hover:underline"
                                           >
-                                            Reset to Default
+                                            Reset to Config
                                           </button>
-                                        </div>
-                                      )}
-                                    </div>
-                                  )}
+                                        ) : null}
+                                      </div>
+                                    ) : (
+                                      <div className="text-[9px] text-muted-foreground">No configured target path found for this server.</div>
+                                    )}
+                                  </div>
                                 </div>
                               </div>
                             )}
