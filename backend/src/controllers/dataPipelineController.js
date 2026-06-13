@@ -27,8 +27,26 @@ function cleanString(value) {
 
 function isValidServiceName(svc) {
     if (!svc || typeof svc !== 'string') return false;
-    const validServices = ['search', 'tile', 'tiles', 'routing', 'multipart', 'move', 'clean', 'verify', 'pack'];
+    const validServices = ['search', 'tile', 'tiles', 'routing'];
     return validServices.includes(svc.toLowerCase());
+}
+
+function extractRootStepFields(doc) {
+    const out = {};
+    const stepKeys = ['move', 'clean', 'verify', 'pack'];
+    for (const k of stepKeys) {
+        if (doc[`${k}Status`] !== undefined) out[`${k}Status`] = doc[`${k}Status`];
+        if (doc[`${k}Log`] !== undefined) out[`${k}Log`] = doc[`${k}Log`];
+        if (doc[`${k}LogState`] !== undefined) out[`${k}LogState`] = doc[`${k}LogState`];
+        if (doc[`${k}SId`] !== undefined) out[`${k}SId`] = doc[`${k}SId`];
+        if (doc[`${k}LogPath`] !== undefined) out[`${k}LogPath`] = doc[`${k}LogPath`];
+        if (doc[`${k}TargetServer`] !== undefined) out[`${k}TargetServer`] = doc[`${k}TargetServer`];
+        if (doc[`${k}RestartedAt`] !== undefined) out[`${k}RestartedAt`] = doc[`${k}RestartedAt`];
+        if (doc[`${k}CompletedAt`] !== undefined) out[`${k}CompletedAt`] = doc[`${k}CompletedAt`];
+        if (doc[`${k}FailedAt`] !== undefined) out[`${k}FailedAt`] = doc[`${k}FailedAt`];
+        if (doc[`${k}Duration`] !== undefined) out[`${k}Duration`] = doc[`${k}Duration`];
+    }
+    return out;
 }
 
 function sanitizeRunServices(doc) {
@@ -85,7 +103,11 @@ async function selfHealRunDocument(doc) {
     for (const key of topLevelKeys) {
         if (key.endsWith('Status')) {
             const svcName = key.substring(0, key.length - 6); // remove 'Status'
-            if (svcName && !isValidServiceName(svcName)) {
+            const isAllowedRootStatus = svcName && (
+                isValidServiceName(svcName) || 
+                ['multipart', 'move', 'clean', 'verify', 'pack'].includes(svcName.toLowerCase())
+            );
+            if (!isAllowedRootStatus) {
                 unsetObj[key] = '';
             }
         }
@@ -503,7 +525,10 @@ async function persistGenerationServiceLog(payload, lines, offset, status, logSt
     const service = cleanString(payload.service);
     if (!runId || !service) return null;
 
-    if (!isValidServiceName(service)) {
+    const isBaseService = isValidServiceName(service);
+    const isMoveAndPack = ['move', 'clean', 'verify', 'pack'].includes(service.toLowerCase());
+
+    if (!isBaseService && !isMoveAndPack) {
         logger.warn('persistGenerationServiceLog: skipping invalid service name.', { runId, service });
         return null;
     }
@@ -512,27 +537,42 @@ async function persistGenerationServiceLog(payload, lines, offset, status, logSt
     const logText = lines.join('\n');
     const updateObj = {
         updatedAt: now,
-        [`services.${service}.service`]: service,
-        [`services.${service}.status`]: status,
-        [`services.${service}.log`]: logText,
-        [`services.${service}.logState`]: {
-            lines,
-            offset,
-            source: 'remote',
-            ...logStateExtra,
-        },
-        [`${service}Status`]: status,
     };
 
     const sId = cleanString(payload.sId || payload.job?.sId);
     const logPath = cleanString(payload.logPath || payload.job?.logPath);
     const targetServer = normalizeRunLogsTargetServer(payload.targetServer || payload.job?.targetServer);
 
-    if (sId) updateObj[`services.${service}.sId`] = sId;
-    if (logPath) updateObj[`services.${service}.logPath`] = logPath;
-    if (targetServer) updateObj[`services.${service}.targetServer`] = targetServer;
+    if (isBaseService) {
+        updateObj[`services.${service}.service`] = service;
+        updateObj[`services.${service}.status`] = status;
+        updateObj[`services.${service}.log`] = logText;
+        updateObj[`services.${service}.logState`] = {
+            lines,
+            offset,
+            source: 'remote',
+            ...logStateExtra,
+        };
+        updateObj[`${service}Status`] = status;
 
-    const isMoveAndPack = ['move', 'clean', 'verify', 'pack'].includes(service.toLowerCase());
+        if (sId) updateObj[`services.${service}.sId`] = sId;
+        if (logPath) updateObj[`services.${service}.logPath`] = logPath;
+        if (targetServer) updateObj[`services.${service}.targetServer`] = targetServer;
+    } else if (isMoveAndPack) {
+        updateObj[`${service}Status`] = status;
+        updateObj[`${service}Log`] = logText;
+        updateObj[`${service}LogState`] = {
+            lines,
+            offset,
+            source: 'remote',
+            ...logStateExtra,
+        };
+
+        if (sId) updateObj[`${service}SId`] = sId;
+        if (logPath) updateObj[`${service}LogPath`] = logPath;
+        if (targetServer) updateObj[`${service}TargetServer`] = targetServer;
+    }
+
     let doc = null;
     if (isMoveAndPack) {
         doc = await DataPipelineRun.findByRunId(runId);
@@ -550,10 +590,12 @@ async function persistGenerationServiceLog(payload, lines, offset, status, logSt
             runId,
             createdAt: now,
         },
-        $addToSet: {
-            servicesList: service,
-        },
     };
+    if (isBaseService) {
+        updateOps.$addToSet = {
+            servicesList: service,
+        };
+    }
 
     const savedRaw = await DataPipelineRun.collection.findOneAndUpdate(
         { runId },
@@ -564,9 +606,13 @@ async function persistGenerationServiceLog(payload, lines, offset, status, logSt
     try {
         const transferDoc = await DataPipelineTransfers.findByRunId(runId);
         if (transferDoc) {
+            const transferOps = { $set: updateObj };
+            if (isBaseService) {
+                transferOps.$addToSet = { servicesList: service };
+            }
             await DataPipelineTransfers.collection.findOneAndUpdate(
                 { runId },
-                { $set: updateObj, $addToSet: { servicesList: service } },
+                transferOps,
                 { returnDocument: 'after' }
             );
         }
@@ -797,7 +843,9 @@ function buildGenerationServiceMonitorPayloads(payload) {
     }
 
     // Single payload mode: verify root service is valid before building
-    if (payload.service && !isValidServiceName(payload.service)) {
+    const isBase = isValidServiceName(payload.service);
+    const isStep = payload.service && ['move', 'clean', 'verify', 'pack'].includes(payload.service.toLowerCase());
+    if (payload.service && !isBase && !isStep) {
         return [];
     }
 
@@ -2013,7 +2061,9 @@ class DataPipelineController {
             const statusUpdates = [];
             if (service && status) {
                 // Single service update
-                if (isValidServiceName(service)) {
+                const isBase = isValidServiceName(service);
+                const isStep = ['move', 'clean', 'verify', 'pack'].includes(service.toLowerCase());
+                if (isBase || isStep) {
                     statusUpdates.push({ service, status, ...payload });
                 } else {
                     return ApiResponse.error(res, 400, `invalid service name "${service}".`);
@@ -2021,10 +2071,13 @@ class DataPipelineController {
             } else if (Array.isArray(statuses)) {
                 // Multiple services update
                 for (const entry of statuses) {
-                    if (entry && isValidServiceName(entry.service)) {
+                    const svc = entry?.service;
+                    const isBase = isValidServiceName(svc);
+                    const isStep = svc && ['move', 'clean', 'verify', 'pack'].includes(svc.toLowerCase());
+                    if (isBase || isStep) {
                         statusUpdates.push(entry);
                     } else {
-                        return ApiResponse.error(res, 400, `invalid service name "${entry?.service || 'unknown'}".`);
+                        return ApiResponse.error(res, 400, `invalid service name "${svc || 'unknown'}".`);
                     }
                 }
             } else {
@@ -2043,29 +2096,45 @@ class DataPipelineController {
                     return ApiResponse.error(res, 400, 'Each status update must have a service field.');
                 }
 
-                // Ensure service exists in services object
-                if (!doc.services[svc]) {
-                    doc.services[svc] = { service: svc };
-                }
+                const isBase = isValidServiceName(svc);
+                const isStep = ['move', 'clean', 'verify', 'pack'].includes(svc.toLowerCase());
 
-                const svcObj = doc.services[svc];
-
-                // Update status and any other provided fields
-                if (statusUpdate.status !== undefined) {
-                    svcObj.status = statusUpdate.status;
-                }
-
-                // Add any other metadata fields (restartedAt, completedAt, etc.)
-                const allowedFields = ['restartedAt', 'completedAt', 'failedAt', 'duration'];
-                for (const field of allowedFields) {
-                    if (statusUpdate[field] !== undefined) {
-                        svcObj[field] = statusUpdate[field];
+                if (isBase) {
+                    // Ensure service exists in services object
+                    if (!doc.services[svc]) {
+                        doc.services[svc] = { service: svc };
                     }
-                }
 
-                // Ensure service is in servicesList
-                if (!doc.servicesList.includes(svc)) {
-                    doc.servicesList.push(svc);
+                    const svcObj = doc.services[svc];
+
+                    // Update status and any other provided fields
+                    if (statusUpdate.status !== undefined) {
+                        svcObj.status = statusUpdate.status;
+                    }
+
+                    // Add any other metadata fields (restartedAt, completedAt, etc.)
+                    const allowedFields = ['restartedAt', 'completedAt', 'failedAt', 'duration'];
+                    for (const field of allowedFields) {
+                        if (statusUpdate[field] !== undefined) {
+                            svcObj[field] = statusUpdate[field];
+                        }
+                    }
+
+                    // Ensure service is in servicesList
+                    if (!doc.servicesList.includes(svc)) {
+                        doc.servicesList.push(svc);
+                    }
+                } else if (isStep) {
+                    if (statusUpdate.status !== undefined) {
+                        updateObj[`${svc}Status`] = statusUpdate.status;
+                    }
+                    // Add any other metadata fields (restartedAt, completedAt, etc.) on root level
+                    const allowedFields = ['restartedAt', 'completedAt', 'failedAt', 'duration'];
+                    for (const field of allowedFields) {
+                        if (statusUpdate[field] !== undefined) {
+                            updateObj[`${svc}${field.charAt(0).toUpperCase()}${field.slice(1)}`] = statusUpdate[field];
+                        }
+                    }
                 }
             }
 
@@ -2095,13 +2164,14 @@ class DataPipelineController {
                 { returnDocument: 'after' }
             );
 
-            if (!savedRaw.value) {
+            const responseData = savedRaw && savedRaw.value !== undefined ? savedRaw.value : savedRaw;
+            if (!responseData) {
                 return ApiResponse.error(res, 404, 'Failed to update pipeline run.');
             }
 
             const saved = useTransfersCollection
-                ? DataPipelineTransfers.toResponse(savedRaw.value)
-                : DataPipelineRun.toResponse(savedRaw.value);
+                ? DataPipelineTransfers.toResponse(responseData)
+                : DataPipelineRun.toResponse(responseData);
 
             // Also update the other collection if it exists
             try {
@@ -2257,6 +2327,10 @@ class DataPipelineController {
 
                 if (doc.updatedAt !== undefined) out.updatedAt = doc.updatedAt;
                 if (doc.id) out.id = doc.id;
+                if (doc.multipartStatus !== undefined) {
+                    out.multipartStatus = doc.multipartStatus;
+                }
+                Object.assign(out, extractRootStepFields(doc));
                 return out;
             }
 
@@ -2314,6 +2388,8 @@ class DataPipelineController {
                     servicesList,
                     sshSuccess: doc.sshSuccess,
                     sshStatus: doc.sshStatus,
+                    multipartStatus: doc.multipartStatus,
+                    ...extractRootStepFields(doc),
                 };
                 return ApiResponse.success(res, 200, 'Pipeline run fetched.', response);
             }
@@ -2350,6 +2426,8 @@ class DataPipelineController {
                     servicesList,
                     sshSuccess: doc.sshSuccess,
                     sshStatus: doc.sshStatus,
+                    multipartStatus: doc.multipartStatus,
+                    ...extractRootStepFields(doc),
                 };
             });
 

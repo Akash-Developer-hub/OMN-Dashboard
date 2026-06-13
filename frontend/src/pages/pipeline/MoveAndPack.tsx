@@ -373,17 +373,16 @@ export default function MoveAndPack() {
         const keys: StepKey[] = ["move", "clean", "verify", "pack"];
         keys.forEach((k) => {
           const svcData = recentRun.services?.[k];
-          if (svcData) {
-            const rawStatus = String(svcData.status || "").toLowerCase();
-            if (rawStatus === "success" || rawStatus === "completed") {
-              nextStatuses[k] = "completed";
-            } else if (rawStatus === "failed" || rawStatus === "error") {
-              nextStatuses[k] = "failed";
-            } else if (rawStatus === "running") {
-              nextStatuses[k] = "running";
-            }
-            nextLogs[k] = svcData.log || "";
+          const statusVal = svcData?.status ?? recentRun[`${k}Status` as keyof PipelineRun];
+          const rawStatus = String(statusVal || "").toLowerCase();
+          if (rawStatus === "success" || rawStatus === "completed") {
+            nextStatuses[k] = "completed";
+          } else if (rawStatus === "failed" || rawStatus === "error") {
+            nextStatuses[k] = "failed";
+          } else if (rawStatus === "running") {
+            nextStatuses[k] = "running";
           }
+          nextLogs[k] = svcData?.log ?? recentRun[`${k}Log` as keyof PipelineRun] ?? "";
         });
 
         setStepStatuses(nextStatuses);

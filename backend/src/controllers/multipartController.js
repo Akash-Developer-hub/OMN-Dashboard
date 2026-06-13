@@ -88,28 +88,27 @@ class MultipartController {
             // Find if parent run exists in data_pipeline_runs
             let existingDoc = await DataPipelineRun.findByRunId(targetRunId);
             if (!existingDoc) {
-                existingDoc = await DataPipelineRun.collection.findOne({ 'services.multipart.sId': sId });
+                existingDoc = await DataPipelineRun.collection.findOne({ 'multipartSId': sId })
+                    || await DataPipelineRun.collection.findOne({ 'services.multipart.sId': sId });
             }
 
             const now = new Date().toISOString();
             const updateObj = {
                 updatedAt: now,
-                'services.multipart.service': 'multipart',
-                'services.multipart.sId': sId,
-                'services.multipart.status': 'running',
-                'services.multipart.log': '',
-                'services.multipart.logState': {
+                'multipartSId': sId,
+                'multipartStatus': 'running',
+                'multipartLog': '',
+                'multipartLogState': {
                     lines: [],
                     offset: 0,
                     source: 'remote',
                 },
-                'services.multipart.targetServer': targetServer,
-                'services.multipart.inputPath': inputPath,
-                'services.multipart.multithreadscriptpath': multithreadscriptpath,
-                'services.multipart.multithreadoutputpath': multithreadoutputpath,
-                'services.multipart.logPath': logPath,
-                'services.multipart.updatedAt': now,
-                'multipartStatus': 'running',
+                'multipartTargetServer': targetServer,
+                'multipartInputPath': inputPath,
+                'multipartMultithreadscriptpath': multithreadscriptpath,
+                'multipartMultithreadoutputpath': multithreadoutputpath,
+                'multipartLogPath': logPath,
+                'multipartUpdatedAt': now,
             };
 
             // Update/Upsert the data_pipeline_runs document
@@ -117,7 +116,6 @@ class MultipartController {
                 { runId: existingDoc?.runId || targetRunId },
                 {
                     $set: updateObj,
-                    $addToSet: { servicesList: 'multipart' },
                     $setOnInsert: {
                         runId: existingDoc?.runId || targetRunId,
                         createdAt: now,
@@ -150,7 +148,10 @@ class MultipartController {
         try {
             const { sId } = req.params;
 
-            let doc = await DataPipelineRun.collection.findOne({ 'services.multipart.sId': sId });
+            let doc = await DataPipelineRun.collection.findOne({ 'multipartSId': sId });
+            if (!doc) {
+                doc = await DataPipelineRun.collection.findOne({ 'services.multipart.sId': sId });
+            }
             if (!doc) {
                 doc = await DataPipelineRun.findByRunId(sId);
             }
@@ -159,26 +160,31 @@ class MultipartController {
                 return ApiResponse.error(res, 404, 'Multipart run not found.');
             }
 
-            const multipartService = doc.services?.multipart || {};
-            const status = multipartService.status || 'unknown';
+            const status = doc.multipartStatus || doc.services?.multipart?.status || 'unknown';
+            const targetServer = doc.multipartTargetServer || doc.services?.multipart?.targetServer;
+            const logPath = doc.multipartLogPath || doc.services?.multipart?.logPath;
+            const logs = doc.multipartLog !== undefined ? doc.multipartLog : (doc.services?.multipart?.log || '');
+            const offset = (doc.multipartLogState?.offset !== undefined)
+                ? doc.multipartLogState.offset
+                : (doc.services?.multipart?.logState?.offset || 0);
 
             // If status is running in DB but no active log monitor is in memory, resume it!
             if (status === 'running' && sId && !activeMultipartLogMonitors.has(sId)) {
                 logger.info(`Resuming log monitor for ${sId} on getStatus check.`);
                 MultipartController.startLogMonitor({
                     sId,
-                    targetServer: multipartService.targetServer,
-                    logPath: multipartService.logPath,
+                    targetServer,
+                    logPath,
                     parentRunId: doc.runId,
                 });
             }
 
             const responseData = {
                 runId: doc.runId,
-                sId: multipartService.sId || sId,
+                sId: doc.multipartSId || doc.services?.multipart?.sId || sId,
                 status,
-                logs: multipartService.log || '',
-                offset: multipartService.logState?.offset || 0,
+                logs,
+                offset,
                 updatedAt: doc.updatedAt,
             };
 
@@ -203,7 +209,10 @@ class MultipartController {
             }
 
             // Find matching data pipeline run document in DB
-            let doc = await DataPipelineRun.collection.findOne({ 'services.multipart.sId': sId });
+            let doc = await DataPipelineRun.collection.findOne({ 'multipartSId': sId });
+            if (!doc) {
+                doc = await DataPipelineRun.collection.findOne({ 'services.multipart.sId': sId });
+            }
             if (!doc) {
                 doc = await DataPipelineRun.findByRunId(sId);
             }
@@ -215,15 +224,19 @@ class MultipartController {
             const parentRunId = doc.runId;
             const now = new Date().toISOString();
 
+            const updateObj = {
+                updatedAt: now,
+                'multipartStatus': 'failed',
+            };
+            if (doc.services?.multipart) {
+                updateObj['services.multipart.status'] = 'failed';
+            }
+
             // Mark multipart service status as failed so it stops polling and stops displaying as running
             await DataPipelineRun.collection.findOneAndUpdate(
                 { runId: parentRunId },
                 {
-                    $set: {
-                        updatedAt: now,
-                        'services.multipart.status': 'failed',
-                        'multipartStatus': 'failed',
-                    }
+                    $set: updateObj
                 }
             );
 
@@ -346,21 +359,32 @@ class MultipartController {
         const now = new Date().toISOString();
 
         // Update database
+        const updateObj = {
+            updatedAt: now,
+            'multipartStatus': status,
+            'multipartLog': logText,
+            'multipartLogState': {
+                lines: mergedLines,
+                offset: nextOffset,
+                source: 'remote',
+            },
+        };
+
+        // For backward compatibility: if the document currently has `services.multipart`, update it too.
+        const currentDoc = await DataPipelineRun.findByRunId(parentRunId);
+        if (currentDoc && currentDoc.services && currentDoc.services.multipart) {
+            updateObj['services.multipart.status'] = status;
+            updateObj['services.multipart.log'] = logText;
+            updateObj['services.multipart.logState'] = {
+                lines: mergedLines,
+                offset: nextOffset,
+                source: 'remote',
+            };
+        }
+
         await DataPipelineRun.collection.findOneAndUpdate(
             { runId: parentRunId },
-            {
-                $set: {
-                    updatedAt: now,
-                    'services.multipart.status': status,
-                    'services.multipart.log': logText,
-                    'services.multipart.logState': {
-                        lines: mergedLines,
-                        offset: nextOffset,
-                        source: 'remote',
-                    },
-                    'multipartStatus': status,
-                }
-            }
+            { $set: updateObj }
         );
 
         if (['success', 'failed'].includes(status)) {
