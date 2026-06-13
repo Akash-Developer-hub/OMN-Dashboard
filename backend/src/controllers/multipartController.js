@@ -228,11 +228,7 @@ class MultipartController {
                 updatedAt: now,
                 'multipartStatus': 'failed',
             };
-            if (doc.services?.multipart) {
-                updateObj['services.multipart.status'] = 'failed';
-            }
 
-            // Mark multipart service status as failed so it stops polling and stops displaying as running
             await DataPipelineRun.collection.findOneAndUpdate(
                 { runId: parentRunId },
                 {
@@ -369,18 +365,6 @@ class MultipartController {
                 source: 'remote',
             },
         };
-
-        // For backward compatibility: if the document currently has `services.multipart`, update it too.
-        const currentDoc = await DataPipelineRun.findByRunId(parentRunId);
-        if (currentDoc && currentDoc.services && currentDoc.services.multipart) {
-            updateObj['services.multipart.status'] = status;
-            updateObj['services.multipart.log'] = logText;
-            updateObj['services.multipart.logState'] = {
-                lines: mergedLines,
-                offset: nextOffset,
-                source: 'remote',
-            };
-        }
 
         await DataPipelineRun.collection.findOneAndUpdate(
             { runId: parentRunId },

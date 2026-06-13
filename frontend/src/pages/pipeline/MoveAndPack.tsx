@@ -14,7 +14,6 @@ import {
   Server,
   ArrowRight,
   Check,
-  ChevronDown,
 } from "lucide-react";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
@@ -49,10 +48,21 @@ type StepInfo = {
 
 type ServerDetails = {
   id: string;
+  serverName: string;
   name: string;
-  host: string;
+  environment: string;
+  ipAddress: string;
   port: string;
   username: string;
+};
+
+type ServiceMoveConfig = {
+  fromServer: string;
+  toServer: string;
+  customSourcePath: string;
+  customTargetPath: string;
+  overrideSource: boolean;
+  overrideTarget: boolean;
 };
 
 const stepsConfig: StepInfo[] = [
@@ -115,19 +125,41 @@ function getRunId(run: PipelineRun | null) {
   return String(run?.runId ?? run?._id ?? run?.id ?? "");
 }
 
-function pickServerName(server: any) {
-  return String(server?.name ?? server?.host ?? server?.ipAddress ?? "");
-}
-
 function toServerDetails(server: any): ServerDetails | null {
   if (!server) return null;
   return {
     id: String(server?._id ?? server?.id ?? ""),
-    name: String(server?.name ?? ""),
-    host: String(server?.ipAddress ?? server?.host ?? ""),
+    serverName: String(server?.name ?? server?.serverName ?? ""),
+    name: String(server?.name ?? server?.serverName ?? ""),
+    environment: String(server?.environment ?? ""),
+    ipAddress: String(server?.ipAddress ?? server?.host ?? ""),
     port: String(server?.port ?? "22"),
     username: String(server?.username ?? server?.user ?? ""),
   };
+}
+
+function fallbackServerDetails(name: string): ServerDetails | null {
+  if (!name) return null;
+  return {
+    id: "",
+    serverName: name,
+    name,
+    environment: "",
+    ipAddress: "",
+    port: "",
+    username: "",
+  };
+}
+
+function getServerValue(server: any) {
+  return String(server?._id ?? server?.id ?? server?.name ?? server?.host ?? "");
+}
+
+function getServerLabel(server: any) {
+  const name = String(server?.name ?? server?.serverName ?? server?.host ?? server?.ipAddress ?? "Unnamed server");
+  const environment = String(server?.environment ?? "");
+  const ipAddress = String(server?.ipAddress ?? server?.host ?? "");
+  return [name, environment, ipAddress].filter(Boolean).join(" - ");
 }
 
 export default function MoveAndPack() {
@@ -159,18 +191,14 @@ export default function MoveAndPack() {
   const runningStepKeyRef = useRef<StepKey | null>(null);
 
   const [availabilityServers, setAvailabilityServers] = useState<any[]>([]);
+  const [selectedTargetServerId, setSelectedTargetServerId] = useState("");
+  const [isTargetServerModalOpen, setIsTargetServerModalOpen] = useState(false);
+  const [hasSelectedTargetServer, setHasSelectedTargetServer] = useState(false);
   const [isMoveModalOpen, setIsMoveModalOpen] = useState(false);
   const [movePackConfigs, setMovePackConfigs] = useState<Record<string, any>>({});
 
   const [selectedServices, setSelectedServices] = useState<Record<string, boolean>>({});
-  const [serviceConfigs, setServiceConfigs] = useState<Record<string, {
-    fromServer: string;
-    toServer: string;
-    customSourcePath: string;
-    customTargetPath: string;
-    overrideSource: boolean;
-    overrideTarget: boolean;
-  }>>({});
+  const [serviceConfigs, setServiceConfigs] = useState<Record<string, ServiceMoveConfig>>({});
 
   const findAvailabilityServer = useCallback((serverIdOrName: string) => {
     if (!serverIdOrName) return null;
@@ -183,6 +211,14 @@ export default function MoveAndPack() {
         s.id === serverIdOrName
     ) ?? null;
   }, [availabilityServers]);
+
+  const selectedTargetServer = useMemo(() => {
+    return findAvailabilityServer(selectedTargetServerId);
+  }, [findAvailabilityServer, selectedTargetServerId]);
+
+  const selectedTargetServerDetails = useMemo(() => {
+    return toServerDetails(selectedTargetServer);
+  }, [selectedTargetServer]);
 
   const getMoveSourcePathForServer = useCallback((serverIdOrName: string) => {
     if (!serverIdOrName) return "";
@@ -252,19 +288,28 @@ export default function MoveAndPack() {
     return activeServices.every((srv) => {
       const config = serviceConfigs[srv];
       if (!config) return false;
-      if (!config.fromServer || !config.toServer) return false;
+      if (!config.fromServer || !selectedTargetServerDetails) return false;
 
       const dbSource = getMoveSourcePathForServer(config.fromServer);
       const finalSource = (dbSource && !config.overrideSource) ? dbSource : config.customSourcePath;
       if (!finalSource?.trim()) return false;
 
-      const dbTarget = getMoveTargetPathForServer(config.toServer);
+      const dbTarget =
+        getMoveTargetPathForServer(selectedTargetServerId) ||
+        getMoveTargetPathForServer(selectedTargetServerDetails.name);
       const finalTarget = (dbTarget && !config.overrideTarget) ? dbTarget : config.customTargetPath;
       if (!finalTarget?.trim()) return false;
 
       return true;
     });
-  }, [selectedServices, serviceConfigs, getMoveSourcePathForServer, getMoveTargetPathForServer]);
+  }, [
+    selectedServices,
+    serviceConfigs,
+    selectedTargetServerDetails,
+    selectedTargetServerId,
+    getMoveSourcePathForServer,
+    getMoveTargetPathForServer,
+  ]);
 
   const runServices = useMemo(() => {
     if (!selectedRun) return [];
@@ -418,6 +463,26 @@ export default function MoveAndPack() {
     void fetchRunsData();
   }, [fetchRunsData]);
 
+  useEffect(() => {
+    if (!selectedRun || availabilityServers.length === 0 || hasSelectedTargetServer) return;
+    setSelectedTargetServerId((current) => current || getServerValue(availabilityServers[0]));
+    setIsTargetServerModalOpen(true);
+  }, [availabilityServers, hasSelectedTargetServer, selectedRun]);
+
+  useEffect(() => {
+    if (!selectedTargetServerId) return;
+    setServiceConfigs((prev) => {
+      const next = Object.entries(prev).reduce<Record<string, ServiceMoveConfig>>((acc, [service, config]) => {
+        acc[service] = {
+          ...config,
+          toServer: selectedTargetServerId,
+        };
+        return acc;
+      }, {});
+      return next;
+    });
+  }, [selectedTargetServerId]);
+
   // Auto scroll logs console to bottom
   useEffect(() => {
     logEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -470,6 +535,7 @@ export default function MoveAndPack() {
       service: string;
       fromServer: string;
       toServer: string;
+      sourceServer?: ServerDetails | null;
       targetServer?: ServerDetails | null;
       moveSourcePath: string;
       moveTargetPath: string;
@@ -480,8 +546,13 @@ export default function MoveAndPack() {
       toast.error("No run selected.");
       return;
     }
-    if ((key !== "move" && !targetServer) || !sId) {
-      toast.error("Target server or sId is missing in the selected run.");
+    if (!sId) {
+      toast.error("sId is missing in the selected run.");
+      return;
+    }
+    if (!selectedTargetServerDetails) {
+      toast.error("Select a target server before running Move & Pack.");
+      setIsTargetServerModalOpen(true);
       return;
     }
 
@@ -503,6 +574,12 @@ export default function MoveAndPack() {
 
       if (key === "move" && moveParamsArray) {
         bodyPayload = moveParamsArray.map((param) => ({
+          sourceServer: param.sourceServer,
+          sourceServerDetails: param.sourceServer,
+          fromServer: param.fromServer,
+          targetServer: param.targetServer,
+          targetServerDetails: param.targetServer,
+          toServer: param.toServer,
           moveSourcePath: param.moveSourcePath,
           moveTargetPath: param.moveTargetPath,
           logPath: stepLogPath,
@@ -511,13 +588,18 @@ export default function MoveAndPack() {
           version: currentVersion,
         }));
       } else {
-        const moveTargetPath = getMoveTargetPathForServer(targetServer) || getFirstConfiguredMoveTargetPath();
+        const moveTargetPath =
+          getMoveTargetPathForServer(selectedTargetServerId) ||
+          getMoveTargetPathForServer(selectedTargetServerDetails.name) ||
+          getFirstConfiguredMoveTargetPath();
         if (!moveTargetPath) {
           throw new Error("Move target path is not configured for this pipeline version.");
         }
 
         bodyPayload = key === "pack"
           ? {
+              targetServer: selectedTargetServerDetails,
+              targetServerDetails: selectedTargetServerDetails,
               moveTargetPath,
               logPath: stepLogPath,
               version: currentVersion,
@@ -525,6 +607,8 @@ export default function MoveAndPack() {
               runId: getRunId(selectedRun),
             }
           : {
+              targetServer: selectedTargetServerDetails,
+              targetServerDetails: selectedTargetServerDetails,
               moveTargetPath,
               logPath: stepLogPath,
               sId: stepSId,
@@ -550,6 +634,8 @@ export default function MoveAndPack() {
       let streamTargetServer = targetServer;
       if (key === "move" && moveParamsArray && moveParamsArray.length > 0) {
         streamTargetServer = moveParamsArray[0].toServer;
+      } else if (selectedTargetServerDetails) {
+        streamTargetServer = selectedTargetServerDetails.name || selectedTargetServerDetails.ipAddress;
       }
 
       // Initialize status as running in DB
@@ -600,6 +686,12 @@ export default function MoveAndPack() {
   };
 
   const onRunStepClick = (step: StepInfo) => {
+    if (!selectedTargetServerDetails) {
+      toast.error("Select a target server before running this step.");
+      setIsTargetServerModalOpen(true);
+      return;
+    }
+
     if (step.key === "move") {
       const newSelected: Record<string, boolean> = {};
       const newConfigs: Record<string, any> = {};
@@ -609,7 +701,7 @@ export default function MoveAndPack() {
 
         const srvData = selectedRun?.services?.[srv];
         const defaultFromServer = srvData?.targetServer || srvData?.server || srvData?.serverName || srvData?.targetServerName || runServers[0] || "";
-        const defaultToServer = pickServerName(availabilityServers[0]);
+        const defaultToServer = selectedTargetServerId || getServerValue(availabilityServers[0]);
 
         newConfigs[srv] = {
           fromServer: defaultFromServer,
@@ -723,6 +815,28 @@ export default function MoveAndPack() {
                       sId: <span className="font-mono text-foreground font-medium">{sId || "-"}</span>
                     </span>
                   </div>
+
+                  <div className="ml-auto flex flex-wrap items-center gap-2 rounded-lg border border-border bg-background px-3 py-2 text-xs">
+                    <Server className="h-3.5 w-3.5 text-primary" />
+                    <span className="text-muted-foreground">Selected target:</span>
+                    <span className="font-semibold text-foreground">
+                      {selectedTargetServerDetails
+                        ? `${selectedTargetServerDetails.name} (${selectedTargetServerDetails.environment || "environment n/a"})`
+                        : "Not selected"}
+                    </span>
+                    {selectedTargetServerDetails?.ipAddress ? (
+                      <span className="font-mono text-muted-foreground">{selectedTargetServerDetails.ipAddress}:{selectedTargetServerDetails.port}</span>
+                    ) : null}
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className="h-7 px-2 text-xs"
+                      onClick={() => setIsTargetServerModalOpen(true)}
+                    >
+                      Change
+                    </Button>
+                  </div>
                 </CardContent>
               </Card>
 
@@ -828,6 +942,103 @@ export default function MoveAndPack() {
                 </Card>
               </div>
 
+              {/* Target Server Selection Dialog */}
+              {isTargetServerModalOpen && (
+                <div className="fixed inset-0 z-[110] flex items-center justify-center p-4">
+                  <div
+                    className="absolute inset-0 bg-background/70 backdrop-blur-md animate-in fade-in duration-200"
+                    onClick={() => {
+                      if (hasSelectedTargetServer) setIsTargetServerModalOpen(false);
+                    }}
+                  />
+
+                  <div className="relative flex w-full max-w-md flex-col overflow-hidden rounded-2xl border border-border bg-card shadow-2xl animate-in zoom-in-95 duration-200">
+                    <div className="border-b border-border bg-muted/20 px-6 py-4">
+                      <div className="flex items-center gap-3">
+                        <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-primary/10">
+                          <Server className="h-4 w-4 text-primary" />
+                        </div>
+                        <div>
+                          <h3 className="text-sm font-bold text-foreground">Select Target Server</h3>
+                          <p className="text-xs text-muted-foreground">This server will be sent with cleanup, verify, and pack payloads.</p>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="space-y-4 p-6">
+                      <div className="space-y-1.5">
+                        <label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Server</label>
+                        <select
+                          value={selectedTargetServerId}
+                          onChange={(event) => setSelectedTargetServerId(event.target.value)}
+                          className="w-full rounded-xl border border-input bg-background px-3 py-2 text-sm font-semibold outline-none focus:ring-2 focus:ring-primary"
+                        >
+                          {availabilityServers.map((server) => {
+                            const value = getServerValue(server);
+                            return (
+                              <option key={value} value={value}>
+                                {getServerLabel(server)}
+                              </option>
+                            );
+                          })}
+                          {availabilityServers.length === 0 && <option value="">No servers available</option>}
+                        </select>
+                      </div>
+
+                      {selectedTargetServerDetails ? (
+                        <div className="grid grid-cols-2 gap-2 rounded-xl border border-border bg-background/60 p-3 text-xs">
+                          <div>
+                            <p className="text-[10px] uppercase text-muted-foreground">Name</p>
+                            <p className="font-semibold text-foreground">{selectedTargetServerDetails.name || "-"}</p>
+                          </div>
+                          <div>
+                            <p className="text-[10px] uppercase text-muted-foreground">Environment</p>
+                            <p className="font-semibold text-foreground">{selectedTargetServerDetails.environment || "-"}</p>
+                          </div>
+                          <div>
+                            <p className="text-[10px] uppercase text-muted-foreground">Username</p>
+                            <p className="font-mono text-foreground">{selectedTargetServerDetails.username || "-"}</p>
+                          </div>
+                          <div>
+                            <p className="text-[10px] uppercase text-muted-foreground">Port</p>
+                            <p className="font-mono text-foreground">{selectedTargetServerDetails.port || "-"}</p>
+                          </div>
+                          <div className="col-span-2">
+                            <p className="text-[10px] uppercase text-muted-foreground">IP Address</p>
+                            <p className="font-mono text-foreground">{selectedTargetServerDetails.ipAddress || "-"}</p>
+                          </div>
+                        </div>
+                      ) : (
+                        <p className="rounded-xl border border-dashed border-border p-3 text-xs text-muted-foreground">
+                          No server details are available.
+                        </p>
+                      )}
+                    </div>
+
+                    <div className="flex gap-3 border-t border-border bg-muted/10 px-6 py-4">
+                      <Button
+                        className="flex-1 rounded-xl font-bold"
+                        disabled={!selectedTargetServerDetails}
+                        onClick={() => {
+                          setHasSelectedTargetServer(true);
+                          setIsTargetServerModalOpen(false);
+                        }}
+                      >
+                        Confirm Server
+                      </Button>
+                      {hasSelectedTargetServer ? (
+                        <button
+                          className="rounded-xl bg-secondary px-4 py-2.5 text-xs font-bold text-secondary-foreground transition-all hover:bg-secondary/80"
+                          onClick={() => setIsTargetServerModalOpen(false)}
+                        >
+                          Cancel
+                        </button>
+                      ) : null}
+                    </div>
+                  </div>
+                </div>
+              )}
+
               {/* Move Configuration Dialog/Modal */}
               {isMoveModalOpen && selectedRun && (
                 <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
@@ -875,7 +1086,10 @@ export default function MoveAndPack() {
                         };
 
                         const dbSourcePath = getMoveSourcePathForServer(config.fromServer);
-                        const dbTargetPath = getMoveTargetPathForServer(config.toServer);
+                        const dbTargetPath =
+                          selectedTargetServerDetails
+                            ? getMoveTargetPathForServer(selectedTargetServerId) || getMoveTargetPathForServer(selectedTargetServerDetails.name)
+                            : "";
 
                         return (
                           <div key={srv} className={`border rounded-2xl p-4 transition-all duration-200 ${isSelected ? "border-primary bg-primary/5 shadow-sm" : "border-border bg-card opacity-60"}`}>
@@ -917,17 +1131,11 @@ export default function MoveAndPack() {
                                   {/* To Server */}
                                   <div className="space-y-1.5">
                                     <label className="text-[9px] font-bold text-muted-foreground uppercase tracking-wider">To Server</label>
-                                    <select
-                                      value={config.toServer}
-                                      onChange={(e) => handleUpdateServiceConfig(srv, "toServer", e.target.value)}
-                                      className="w-full bg-background border border-input rounded-xl px-3 py-2 text-xs font-semibold outline-none focus:ring-2 focus:ring-primary cursor-pointer"
-                                    >
-                                      {availabilityServers.map((s) => {
-                                        const val = s.name || s.host || "";
-                                        return <option key={s._id || val} value={val}>{s.name || s.host}</option>;
-                                      })}
-                                      {availabilityServers.length === 0 && <option value="">No servers</option>}
-                                    </select>
+                                    <div className="w-full rounded-xl border border-input bg-muted/40 px-3 py-2 text-xs font-semibold text-foreground">
+                                      {selectedTargetServerDetails
+                                        ? getServerLabel(selectedTargetServer)
+                                        : "Select target server"}
+                                    </div>
                                   </div>
                                 </div>
 
@@ -1026,14 +1234,19 @@ export default function MoveAndPack() {
                           const moveParams = activeServices.map((srv) => {
                             const config = serviceConfigs[srv];
                             const dbSource = getMoveSourcePathForServer(config.fromServer);
-                            const dbTarget = getMoveTargetPathForServer(config.toServer);
-                            const toServer = findAvailabilityServer(config.toServer);
-                            const targetServerDetails = toServerDetails(toServer);
+                            const dbTarget =
+                              selectedTargetServerDetails
+                                ? getMoveTargetPathForServer(selectedTargetServerId) || getMoveTargetPathForServer(selectedTargetServerDetails.name)
+                                : "";
+                            const fromServer = findAvailabilityServer(config.fromServer);
+                            const sourceServerDetails = toServerDetails(fromServer) ?? fallbackServerDetails(config.fromServer);
+                            const targetServerDetails = selectedTargetServerDetails;
                             
                             return {
                               service: srv,
                               fromServer: config.fromServer,
-                              toServer: config.toServer,
+                              toServer: targetServerDetails?.name || selectedTargetServerId,
+                              sourceServer: sourceServerDetails,
                               targetServer: targetServerDetails,
                               moveSourcePath: (dbSource && !config.overrideSource) ? dbSource : config.customSourcePath,
                               moveTargetPath: (dbTarget && !config.overrideTarget) ? dbTarget : config.customTargetPath,
