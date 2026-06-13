@@ -31,7 +31,7 @@ const RUN_ID_LOGS_URL = "https://sandbox.vmmaps.com/n8n/webhook/omn/runId-logs";
 const MOVE_DATA_WEBHOOK = "https://sandbox.vmmaps.com/n8n/webhook/omn/move-data";
 const CLEAN_DATA_WEBHOOK = "https://sandbox.vmmaps.com/n8n/webhook/omn/clean-data";
 const VERIFY_DATA_WEBHOOK = "https://sandbox.vmmaps.com/n8n/webhook/omn/verify-data";
-const PACK_DATA_WEBHOOK = "https://sandbox.vmmaps.com/n8n/webhook/omn/pack-data";
+const PACK_DATA_WEBHOOK = "https://sandbox.vmmaps.com/n8n/webhook/omn/packOffline";
 
 type StepKey = "move" | "clean" | "verify" | "pack";
 type StepStatus = "idle" | "running" | "completed" | "failed";
@@ -207,6 +207,13 @@ export default function MoveAndPack() {
 
   const [selectedServices, setSelectedServices] = useState<Record<string, boolean>>({});
   const [serviceConfigs, setServiceConfigs] = useState<Record<string, ServiceMoveConfig>>({});
+  const [selectedServicesOrder, setSelectedServicesOrder] = useState<string[]>([]);
+
+  // Refs for sequential move execution
+  const moveQueueRef = useRef<any[]>([]);
+  const currentMoveIndexRef = useRef<number>(-1);
+  const moveAccumulatedLogRef = useRef<string>("");
+  const runSingleMoveServiceRef = useRef<any>(null);
 
   const findAvailabilityServer = useCallback((serverIdOrName: string) => {
     if (!serverIdOrName) return null;
@@ -391,6 +398,143 @@ export default function MoveAndPack() {
     };
   }, []);
 
+  const updateDBServiceStatus = async (stepKey: StepKey, status: "running" | "completed" | "failed") => {
+    if (!selectedRun) return;
+    try {
+      const runId = getRunId(selectedRun);
+      await api.patch("/admin-dashboard/data-pipeline/service-status", {
+        runId,
+        service: stepKey,
+        status,
+      });
+    } catch (err) {
+      console.error(`Failed to update DB service status to ${status} for step ${stepKey}`, err);
+    }
+  };
+
+  const runSingleMoveService = async (
+    param: {
+      service: string;
+      fromServer: string;
+      toServer: string;
+      sourceServer?: ServerDetails | null;
+      targetServer?: ServerDetails | null;
+      moveSourcePath: string;
+      moveTargetPath: string;
+    },
+    index: number,
+    queue: any[]
+  ) => {
+    if (!selectedRun) {
+      toast.error("No run selected.");
+      return;
+    }
+    const runId = getRunId(selectedRun);
+    const routingService = selectedRun?.services?.routing ?? {};
+    const runSId = routingService.sId || "";
+    if (!runSId) {
+      toast.error("sId is missing in the selected run.");
+      return;
+    }
+    if (!selectedTargetServerDetails) {
+      toast.error("Select a target server before running Move & Pack.");
+      return;
+    }
+
+    setExecuting(true);
+    setStepStatuses((prev) => ({ ...prev, move: "running" }));
+    
+    const serviceName = param.service;
+    const stepSId = `${runSId}_move_${serviceName}`;
+    const rPath = routingService.logPath || "";
+    const lastSlash = rPath.lastIndexOf("/");
+    const calculatedLogBasePath = lastSlash !== -1 ? rPath.substring(0, lastSlash) : "/home/gaaya/Projects/pipeline/logs";
+    const stepLogPath = `${calculatedLogBasePath}/${stepSId}.log`;
+
+    setTerminalLogs((prev) => {
+      const existing = index === 0 ? "" : prev.move;
+      return {
+        ...prev,
+        move: existing + `[SYSTEM] Triggering Move Data webhook for service: ${serviceName.toUpperCase()}...\n`,
+      };
+    });
+
+    runningStepKeyRef.current = "move";
+
+    try {
+      // Trigger Webhook for this single service
+      const bodyPayload = [{
+        sourceServer: param.sourceServer,
+        fromServer: param.fromServer,
+        targetServer: param.targetServer,
+        toServer: param.toServer,
+        moveSourcePath: param.moveSourcePath,
+        moveTargetPath: param.moveTargetPath,
+        logPath: stepLogPath,
+        sId: stepSId,
+        runId,
+        version: currentVersion,
+      }];
+
+      const stepInfo = stepsConfig.find((s) => s.key === "move")!;
+      const response = await fetch(stepInfo.webhookUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(bodyPayload),
+      });
+
+      if (!isMountedRef.current || runningStepKeyRef.current !== "move") return;
+
+      if (!response.ok) {
+        throw new Error(`Webhook responded with status ${response.status}`);
+      }
+
+      setTerminalLogs((prev) => ({
+        ...prev,
+        move: prev.move + `[SYSTEM] Webhook triggered for ${serviceName.toUpperCase()}. Starting backend log monitor...\n`,
+      }));
+
+      // Determine the target server for log streaming
+      const streamTargetServer = param.toServer || selectedTargetServerDetails.name || selectedTargetServerDetails.ipAddress;
+
+      // Initialize status as running in DB
+      await updateDBServiceStatus("move", "running");
+
+      // Call backend monitor-logs API
+      await api.post("/admin-dashboard/data-pipeline/monitor-logs", {
+        runId,
+        service: "move",
+        targetServer: streamTargetServer,
+        sId: stepSId,
+        offset: 0,
+        logPath: stepLogPath,
+        version: currentVersion,
+      });
+
+      toast.success(`Move for service ${serviceName.toUpperCase()} started.`);
+
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : `Failed to run move for ${serviceName.toUpperCase()}.`;
+      if (isMountedRef.current && runningStepKeyRef.current === "move") {
+        setStepStatuses((prev) => ({ ...prev, move: "failed" }));
+        setTerminalLogs((prev) => ({ ...prev, move: prev.move + `\n[SYSTEM ERROR] ${msg}\n` }));
+        void updateDBServiceStatus("move", "failed");
+        toast.error(msg);
+        
+        // Reset queue on failure
+        currentMoveIndexRef.current = -1;
+        moveQueueRef.current = [];
+        moveAccumulatedLogRef.current = "";
+      }
+    } finally {
+      if (isMountedRef.current) {
+        setExecuting(false);
+      }
+    }
+  };
+
+  runSingleMoveServiceRef.current = runSingleMoveService;
+
   const fetchRunsData = useCallback(async (isRefresh = false) => {
     if (isRefresh) setRefreshing(true);
     else setLoading(true);
@@ -405,10 +549,16 @@ export default function MoveAndPack() {
       });
 
       const extracted = extractPipelineRuns(pipelineResponse.data);
-      // Filter for completed/success multipart runs (checking multipart service status)
+      // Filter for completed/success runs (checking multipart or routing success)
       const completedRuns = extracted.filter((run) => {
         const mStatus = serviceStatus(run, "multipart");
-        return mStatus === "completed" || mStatus === "success";
+        const rStatus = serviceStatus(run, "routing");
+        return (
+          mStatus === "completed" ||
+          mStatus === "success" ||
+          rStatus === "completed" ||
+          rStatus === "success"
+        );
       });
 
       // Sort completed runs to find the most recent one
@@ -460,18 +610,71 @@ export default function MoveAndPack() {
         };
 
         const keys: StepKey[] = ["move", "clean", "verify", "pack"];
+        const runSId = recentRun.services?.routing?.sId || "";
+
         keys.forEach((k) => {
-          const svcData = recentRun.services?.[k];
-          const statusVal = svcData?.status ?? recentRun[`${k}Status` as keyof PipelineRun];
-          const rawStatus = String(statusVal || "").toLowerCase();
-          if (rawStatus === "success" || rawStatus === "completed") {
-            nextStatuses[k] = "completed";
-          } else if (rawStatus === "failed" || rawStatus === "error") {
-            nextStatuses[k] = "failed";
-          } else if (rawStatus === "running") {
-            nextStatuses[k] = "running";
+          if (k === "move" && currentMoveIndexRef.current !== -1) {
+            const currentIndex = currentMoveIndexRef.current;
+            const queue = moveQueueRef.current;
+            const currentParam = queue[currentIndex];
+            const currentServiceName = currentParam.service;
+            const expectedSId = `${runSId}_move_${currentServiceName}`;
+
+            const statusVal = recentRun.moveStatus;
+            const rawStatus = String(statusVal || "").toLowerCase();
+            const logVal = recentRun.moveLog ?? "";
+
+            const dbSId = recentRun.moveSId;
+            const isMatchingService = dbSId === expectedSId;
+
+            if (isMatchingService && (rawStatus === "success" || rawStatus === "completed")) {
+              const completedLog = logVal;
+              const nextIndex = currentIndex + 1;
+              const spacer = `\n[SYSTEM] Completed move for service: ${currentServiceName.toUpperCase()}\n--------------------------------------------------\n`;
+              const accumulated = moveAccumulatedLogRef.current + completedLog + spacer;
+
+              if (nextIndex < queue.length) {
+                // Trigger the next service!
+                moveAccumulatedLogRef.current = accumulated;
+                currentMoveIndexRef.current = nextIndex;
+
+                nextStatuses.move = "running";
+                nextLogs.move = accumulated + `[SYSTEM] Starting next move for service: ${queue[nextIndex].service.toUpperCase()}...\n`;
+
+                void runSingleMoveServiceRef.current?.(queue[nextIndex], nextIndex, queue);
+              } else {
+                // Entire queue completed successfully!
+                currentMoveIndexRef.current = -1;
+                moveQueueRef.current = [];
+                moveAccumulatedLogRef.current = "";
+
+                nextStatuses.move = "completed";
+                nextLogs.move = accumulated;
+              }
+            } else if (isMatchingService && (rawStatus === "failed" || rawStatus === "error")) {
+              currentMoveIndexRef.current = -1;
+              moveQueueRef.current = [];
+              moveAccumulatedLogRef.current = "";
+
+              nextStatuses.move = "failed";
+              nextLogs.move = moveAccumulatedLogRef.current + logVal + `\n[SYSTEM ERROR] Move failed for service: ${currentServiceName.toUpperCase()}\n`;
+            } else {
+              nextStatuses.move = "running";
+              nextLogs.move = moveAccumulatedLogRef.current + logVal;
+            }
+          } else {
+            const svcData = recentRun.services?.[k];
+            const statusVal = svcData?.status ?? recentRun[`${k}Status` as keyof PipelineRun];
+            const rawStatus = String(statusVal || "").toLowerCase();
+            if (rawStatus === "success" || rawStatus === "completed") {
+              nextStatuses[k] = "completed";
+            } else if (rawStatus === "failed" || rawStatus === "error") {
+              nextStatuses[k] = "failed";
+            } else if (rawStatus === "running") {
+              nextStatuses[k] = "running";
+            }
+            nextLogs[k] = svcData?.log ?? recentRun[`${k}Log` as keyof PipelineRun] ?? "";
           }
-          nextLogs[k] = svcData?.log ?? recentRun[`${k}Log` as keyof PipelineRun] ?? "";
         });
 
         setStepStatuses(nextStatuses);
@@ -563,20 +766,6 @@ export default function MoveAndPack() {
     const lastSlash = rPath.lastIndexOf("/");
     return lastSlash !== -1 ? rPath.substring(0, lastSlash) : "/home/gaaya/Projects/pipeline/logs";
   }, [routingService]);
-
-  const updateDBServiceStatus = async (stepKey: StepKey, status: "running" | "completed" | "failed") => {
-    if (!selectedRun) return;
-    try {
-      const runId = getRunId(selectedRun);
-      await api.patch("/admin-dashboard/data-pipeline/service-status", {
-        runId,
-        service: stepKey,
-        status,
-      });
-    } catch (err) {
-      console.error(`Failed to update DB service status to ${status} for step ${stepKey}`, err);
-    }
-  };
 
   const handleRunStep = async (
     stepInfo: StepInfo,
@@ -736,14 +925,16 @@ export default function MoveAndPack() {
       setIsTargetServerModalOpen(true);
       return;
     }
-
+ 
     if (step.key === "move") {
       const newSelected: Record<string, boolean> = {};
       const newConfigs: Record<string, ServiceMoveConfig> = {};
-
+      const order: string[] = [];
+ 
       runServices.forEach((srv) => {
         newSelected[srv] = true;
-
+        order.push(srv);
+ 
         const srvData = selectedRun?.services?.[srv];
         const defaultFromServer = srvData?.targetServer || srvData?.server || srvData?.serverName || srvData?.targetServerName || runServers[0] || "";
         const defaultToServer = selectedTargetServerId || getServerValue(availabilityServers[0]);
@@ -752,7 +943,7 @@ export default function MoveAndPack() {
           selectedTargetServerDetails
             ? getMoveTargetPathForServer(defaultToServer) || getMoveTargetPathForServer(selectedTargetServerDetails.name)
             : "";
-
+ 
         newConfigs[srv] = {
           fromServer: defaultFromServer,
           toServer: defaultToServer,
@@ -762,8 +953,9 @@ export default function MoveAndPack() {
           overrideTarget: false,
         };
       });
-
+ 
       setSelectedServices(newSelected);
+      setSelectedServicesOrder(order);
       setServiceConfigs(newConfigs);
       setIsMoveModalOpen(true);
     } else {
@@ -904,7 +1096,7 @@ export default function MoveAndPack() {
                         const StepIcon = step.icon;
                         const status = stepStatuses[step.key];
                         const isActive = activeStep === step.key;
-                        const canExecute = status !== "running" && (idx === 0 || stepStatuses[stepsConfig[idx - 1].key] === "completed");
+                        const canExecute = status !== "completed" && status !== "running" && (idx === 0 || stepStatuses[stepsConfig[idx - 1].key] === "completed");
 
                         return (
                           <div key={step.key} className="relative">
@@ -1151,13 +1343,21 @@ export default function MoveAndPack() {
                                 <input
                                   type="checkbox"
                                   checked={isSelected}
-                                  onChange={(e) => setSelectedServices(prev => ({ ...prev, [srv]: e.target.checked }))}
+                                  onChange={(e) => {
+                                    const checked = e.target.checked;
+                                    setSelectedServices((prev) => ({ ...prev, [srv]: checked }));
+                                    if (checked) {
+                                      setSelectedServicesOrder((prev) => [...prev.filter((x) => x !== srv), srv]);
+                                    } else {
+                                      setSelectedServicesOrder((prev) => prev.filter((x) => x !== srv));
+                                    }
+                                  }}
                                   className="w-4 h-4 rounded border-gray-300 text-primary focus:ring-primary cursor-pointer transition-all"
                                 />
                                 <span className="text-sm font-bold text-foreground tracking-wide uppercase">{srv}</span>
                               </label>
-                              <Badge variant="outline" className={isSelected ? "bg-primary/10 text-primary" : "bg-muted text-muted-foreground"}>
-                                {isSelected ? "Active" : "Skipped"}
+                              <Badge variant="outline" className={isSelected ? "bg-primary/10 text-primary font-semibold" : "bg-muted text-muted-foreground"}>
+                                {isSelected ? `Active (Run #${selectedServicesOrder.indexOf(srv) + 1})` : "Skipped"}
                               </Badge>
                             </div>
 
@@ -1279,7 +1479,7 @@ export default function MoveAndPack() {
                       <Button
                         className="flex-1 font-bold rounded-xl"
                         onClick={() => {
-                          const activeServices = Object.keys(selectedServices).filter((s) => selectedServices[s]);
+                          const activeServices = selectedServicesOrder.filter((s) => selectedServices[s]);
                           const moveParams = activeServices.map((srv) => {
                             const config = serviceConfigs[srv];
                             const dbSource = getMoveSourcePathForServer(config.fromServer);
@@ -1303,9 +1503,14 @@ export default function MoveAndPack() {
                           });
 
                           setIsMoveModalOpen(false);
-                          const stepInfo = stepsConfig.find((s) => s.key === "move");
-                          if (stepInfo) {
-                            void handleRunStep(stepInfo, moveParams);
+                          
+                          if (moveParams.length > 0) {
+                            moveQueueRef.current = moveParams;
+                            currentMoveIndexRef.current = 0;
+                            moveAccumulatedLogRef.current = "";
+                            void runSingleMoveService(moveParams[0], 0, moveParams);
+                          } else {
+                            toast.error("No active services selected to move.");
                           }
                         }}
                         disabled={!isMoveConfigValid}
