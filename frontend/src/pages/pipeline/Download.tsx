@@ -1965,6 +1965,84 @@ export default function Download() {
     void handleProceedToGeneration();
   }, [searchParams, setSearchParams]);
 
+  const renderWorkflowLogPanel = (workflow: WorkflowKey, variant: "card" | "embedded" = "card") => {
+    const job = jobs[workflow];
+    const logState = jobLogs[workflow];
+    const displayStatus = workflow === "searchTiles" ? searchTilesSummary.validatedStatus : routingSummary.validatedStatus;
+    const isEmbedded = variant === "embedded";
+    const content = !job ? (
+      <div className={`${isEmbedded ? "rounded-xl border-l-4 border-l-muted-foreground/40" : "rounded-2xl border-dashed"} border border-border/70 bg-muted/30 p-8 text-center text-sm text-muted-foreground`}>
+        No log output yet.
+      </div>
+    ) : (
+      <div className="overflow-hidden rounded-xl border border-slate-800 bg-slate-950 shadow-inner">
+        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-800 bg-slate-900/95 px-4 py-3">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="h-2.5 w-2.5 rounded-full bg-rose-400" />
+            <span className="h-2.5 w-2.5 rounded-full bg-amber-300" />
+            <span className="h-2.5 w-2.5 rounded-full bg-emerald-400" />
+            <Badge variant="outline" className="ml-2 border-slate-700 bg-slate-950 font-mono text-slate-200">{job.runId}</Badge>
+            <span className={`inline-flex items-center rounded-full border px-2.5 py-1 text-xs font-medium ${statusTone(displayStatus)}`}>
+              {displayStatus}
+            </span>
+            {logState.source === "static" ? <Badge variant="secondary">Static</Badge> : null}
+            {logState.source === "remote" ? <Badge variant="secondary">Live</Badge> : null}
+          </div>
+          <div className="font-mono text-xs text-slate-400">
+            {job.serverName} - {formatTime(job.requestedAt)}
+          </div>
+        </div>
+        <ScrollArea className={`${isEmbedded ? "h-72" : "h-64"} text-slate-100`}>
+          <div className="space-y-1 p-4 font-mono text-xs leading-6">
+            {logState.lines.length === 0 ? (
+              <p className="text-slate-400">No log output available for this workflow yet.</p>
+            ) : (
+              logState.lines.map((line, index) => (
+                <p key={`${workflow}-${index}`} className="grid grid-cols-[3rem_minmax(0,1fr)] gap-3 break-words text-slate-200">
+                  <span className="select-none text-right text-slate-600">{String(index + 1).padStart(3, "0")}</span>
+                  <span>{line}</span>
+                </p>
+              ))
+            )}
+            {job.lastError ? <p className="text-rose-300">{job.lastError}</p> : null}
+            {logState.lastError ? <p className="text-rose-300">{logState.lastError}</p> : null}
+          </div>
+        </ScrollArea>
+      </div>
+    );
+
+    if (variant === "embedded") {
+      return (
+        <div className="mt-6 overflow-hidden rounded-xl border border-slate-800 bg-slate-950">
+          <div className="flex flex-wrap items-center justify-between gap-3 bg-slate-900 px-4 py-3">
+            <div>
+              <div className="flex items-center gap-2">
+                <TerminalSquare className="h-4 w-4 text-slate-400" />
+                <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-100">{workflowCopy[workflow].label} logs</h3>
+              </div>
+              <p className="mt-1 text-xs text-slate-400">Latest run output</p>
+            </div>
+            <Badge variant="outline" className="border-slate-700 bg-slate-950 text-slate-300">Terminal view</Badge>
+          </div>
+          <div className="border-t border-slate-800">{content}</div>
+        </div>
+      );
+    }
+
+    return (
+      <Card key={`${workflow}-logs`} className="border-border/60 shadow-sm">
+        <CardHeader>
+          <div className="flex items-center gap-2">
+            <TerminalSquare className="h-4 w-4 text-muted-foreground" />
+            <CardTitle>{workflowCopy[workflow].label} logs</CardTitle>
+          </div>
+          <CardDescription>Latest run only.</CardDescription>
+        </CardHeader>
+        <CardContent>{content}</CardContent>
+      </Card>
+    );
+  };
+
   return (
     <div className="space-y-6 p-6">
       <section className="rounded-3xl p-6">
@@ -2352,6 +2430,7 @@ export default function Download() {
                   );
                 })()
               ) : null}
+              {workflow === "searchTiles" ? renderWorkflowLogPanel("searchTiles", "embedded") : null}
               {/* {latestJob ? (
                 <div className="mt-4 flex flex-wrap items-center gap-2 text-sm">
                   <Badge variant="outline">Log status: {summary.validatedStatus}</Badge>
@@ -2382,60 +2461,8 @@ export default function Download() {
       </section>
 
       <section className="rounded-3xl border border-border/60 bg-card p-4 shadow-sm">
-        <div className="grid gap-6 xl:grid-cols-2">
-          {(["searchTiles", "routing"] as WorkflowKey[]).map((workflow) => {
-            const job = jobs[workflow];
-            const logState = jobLogs[workflow];
-            const displayStatus = workflow === "searchTiles" ? searchTilesSummary.validatedStatus : routingSummary.validatedStatus;
-
-            return (
-              <Card key={`${workflow}-logs`} className="border-border/60 shadow-sm">
-                <CardHeader>
-                  <div className="flex items-center gap-2">
-                    <TerminalSquare className="h-4 w-4 text-muted-foreground" />
-                    <CardTitle>{workflowCopy[workflow].label} logs</CardTitle>
-                  </div>
-                  <CardDescription>Latest run only.</CardDescription>
-                </CardHeader>
-                <CardContent>
-                  {!job ? (
-                    <div className="rounded-2xl border border-dashed border-border/70 bg-muted/30 p-8 text-center text-sm text-muted-foreground">
-                      No run started yet.
-                    </div>
-                  ) : (
-                    <div className="rounded-2xl border border-border/60 bg-background">
-                      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border/60 px-4 py-3">
-                        <div className="flex flex-wrap items-center gap-2">
-                          <Badge variant="outline">{job.runId}</Badge>
-                          <span className={`inline-flex items-center rounded-full border px-2.5 py-1 text-xs font-medium ${statusTone(displayStatus)}`}>
-                            {displayStatus}
-                          </span>
-                          {logState.source === "static" ? <Badge variant="secondary">Static</Badge> : null}
-                          {logState.source === "remote" ? <Badge variant="secondary">Live</Badge> : null}
-                        </div>
-                        <div className="text-xs text-muted-foreground">
-                          {job.serverName} · {formatTime(job.requestedAt)}
-                        </div>
-                      </div>
-                      <ScrollArea className="h-64 bg-slate-950 text-slate-100">
-                        <div className="space-y-2 p-4 font-mono text-xs leading-6">
-                          {logState.lines.length === 0 ? (
-                            <p className="text-slate-400">No log output available for this workflow yet.</p>
-                          ) : (
-                            logState.lines.map((line, index) => (
-                              <p key={`${workflow}-${index}`} className="break-words text-slate-200">{line}</p>
-                            ))
-                          )}
-                          {job.lastError ? <p className="text-rose-300">{job.lastError}</p> : null}
-                          {logState.lastError ? <p className="text-rose-300">{logState.lastError}</p> : null}
-                        </div>
-                      </ScrollArea>
-                    </div>
-                  )}
-                </CardContent>
-              </Card>
-            );
-          })}
+        <div className="grid gap-6">
+          {renderWorkflowLogPanel("routing", "embedded")}
         </div>
       </section>
 
