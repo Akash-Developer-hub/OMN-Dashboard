@@ -66,6 +66,11 @@ type ServiceFormState = {
   configVersion: string;
   hasConfiguredPaths: boolean; // NEW: tracks if server has configured paths
   importServerFilePath: string; // Path on server for import mode file browser
+  osmRunOrder?: "sub_regions" | "large_regions";
+  hasCustomInputPath?: boolean;
+  hasCustomOutputPath?: boolean;
+  responseInputPath?: string;
+  responseOutputPath?: string;
 };
 
 type ServerPathEntry = {
@@ -160,6 +165,11 @@ const emptyServiceForm = (service: GenerationService): ServiceFormState => ({
   configVersion: "",
   hasConfiguredPaths: false,
   importServerFilePath: "",
+  osmRunOrder: "sub_regions",
+  hasCustomInputPath: false,
+  hasCustomOutputPath: false,
+  responseInputPath: "",
+  responseOutputPath: "",
 });
 
 const resolveFilename = (f: ServiceFormState): string => {
@@ -197,14 +207,31 @@ const buildBrowserPath = (basePath: string, item: string) => {
   return `${trimmedBase}/${item}`;
 };
 
-const buildCommand = (f: ServiceFormState): string => {
+const getRegionName = (f: ServiceFormState): string => {
+  const path = f.hasCustomInputPath && f.filePath ? f.filePath : (f.responseInputPath || "southIndia");
+  const base = path.split(/[/\\]/).pop() || "southIndia";
+  return base.replace(/(\.osm)?\.pbf$/i, "").replace(/(\.[^.]+)+$/, "") || "southIndia";
+};
+
+const buildCommand = (f: ServiceFormState, isPreview = false): string => {
+  const regionName = getRegionName(f);
+  const script = f.script?.trim() || (f.service === "routing" ? "routingTiles.py" : "multithread.py");
+  
   if (f.service === "routing") {
-    const script = f.script?.trim() || "routingTiles.py";
     const gtfsFlag = f.routingGtfsIncluded ? " --bTransit" : "";
-    return `python3 routingTiles.py southIndia${gtfsFlag}`;
+    const inputFlag = f.hasCustomInputPath && f.filePath?.trim() ? ` --osm_pbf_path ${f.filePath.trim()}` : "";
+    const outputFlag = f.hasCustomOutputPath && f.outputPath?.trim() ? ` --data_dir ${f.outputPath.trim()}` : "";
+    // return `python3 ${script} ${regionName}${inputFlag}${outputFlag}${gtfsFlag}`;
+    return `python3 routingTiles.py southIndia`;
   }
-  const script = f.script?.trim() || "multithread.py";
-  return `python3 tilesPipe.py southIndia worldocean:worldplace:main:r2hb:poi:lbw:names search unifiedMax hi:ta`;
+  
+  const inputFlag = f.hasCustomInputPath && f.filePath?.trim() ? ` --osmdir ${f.filePath.trim()}` : "";
+  const outputFlag = f.hasCustomOutputPath && f.outputPath?.trim() ? ` --gendir ${f.outputPath.trim()}` : "";
+  
+  const genType = f.service === "search" ? "search" : "tiles";
+  const genFlag = isPreview ? "" : ` --gen ${genType}`;
+  
+  return `python3 ${script}${inputFlag}${outputFlag}${genFlag}`;
 };
 
 const shouldUseOutputPath = (service: GenerationService, f: ServiceFormState) =>
@@ -934,6 +961,10 @@ export function CreateGeneration({ open, onClose, preSelectContribution, servers
           sourceFilePath: "",
           importServerFilePath: "",
           hasConfiguredPaths: false,
+          hasCustomInputPath: false,
+          hasCustomOutputPath: false,
+          responseInputPath: "",
+          responseOutputPath: "",
         });
         return;
       }
@@ -945,37 +976,50 @@ export function CreateGeneration({ open, onClose, preSelectContribution, servers
         const autoFilePath = isRouting ? (downloadInfo?.outputPath || null) : (downloadInfo?.folder || null);
         if (pathInfo) {
           updateForm(svc, {
-            filePath: autoFilePath || pathInfo.inputPath || "/home",
+            filePath: "",
             scriptDisplayPath: pathInfo.scriptPath || "/home",
-            outputPath: pathInfo.outputPath || "/home",
+            outputPath: "",
             backupPath: pathInfo.backupPath || "/home",
-            importServerFilePath: autoFilePath || pathInfo.inputPath || "/home",
+            importServerFilePath: "",
+            responseInputPath: autoFilePath || pathInfo.inputPath || "/home",
+            responseOutputPath: pathInfo.outputPath || "/home",
             configVersion: version || forms[svc].configVersion,
             hasConfiguredPaths: true,
+            hasCustomInputPath: false,
+            hasCustomOutputPath: false,
           });
         } else {
           updateForm(svc, {
-            filePath: autoFilePath || "/home",
+            filePath: "",
             scriptDisplayPath: "/home",
-            outputPath: "/home",
+            outputPath: "",
             backupPath: "/home",
             sourceFilePath: forms[svc].inputMode === "copy" ? forms[svc].sourceFilePath : "/home",
-            importServerFilePath: autoFilePath || "/home",
+            importServerFilePath: "",
+            responseInputPath: autoFilePath || "/home",
+            responseOutputPath: "/home",
             configVersion: version || forms[svc].configVersion,
             hasConfiguredPaths: false,
+            hasCustomInputPath: false,
+            hasCustomOutputPath: false,
           });
         }
       } catch (error) {
         console.error(`Failed to fetch paths for server ${serverId}:`, error);
         // On error, also default to /home
         updateForm(svc, {
-          filePath: "/home",
+          filePath: "",
           scriptDisplayPath: "/home",
-          outputPath: "/home",
+          outputPath: "",
           backupPath: "/home",
           sourceFilePath: forms[svc].inputMode === "copy" ? forms[svc].sourceFilePath : "/home",
-          importServerFilePath: "/home",
+          importServerFilePath: "",
+          responseInputPath: "/home",
+          responseOutputPath: "/home",
+          configVersion: forms[svc].configVersion,
           hasConfiguredPaths: false,
+          hasCustomInputPath: false,
+          hasCustomOutputPath: false,
         });
       }
     };
@@ -1192,7 +1236,7 @@ export function CreateGeneration({ open, onClose, preSelectContribution, servers
           ? form.importServerFilePath || "Pending upload"
           : form.filePath || form.sourceFilePath || "Not selected",
       outputPath: form.outputPath || "Default / not required",
-      command: buildCommand(form),
+      command: buildCommand(form, true),
     };
   });
 
@@ -1212,8 +1256,11 @@ export function CreateGeneration({ open, onClose, preSelectContribution, servers
 
       if (!f.script.trim()) return `${svc}: Enter a script`;
       
-      if (shouldUseOutputPath(svc, f) && !f.outputPath.trim()) {
+      if (f.hasCustomOutputPath && !f.outputPath.trim()) {
         return `${svc}: Enter an output path.`;
+      }
+      if (f.hasCustomInputPath && !f.filePath.trim()) {
+        return `${svc}: Enter an input path.`;
       }
       if (svc === "search" && f.includeContributions) {
         if (!f.contributionApiEndpoint.trim()) return "search: Enter an API endpoint for contribution data.";
@@ -1297,16 +1344,18 @@ export function CreateGeneration({ open, onClose, preSelectContribution, servers
         const target = findServer(f.targetServerId) as any;
         const source = findServer(f.sourceServerId) as any;
         const targetServerName = target?.name || f.targetServerId;
-        const serviceOutputPath = f.outputPath?.trim() || "";
+        const serviceOutputPath = f.hasCustomOutputPath ? (f.outputPath?.trim() || "") : "";
 
         if (!devServerName && targetServerName) devServerName = targetServerName;
-        if (!sourcePath) sourcePath = serviceOutputPath;
-        serviceTransfers.push({
-          service: svc,
-          from: targetServerName,
-          source: serviceOutputPath,
-          gtfsEnabled: svc === "routing" ? !!f.routingGtfsIncluded : undefined,
-        });
+        if (serviceOutputPath && !sourcePath) sourcePath = serviceOutputPath;
+        if (serviceOutputPath) {
+          serviceTransfers.push({
+            service: svc,
+            from: targetServerName,
+            source: serviceOutputPath,
+            gtfsEnabled: svc === "routing" ? !!f.routingGtfsIncluded : undefined,
+          });
+        }
 
         const inputFileName = (() => {
           if (f.inputFile) return f.inputFile;
@@ -1332,9 +1381,9 @@ export function CreateGeneration({ open, onClose, preSelectContribution, servers
           serverPort: pickPort(source),
           copySourceServer: pickAddress(source),
           copySourcePath: f.sourceFilePath,
-          fileInputPath: f.filePath.trim(),
-          inputFile: inputFileName,
-          outputPath: serviceOutputPath || undefined,
+          fileInputPath: f.hasCustomInputPath ? f.filePath.trim() : undefined,
+          inputFile: f.hasCustomInputPath ? inputFileName : undefined,
+          outputPath: f.hasCustomOutputPath ? (serviceOutputPath || undefined) : undefined,
           scriptPath: f.scriptDisplayPath,
           backupPath: f.backup ? (f.backupPath?.trim() || undefined) : undefined,
           scriptFile: f.script,
@@ -1359,10 +1408,14 @@ export function CreateGeneration({ open, onClose, preSelectContribution, servers
             contributionGtfsIncluded: f.contributionGtfsIncluded,
             contributionGtfsServer: f.contributionGtfsServerId,
             contributionGtfsFilePath: f.contributionGtfsFilePath,
+            osmRunOrder: f.osmRunOrder,
           };
         }
         if (svc === "tile") {
-          payload.tile = { ...base };
+          payload.tile = {
+            ...base,
+            osmRunOrder: f.osmRunOrder,
+          };
         }
       }
 
@@ -1868,7 +1921,143 @@ export function CreateGeneration({ open, onClose, preSelectContribution, servers
                                 )}
                               </div>
 
+                              {/* OSM Run Priority (tiles and search only) */}
+                              {(key === "search" || key === "tile") && (
+                                <div className="space-y-1">
+                                  <div className="flex items-center gap-1.5 mb-1">
+                                    <label className="block text-xs font-medium text-foreground">OSM Run Priority</label>
+                                    <Tooltip>
+                                      <TooltipTrigger asChild>
+                                        <Info className="w-3.5 h-3.5 text-muted-foreground hover:text-foreground cursor-help" />
+                                      </TooltipTrigger>
+                                      <TooltipContent side="top" className="text-[11px] max-w-[200px]">
+                                        Choose whether to process sub regions or large OSM regions first.
+                                      </TooltipContent>
+                                    </Tooltip>
+                                  </div>
+                                  <div className="flex rounded-lg border border-border overflow-hidden bg-background">
+                                    <button
+                                      type="button"
+                                      onClick={() => updateForm(key, { osmRunOrder: "sub_regions" })}
+                                      className={`flex-1 flex items-center justify-center gap-1.5 py-2 text-xs font-medium transition-colors ${
+                                        f.osmRunOrder === "sub_regions"
+                                          ? "bg-primary text-primary-foreground font-semibold"
+                                          : "bg-background text-muted-foreground hover:text-foreground hover:bg-muted"
+                                      }`}
+                                    >
+                                      Sub Regions First
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => updateForm(key, { osmRunOrder: "large_regions" })}
+                                      className={`flex-1 flex items-center justify-center gap-1.5 py-2 text-xs font-medium transition-colors ${
+                                        f.osmRunOrder === "large_regions"
+                                          ? "bg-primary text-primary-foreground font-semibold"
+                                          : "bg-background text-muted-foreground hover:text-foreground hover:bg-muted"
+                                      }`}
+                                    >
+                                      Large Regions First
+                                    </button>
+                                  </div>
+                                </div>
+                              )}
 
+                              {/* Optional Input Path Selector */}
+                              <div>
+                                {f.hasCustomInputPath ? (
+                                  <div className="space-y-1">
+                                    <div className="flex items-center justify-between mb-1">
+                                      <div className="flex items-center gap-1.5">
+                                        <label className="block text-xs font-medium text-foreground">Input Path</label>
+                                        <Tooltip>
+                                          <TooltipTrigger asChild>
+                                            <Info className="w-3.5 h-3.5 text-muted-foreground hover:text-foreground cursor-help" />
+                                          </TooltipTrigger>
+                                          <TooltipContent side="top" className="text-[11px] max-w-[200px]">
+                                            The directory or file path on the target server containing the input data.
+                                          </TooltipContent>
+                                        </Tooltip>
+                                      </div>
+                                      <button
+                                        type="button"
+                                        onClick={() => updateForm(key, { hasCustomInputPath: false, filePath: "" })}
+                                        className="text-[11px] text-red-500 hover:text-red-700 font-medium"
+                                      >
+                                        Remove
+                                      </button>
+                                    </div>
+                                    <PathInputWithBrowser
+                                      value={f.filePath || ""}
+                                      onChange={(val) => updateForm(key, { filePath: val })}
+                                      placeholder="/home/data"
+                                      serverName={targetServerName}
+                                      showBrowser={openBrowser === `${key}_filePath`}
+                                      onToggleBrowser={() => toggleBrowser(`${key}_filePath`)}
+                                      onCloseBrowser={closeBrowser}
+                                      showViewFiles={true}
+                                      viewFilesLoading={filesState[key]?.loading || false}
+                                      onViewFiles={() => handleViewFiles(key)}
+                                    />
+                                  </div>
+                                ) : (
+                                  <button
+                                    type="button"
+                                    disabled={!f.targetServerId}
+                                    onClick={() => updateForm(key, { hasCustomInputPath: true, filePath: f.responseInputPath || "/home" })}
+                                    className="w-full flex items-center justify-center gap-2 px-4 py-2.5 border border-dashed border-border rounded-xl hover:border-primary/50 hover:bg-primary/5 text-xs text-muted-foreground hover:text-primary transition-all font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+                                  >
+                                    <Folder className="w-3.5 h-3.5 text-amber-500" />
+                                    + Add Input Path
+                                  </button>
+                                )}
+                              </div>
+
+                              {/* Optional Output Path Selector */}
+                              <div>
+                                {f.hasCustomOutputPath ? (
+                                  <div className="space-y-1">
+                                    <div className="flex items-center justify-between mb-1">
+                                      <div className="flex items-center gap-1.5">
+                                        <label className="block text-xs font-medium text-foreground">Output Path</label>
+                                        <Tooltip>
+                                          <TooltipTrigger asChild>
+                                            <Info className="w-3.5 h-3.5 text-muted-foreground hover:text-foreground cursor-help" />
+                                          </TooltipTrigger>
+                                          <TooltipContent side="top" className="text-[11px] max-w-[200px]">
+                                            The directory on the target server where output files will be stored.
+                                          </TooltipContent>
+                                        </Tooltip>
+                                      </div>
+                                      <button
+                                        type="button"
+                                        onClick={() => updateForm(key, { hasCustomOutputPath: false, outputPath: "" })}
+                                        className="text-[11px] text-red-500 hover:text-red-700 font-medium"
+                                      >
+                                        Remove
+                                      </button>
+                                    </div>
+                                    <PathInputWithBrowser
+                                      value={f.outputPath || ""}
+                                      onChange={(val) => updateForm(key, { outputPath: val })}
+                                      placeholder="/home/output"
+                                      serverName={targetServerName}
+                                      showBrowser={openBrowser === `${key}_outputPath`}
+                                      onToggleBrowser={() => toggleBrowser(`${key}_outputPath`)}
+                                      onCloseBrowser={closeBrowser}
+                                    />
+                                  </div>
+                                ) : (
+                                  <button
+                                    type="button"
+                                    disabled={!f.targetServerId}
+                                    onClick={() => updateForm(key, { hasCustomOutputPath: true, outputPath: f.responseOutputPath || "/home" })}
+                                    className="w-full flex items-center justify-center gap-2 px-4 py-2.5 border border-dashed border-border rounded-xl hover:border-primary/50 hover:bg-primary/5 text-xs text-muted-foreground hover:text-primary transition-all font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+                                  >
+                                    <FolderOpen className="w-3.5 h-3.5 text-blue-500" />
+                                    + Add Output Path
+                                  </button>
+                                )}
+                              </div>
 
                               {/* Script Path */}
                               <div>
@@ -2142,7 +2331,7 @@ export function CreateGeneration({ open, onClose, preSelectContribution, servers
                                   </Tooltip>
                                 </div>
                                 <pre className="w-full bg-muted border border-border rounded-lg px-3 py-2 text-xs text-foreground font-mono whitespace-pre-wrap break-all leading-relaxed">
-                                  {buildCommand(f)}
+                                  {buildCommand(f, true)}
                                 </pre>
                               </div> */}
                             </>
@@ -2211,7 +2400,7 @@ export function CreateGeneration({ open, onClose, preSelectContribution, servers
                     </div>
                   </div>
                   <pre className="w-full rounded-2xl border border-border bg-muted/30 px-4 py-3 text-xs text-foreground font-mono whitespace-pre-wrap break-all leading-relaxed">
-                    {buildCommand(currentForm)}
+                    {buildCommand(currentForm, true)}
                   </pre>
                 </div>
               )}

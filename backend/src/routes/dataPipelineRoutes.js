@@ -10,12 +10,8 @@ const DataPipelineController = require('../controllers/dataPipelineController');
  */
 router.post('/', DataPipelineController.createRun);
 
-/**
- * PATCH /api/v1/admin-dashboard/data-pipeline/update
- * Body: { runId, sId, service, routingStatus, routingLog, ... }
- * Updates service status/logs for existing or new run
- */
 router.patch('/update', DataPipelineController.updateServiceRun);
+router.post('/update', DataPipelineController.updateServiceRun); // Fallback to handle POST requests from N8N
 
 /**
  * PATCH /api/v1/admin-dashboard/data-pipeline/update-results
@@ -58,11 +54,7 @@ router.get('/fetch-transfers', DataPipelineController.fetchTransfers);
  */
 router.patch('/transfer-files', DataPipelineController.transferFiles);
 
-/**
- * PATCH /api/v1/admin-dashboard/data-pipeline/service-status
- * Body: { runId, service, status, ... } or { runId, statuses: [ { service, status, ... } ] }
- * Updates service status(es) without file transfer details
- */
 router.patch('/service-status', DataPipelineController.updateServiceStatus);
+router.post('/service-status', DataPipelineController.updateServiceStatus); // Fallback to handle POST requests from N8N
 
 module.exports = router;

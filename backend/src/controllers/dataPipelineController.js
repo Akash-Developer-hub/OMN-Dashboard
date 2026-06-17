@@ -14,6 +14,7 @@ const GENERATION_LOG_MONITOR_INTERVAL_MS = Number(process.env.GENERATION_LOG_MON
 const GENERATION_LOG_MONITOR_MAX_DURATION_MS = Number(process.env.GENERATION_LOG_MONITOR_MAX_DURATION_MS || 6 * 60 * 60 * 1000);
 const GENERATION_LOG_MONITOR_REQUEST_TIMEOUT_MS = Number(process.env.GENERATION_LOG_MONITOR_REQUEST_TIMEOUT_MS || 60000);
 const GENERATION_LOG_MONITOR_MAX_LINES = Number(process.env.GENERATION_LOG_MONITOR_MAX_LINES || 25000);
+const GENERATION_LOG_MONITOR_MAX_IDLE_TIME_MS = Number(process.env.GENERATION_LOG_MONITOR_MAX_IDLE_TIME_MS || 10 * 60 * 1000);
 const activeGenerationLogMonitors = new Map();
 const GENERATION_FAILED_LOG_PATTERN = /newConnectionError|NewConnectionError|connectionError|ConnectionError|MaxRetryError|NetworkError|ValueError|TypeError|KeyError|AttributeError|ConnectionRefusedError|raise err|MaxRetryErrorCaused by NewConnectionError|raise ConnectionError/i;
 const SEARCH_TILE_SUCCESS_LOG_PATTERN = /Processing complete|All files processed|Total processed/i;
@@ -715,6 +716,7 @@ async function fetchAndPersistGenerationRunLogs(payload) {
         errorPending,
         lastErrorCheckAt: currentLinesHaveError ? new Date().toISOString() : payload.lastErrorCheckAt || null,
         status,
+        fetchedLineCount: lines.length,
     };
 }
 
@@ -732,6 +734,7 @@ function startGenerationLogMonitor(payload) {
     const state = {
         payload: { ...payload },
         startedAt: Date.now(),
+        lastNewLinesFetchedAt: Date.now(),
         stopped: false,
         timer: null,
     };
@@ -746,6 +749,83 @@ function startGenerationLogMonitor(payload) {
         if (state.stopped) return;
 
         try {
+            // Check database to see if a newer run doc exists or if the current run has a different sId/logPath
+            const currentRun = await DataPipelineRun.collection.findOne({ runId });
+            if (!currentRun) {
+                logger.info('Stopping log monitor because the run document was not found.', { monitorKey });
+                stop();
+                return;
+            }
+
+            // Check if another generation doc is created (newer than the current run)
+            const newerRun = await DataPipelineRun.collection.findOne({
+                _id: { $gt: currentRun._id }
+            });
+            if (newerRun) {
+                logger.info('Stopping log monitor because a newer generation document was created.', {
+                    monitorKey,
+                    currentRunId: runId,
+                    newerRunId: newerRun.runId
+                });
+                stop();
+                return;
+            }
+
+            // Check if another log (sId/logPath) is present for this service in the DB
+            const isBaseService = isValidServiceName(service);
+            let dbSId = null;
+            let dbLogPath = null;
+            let dbStatus = null;
+            if (isBaseService) {
+                const serviceDoc = currentRun.services?.[service];
+                dbSId = serviceDoc?.sId;
+                dbLogPath = serviceDoc?.logPath;
+                dbStatus = serviceDoc?.status;
+            } else {
+                dbSId = currentRun[`${service}SId`];
+                dbLogPath = currentRun[`${service}LogPath`];
+                dbStatus = currentRun[`${service}Status`];
+            }
+
+            if (dbStatus && ['success', 'failed', 'completed', 'complete', 'failure'].includes(String(dbStatus).toLowerCase())) {
+                logger.info('Stopping log monitor because the service status in the database is already terminal.', {
+                    monitorKey,
+                    dbStatus
+                });
+                stop();
+                return;
+            }
+
+            if (dbSId && dbSId !== state.payload.sId) {
+                logger.info('Stopping log monitor because a different sId is present in the database for this service.', {
+                    monitorKey,
+                    payloadSId: state.payload.sId,
+                    dbSId
+                });
+                stop();
+                return;
+            }
+
+            if (dbLogPath && dbLogPath !== state.payload.logPath) {
+                logger.info('Stopping log monitor because a different logPath is present in the database for this service.', {
+                    monitorKey,
+                    payloadLogPath: state.payload.logPath,
+                    dbLogPath
+                });
+                stop();
+                return;
+            }
+
+            // Check if we haven't fetched any new lines for a very long time
+            if (Date.now() - state.lastNewLinesFetchedAt >= GENERATION_LOG_MONITOR_MAX_IDLE_TIME_MS) {
+                logger.info('Stopping log monitor due to idle timeout (no new log lines fetched for a long time).', {
+                    monitorKey,
+                    maxIdleTimeMs: GENERATION_LOG_MONITOR_MAX_IDLE_TIME_MS
+                });
+                stop();
+                return;
+            }
+
             const monitorResult = await fetchAndPersistGenerationRunLogs(state.payload);
             if (monitorResult.error) {
                 logger.warn('Generation log monitor skipped.', { monitorKey, error: monitorResult.error });
@@ -760,6 +840,11 @@ function startGenerationLogMonitor(payload) {
                 errorPending: monitorResult.errorPending,
                 lastErrorCheckAt: monitorResult.lastErrorCheckAt,
             };
+
+            // Update the last fetched timestamp if we actually retrieved new log lines
+            if (monitorResult.fetchedLineCount > 0) {
+                state.lastNewLinesFetchedAt = Date.now();
+            }
 
             if (['success', 'failed'].includes(monitorResult.status) || Date.now() - state.startedAt >= GENERATION_LOG_MONITOR_MAX_DURATION_MS) {
                 stop();
