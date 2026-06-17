@@ -99,6 +99,17 @@ function serviceStatus(run: PipelineRun | null, service: ServiceKey) {
   );
 }
 
+function multipartStatus(run: PipelineRun | null) {
+  const data = getServiceData(run, "routing");
+  return normalizeStatus(run?.multipartStatus ?? data?.multipartStatus ?? data?.multipart?.status);
+}
+
+function routingCardStatus(run: PipelineRun | null, fetchedMultipartStatus = "") {
+  const fetchedStatus = normalizeStatus(fetchedMultipartStatus);
+  const status = fetchedStatus !== "unknown" ? fetchedStatus : multipartStatus(run);
+  return status !== "unknown" ? status : serviceStatus(run, "routing");
+}
+
 function isRunCompleted(run: PipelineRun) {
   const overall = normalizeStatus(run?.status ?? run?.overallStatus ?? run?.generationStatus ?? run?.state);
   if (overall === "completed") return true;
@@ -196,6 +207,7 @@ export default function PreviewGeneration() {
   const [routingLogError, setRoutingLogError] = useState<string | null>(null);
   const [multithreadLoading, setMultithreadLoading] = useState(false);
   const [activeMultipartSId, setActiveMultipartSId] = useState<string | null>(null);
+  const [fetchedMultipartStatus, setFetchedMultipartStatus] = useState("");
   const [stopLoading, setStopLoading] = useState(false);
 
   const fetchPreviewData = useCallback(async (isRefresh = false) => {
@@ -213,10 +225,12 @@ export default function PreviewGeneration() {
 
       const latestRun = latestGenerationRun(extractPipelineRuns(pipelineResponse.data));
       setSelectedRun(latestRun);
+      setFetchedMultipartStatus(multipartStatus(latestRun));
       setRoutingLogsVisible(false);
     } catch (error) {
       toast.error("Failed to load the latest completed generation.");
       setSelectedRun(null);
+      setFetchedMultipartStatus("");
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -234,6 +248,7 @@ export default function PreviewGeneration() {
       const sId = serviceField(selectedRun, "routing", "sId");
       if (status === "running" && sId) {
         setActiveMultipartSId(sId);
+        setFetchedMultipartStatus(multipartStatus(selectedRun));
         setRoutingLogsVisible(true);
       }
     }
@@ -253,9 +268,11 @@ export default function PreviewGeneration() {
 
         const runData = response.data?.data;
         if (runData) {
+          const nextStatus = normalizeStatus(runData.multipartStatus ?? runData.status);
+          setFetchedMultipartStatus(nextStatus);
           setRoutingLogText(runData.logs || "No logs yet.");
-          if (runData.status !== "running") {
-            if (runData.status === "success") {
+          if (nextStatus !== "running") {
+            if (nextStatus === "completed") {
               toast.success("Multipart process completed successfully!");
             } else {
               toast.error("Multipart process failed.");
@@ -329,6 +346,7 @@ export default function PreviewGeneration() {
 
       setRoutingLogText("");
       setRoutingLogError(null);
+      setFetchedMultipartStatus("running");
       setRoutingLogsVisible(true);
 
       // Trigger the external webhook directly from the frontend
@@ -374,6 +392,7 @@ export default function PreviewGeneration() {
       await api.post(`/admin-dashboard/multipart/stop/${activeMultipartSId}`);
       toast.success("Multipart process stopped.");
       setActiveMultipartSId(null);
+      setFetchedMultipartStatus("failed");
       void fetchPreviewData();
     } catch (error) {
       console.error("Failed to stop multipart process:", error);
@@ -455,22 +474,20 @@ export default function PreviewGeneration() {
                 {services.map((service) => {
                   const meta = serviceMeta[service] ?? { label: service, icon: Search, tone: "border-border bg-muted text-foreground" };
                   const Icon = meta.icon;
-                  const status = serviceStatus(selectedRun, service);
                   const isRouting = service === "routing";
+                  const serviceRunStatus = serviceStatus(selectedRun, service);
+                  const status = isRouting ? routingCardStatus(selectedRun, fetchedMultipartStatus) : serviceRunStatus;
+                  const hasMultipartStatus = isRouting && (
+                    normalizeStatus(fetchedMultipartStatus) !== "unknown" ||
+                    multipartStatus(selectedRun) !== "unknown"
+                  );
+                  const statusLabel = hasMultipartStatus ? `MultiPart : ${status}` : status;
                   const logText = serviceLogText(selectedRun, service);
                   const showLogsTab = isRouting && (routingLogsVisible || Boolean(logText));
                   const details = [
                     {
-                      label: "Input file",
-                      value: serviceField(selectedRun, service, "inputFile", "input_file", "fileName", "filename", "sourceFileName"),
-                    },
-                    {
-                      label: "Output path",
-                      value: serviceField(selectedRun, service, "outputPath", "output_path", "path", "dataDir"),
-                    },
-                    {
-                      label: "Input path",
-                      value: serviceField(selectedRun, service, "fileInputPath", "input_path", "filePath", "sourceFilePath", "sourcePath", "rawOsmPath"),
+                      label: "Version",
+                      value: serviceField(selectedRun, service, "version") || currentVersion,
                     },
                     {
                       label: "Server",
@@ -482,10 +499,9 @@ export default function PreviewGeneration() {
                     },
                     {
                       label: "Status",
-                      value: status,
+                      value: serviceRunStatus,
                     },
                   ];
-
                   return (
                     <Card
                       key={service}
@@ -503,7 +519,7 @@ export default function PreviewGeneration() {
                             </div>
                           </div>
                           <Badge variant="outline" className={statusTone(status)}>
-                            {status}
+                            {statusLabel}
                           </Badge>
                         </div>
                       </CardHeader>

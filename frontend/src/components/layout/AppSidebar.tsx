@@ -35,7 +35,8 @@ export function AppSidebar() {
     );
   };
 
-  const isActive = (path: string) => location.pathname === path;
+  const getPathname = (path: string) => path.split("?")[0];
+  const isActive = (path: string) => location.pathname === getPathname(path);
   const isSectionActive = (section: NavSection) => {
     if (isActive(section.path)) return true;
     return section.children?.some((c) => isActive(c.path)) ?? false;

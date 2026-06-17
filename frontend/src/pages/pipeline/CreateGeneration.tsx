@@ -759,6 +759,55 @@ export function CreateGeneration({ open, onClose, preSelectContribution, servers
     return version;
   }, []);
 
+  const getGenerationPrefillParams = useCallback(() => {
+    const params = new URLSearchParams(window.location.search || "");
+    const genService = params.get("genService") as GenerationService | null;
+    const genServices = String(params.get("genServices") || "")
+      .split(",")
+      .map((service) => service.trim())
+      .filter((service): service is GenerationService => service === "search" || service === "routing" || service === "tile");
+    const services = genServices.length > 0
+      ? genServices
+      : genService && (genService === "search" || genService === "routing" || genService === "tile")
+        ? [genService]
+        : [];
+    return {
+      genService: services[0] ?? null,
+      genServices: services,
+      targetServerId: params.get("targetServerId") || "",
+      targetServerName: params.get("targetServerName") || "",
+    };
+  }, []);
+
+  const resolvePrefillServerId = useCallback((targetServerId: string, targetServerName: string) => {
+    if (targetServerId) return targetServerId;
+    if (!targetServerName) return "";
+
+    const match = (externalServers || servers).find(
+      (server: any) => String(server.name || "").toLowerCase() === String(targetServerName).toLowerCase(),
+    );
+    return match ? String(match._id || match.id || "") : "";
+  }, [externalServers, servers]);
+
+  const applyGenerationPrefillForService = useCallback((svc: GenerationService) => {
+    const { genServices, targetServerId, targetServerName } = getGenerationPrefillParams();
+    if (!genServices.includes(svc)) return;
+
+    const resolvedServerId = resolvePrefillServerId(targetServerId, targetServerName);
+    if (!resolvedServerId) return;
+
+    setForms((prev) => {
+      if (prev[svc].targetServerId) return prev;
+      return {
+        ...prev,
+        [svc]: {
+          ...prev[svc],
+          targetServerId: resolvedServerId,
+        },
+      };
+    });
+  }, [getGenerationPrefillParams, resolvePrefillServerId]);
+
   const fetchServerPathForServer = useCallback(async (serverId: string) => {
     const version = resolveConfigVersion();
     const res = await api.get("/admin-dashboard/pipeline-config/server-path");
@@ -905,34 +954,6 @@ export function CreateGeneration({ open, onClose, preSelectContribution, servers
       if (preSelectContribution) {
         setForms((prev) => ({ ...prev, search: { ...prev.search, searchMode: "contribution" } }));
       }
-      // Prefill from URL params (when navigating from Download page)
-      try {
-        const params = new URLSearchParams(window.location.search || "");
-        const genService = params.get("genService") as GenerationService | null;
-        const targetServerId = params.get("targetServerId");
-        const targetServerName = params.get("targetServerName");
-        if (genService && (genService === "search" || genService === "routing" || genService === "tile")) {
-          setSelected((prev) => new Set<GenerationService>([...(preSelectContribution ? Array.from(prev) : []), genService]));
-          setActiveService(genService);
-          setForms((prev) => ({
-            ...prev,
-            [genService]: {
-              ...prev[genService],
-              targetServerId: targetServerId || prev[genService].targetServerId,
-            },
-          }));
-
-          // If only server name provided, attempt to resolve to an id
-          if (!targetServerId && targetServerName) {
-            const match = (externalServers || servers).find((s: any) => String(s.name || "").toLowerCase() === String(targetServerName || "").toLowerCase());
-            if (match) {
-              setForms((prev) => ({ ...prev, [genService]: { ...prev[genService], targetServerId: match._id || match.id || prev[genService].targetServerId } }));
-            }
-          }
-        }
-      } catch (e) {
-        // ignore
-      }
     }
   }, [open, fetchServers, fetchApprovedPOI, preSelectContribution]);
 
@@ -947,6 +968,17 @@ export function CreateGeneration({ open, onClose, preSelectContribution, servers
       setActiveService(orderedSelected[0].key);
     }
   }, [activeService, selected]);
+
+  useEffect(() => {
+    if (!open || loadingServers || selected.size === 0) return;
+
+    const { genServices, targetServerId, targetServerName } = getGenerationPrefillParams();
+    if (!genServices.length || targetServerId || !targetServerName) return;
+
+    genServices.forEach((service) => {
+      if (selected.has(service)) applyGenerationPrefillForService(service);
+    });
+  }, [open, loadingServers, selected, getGenerationPrefillParams, applyGenerationPrefillForService]);
 
   // Fetch server paths when targetServerId changes
   useEffect(() => {
@@ -1114,13 +1146,18 @@ export function CreateGeneration({ open, onClose, preSelectContribution, servers
   ]);
 
   const toggleService = (svc: GenerationService) => {
+    const shouldApplyPrefill = !selected.has(svc);
     setActiveService(svc);
     setSelected((prev) => {
       const next = new Set(prev);
-      if (next.has(svc)) next.delete(svc);
-      else next.add(svc);
+      if (next.has(svc)) {
+        next.delete(svc);
+      } else {
+        next.add(svc);
+      }
       return next;
     });
+    if (shouldApplyPrefill) applyGenerationPrefillForService(svc);
   };
 
   const updateForm = (svc: GenerationService, patch: Partial<ServiceFormState>) => {

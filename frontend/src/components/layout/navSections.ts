@@ -39,10 +39,10 @@ export const navSections: NavSection[] = [
   {
     label: "Data Pipeline",
     icon: Database,
-    path: "/pipeline/download",
+    path: "/pipeline/download?setupDownload=true",
     permission: "data-pipeline",
     children: [
-      { label: "Download", path: "/pipeline/download" },
+      { label: "Download", path: "/pipeline/download?setupDownload=true" },
       { label: "Generation", path: "/pipeline" },
       { label: "Preview Generation", path: "/pipeline/preview" },
       { label: "Generation Logs", path: "/pipeline/log" },
