@@ -4,6 +4,7 @@ import mockSearchTilesLog from "@/utils/st_z60j63_mpqprzhh.log.txt";
 import osmJson from "@/utils/osm.json";
 import {
   ArrowRight,
+  ChevronDown,
   ChevronRight,
   Folder,
   Home,
@@ -35,9 +36,11 @@ import { resolveSelectedPipelineVersion, storeSelectedPipelineVersion } from "./
 type WorkflowKey = "searchTiles" | "routing";
 type JobStatus = "queued" | "running" | "completed" | "failed";
 type DownloadSetupStep = "version" | "server";
+type DownloadSetupMode = "download" | "generation";
 
 type DownloadSetupState = {
   open: boolean;
+  mode: DownloadSetupMode;
   step: DownloadSetupStep;
   versions: string[];
   loadingVersions: boolean;
@@ -117,18 +120,29 @@ type SummaryCardSelection = {
   status: SummaryStatusKey;
 };
 
+type ProceedNoticeAction = "setupDownload" | "generation";
+
 type ProceedNotice =
   | {
       type: "failed";
       failedFiles: string[];
+      action?: ProceedNoticeAction;
     }
   | {
       type: "running";
       serviceName?: string;
       runId?: string;
+      action?: ProceedNoticeAction;
     }
   | {
       type: "missing";
+      action?: ProceedNoticeAction;
+    }
+  | {
+      type: "current";
+      statusLabel: string;
+      serviceName?: string;
+      action?: ProceedNoticeAction;
     };
 
 type ProceedDownloadStatus = PersistedWorkflowEntry & {
@@ -275,6 +289,7 @@ const buildCreateGenerationUrl = (
 
 const emptyDownloadSetup = (): DownloadSetupState => ({
   open: false,
+  mode: "download",
   step: "version",
   versions: [],
   loadingVersions: false,
@@ -660,6 +675,8 @@ const resolvePathAgainstExpectedSet = (path: string, expectedPaths: Set<string>)
 const sortPathsByFileKey = (paths: Iterable<string>) =>
   Array.from(new Set(paths)).sort((left, right) => pathToFileKey(left).localeCompare(pathToFileKey(right)));
 
+const buildStatusRegionCollapseKey = (workflow: WorkflowKey, status: SummaryStatusKey, region: string) => `${workflow}:${status}:${region}`;
+
 const groupPathsByRegion = (paths: string[]) => {
   const grouped = paths.reduce<Record<string, string[]>>((accumulator, path) => {
     const region = pathToRegionKey(path);
@@ -1001,8 +1018,11 @@ export default function Download() {
   const [proceedNotice, setProceedNotice] = useState<ProceedNotice | null>(null);
   const [selectedSummaryCard, setSelectedSummaryCard] = useState<SummaryCardSelection | null>(null);
   const [selectedSummaryPage, setSelectedSummaryPage] = useState(1);
+  const [statusDetailSearch, setStatusDetailSearch] = useState("");
+  const [collapsedStatusRegions, setCollapsedStatusRegions] = useState<Record<string, boolean>>({});
   const [currentVersion, setCurrentVersion] = useState("");
   const [downloadSetup, setDownloadSetup] = useState<DownloadSetupState>(() => emptyDownloadSetup());
+  const [generationSetupReady, setGenerationSetupReady] = useState(false);
   const [storedSummaries, setStoredSummaries] = useState<Record<WorkflowKey, WorkflowSummary | null>>({ searchTiles: null, routing: null });
   const [autoPollEnabled, setAutoPollEnabled] = useState<Record<WorkflowKey, boolean>>({ searchTiles: false, routing: false });
   const persistSignatureRef = useRef<Record<WorkflowKey, string>>({ searchTiles: "", routing: "" });
@@ -1343,6 +1363,7 @@ export default function Download() {
     const nextServerId = String(serverId || "");
     const selectedRequestKey = `${nextServerId}:${Date.now()}`;
     serverSelectionRequestRef.current[workflow] = selectedRequestKey;
+    setGenerationSetupReady(false);
 
     setForms((current) => {
       const isChangingServer = current[workflow].targetServerId !== nextServerId;
@@ -1397,12 +1418,13 @@ export default function Download() {
     }
   };
 
-  const openDownloadSetup = useCallback(async (preferredVersion = "") => {
+  const openDownloadSetup = useCallback(async (preferredVersion = "", mode: DownloadSetupMode = "download") => {
     setDownloadSetup({
       ...emptyDownloadSetup(),
       open: true,
+      mode,
       loadingVersions: true,
-      selectedVersion: preferredVersion || currentVersion || "",
+      selectedVersion: preferredVersion,
     });
 
     try {
@@ -1412,14 +1434,14 @@ export default function Download() {
         ...current,
         versions,
         loadingVersions: false,
-        selectedVersion: current.selectedVersion || versions[versions.length - 1] || "",
+        selectedVersion: current.selectedVersion,
       }));
     } catch (error) {
       console.error("Failed to load pipeline versions:", error);
       setDownloadSetup((current) => ({ ...current, loadingVersions: false }));
       toast.error("Failed to load pipeline versions.");
     }
-  }, [currentVersion]);
+  }, []);
 
   const closeDownloadSetup = () => {
     setDownloadSetup((current) => ({ ...current, open: false }));
@@ -1429,6 +1451,7 @@ export default function Download() {
     setDownloadSetup((current) => ({ ...current, selectedVersion: version }));
     const storedVersion = storeSelectedPipelineVersion(version);
     if (storedVersion) setCurrentVersion(storedVersion);
+    setGenerationSetupReady(false);
   };
 
   const createDownloadSetupVersion = async () => {
@@ -1490,12 +1513,14 @@ export default function Download() {
       }
       const version = storeSelectedPipelineVersion(downloadSetup.selectedVersion);
       setCurrentVersion(version);
+
       await Promise.all(
         (["searchTiles", "routing"] as WorkflowKey[]).map((workflow) =>
           handleServerSelection(workflow, downloadSetup.selectedServerId, version),
         ),
       );
       toast.success("Download config loaded for Search & Tiles and Routing.");
+      setGenerationSetupReady(true);
       setDownloadSetup((current) => ({ ...current, open: false }));
       setSearchParams({}, { replace: true });
     }
@@ -1753,6 +1778,62 @@ export default function Download() {
     }
   };
 
+  const showDownloadStatusBeforeSetup = async () => {
+    try {
+      const version = getSelectedDownloadVersion(currentVersion);
+      if (!version) {
+        toast.error("Select a pipeline version.");
+        return;
+      }
+
+      const response = await api.get("/admin-dashboard/download-status", { params: { version } });
+      const entries = normalizeDownloadStatusEntries(response.data) as ProceedDownloadStatus[];
+      const latestStatusEntry = entries[0] ?? null;
+      const searchTilesStatus = getSearchTilesStatusEntry(entries);
+      const apiSummary = searchTilesStatus?.summary as WorkflowSummary | undefined;
+      const hydratedJob = searchTilesStatus ? buildHydratedJob(searchTilesStatus, "searchTiles") : null;
+      const statusValue = latestStatusEntry
+        ? getProceedStatusValue(latestStatusEntry)
+        : String(apiSummary?.validatedStatus || hydratedJob?.status || "").trim().toLowerCase();
+
+      if (searchTilesStatus) {
+        setJobs((current) => ({ ...current, searchTiles: hydratedJob ?? current.searchTiles }));
+        if (apiSummary) setStoredSummaries((current) => ({ ...current, searchTiles: apiSummary }));
+      }
+
+      if (!latestStatusEntry && (!searchTilesStatus || !statusValue)) {
+        setProceedNotice({ type: "missing", action: "setupDownload" });
+        return;
+      }
+
+      if (["running", "processing", "in_progress", "started", "queued", "pending"].includes(statusValue)) {
+        setProceedNotice({
+          type: "running",
+          serviceName: getProceedStatusServiceName(latestStatusEntry) || hydratedJob?.serverName,
+          runId: getProceedStatusRunId(latestStatusEntry) || hydratedJob?.runId,
+          action: "setupDownload",
+        });
+        return;
+      }
+
+      if (statusValue === "failed") {
+        const failedFiles = apiSummary?.statusFiles?.failed ?? searchTilesSummary.statusFiles.failed;
+        setProceedNotice({ type: "failed", failedFiles, action: "setupDownload" });
+        return;
+      }
+
+      setProceedNotice({
+        type: "current",
+        statusLabel: statusValue || "unknown",
+        serviceName: getProceedStatusServiceName(latestStatusEntry) || hydratedJob?.serverName,
+        action: "setupDownload",
+      });
+    } catch (error) {
+      console.error("Failed to check download status", error);
+      toast.error("Unable to check download status. Please try again.");
+    }
+  };
+
   const handleProceedToGeneration = async () => {
     try {
       const version = getSelectedDownloadVersion(currentVersion);
@@ -1862,6 +1943,20 @@ export default function Download() {
     }
   };
 
+  const handleProceedButtonClick = async () => {
+    if (!generationSetupReady) {
+      await showDownloadStatusBeforeSetup();
+      return;
+    }
+
+    const version = getSelectedDownloadVersion(currentVersion);
+    const serverId = forms.searchTiles.targetServerId || forms.routing.targetServerId || "";
+    const server = serverId ? getServer(serverId) : undefined;
+    const serverName = server?.name ? String(server.name) : undefined;
+    storeSelectedPipelineVersion(version);
+    navigate(buildCreateGenerationUrl(version, true, "search", serverId || undefined, serverName));
+  };
+
   useEffect(() => {
     if (searchParams.get("proceedToGeneration") !== "true") return;
 
@@ -1888,7 +1983,7 @@ export default function Download() {
               </Badge>
             ) : null}
             <Button
-              onClick={() => void handleProceedToGeneration()}
+              onClick={() => void handleProceedButtonClick()}
               className="bg-primary hover:bg-primary/90 text-primary-foreground font-semibold flex items-center gap-2"
             >
               Proceed to Generation <ArrowRight className="w-4 h-4" />
@@ -2106,7 +2201,24 @@ export default function Download() {
               )}
               {latestJob && selectedSummaryCard?.workflow === workflow ? (
                 (() => {
-                  const groupedFiles = groupPathsByRegion(summary.statusFiles[selectedSummaryCard.status]);
+                  const statusFiles = summary.statusFiles[selectedSummaryCard.status];
+                  const normalizedStatusSearch = statusDetailSearch.trim().toLowerCase();
+                  const groupedFiles = groupPathsByRegion(statusFiles)
+                    .map((group) => {
+                      if (!normalizedStatusSearch) return group;
+
+                      const regionMatches = group.region.toLowerCase().includes(normalizedStatusSearch);
+                      const matchingPaths = regionMatches
+                        ? group.paths
+                        : group.paths.filter((path) => {
+                            const fileName = pathToFileKey(path);
+                            return fileName.toLowerCase().includes(normalizedStatusSearch) || path.toLowerCase().includes(normalizedStatusSearch);
+                          });
+
+                      return { ...group, paths: matchingPaths };
+                    })
+                    .filter((group) => group.paths.length > 0);
+                  const filteredFileCount = groupedFiles.reduce((total, group) => total + group.paths.length, 0);
                   const totalPages = Math.max(1, Math.ceil(groupedFiles.length / STATUS_DETAIL_REGIONS_PER_PAGE));
                   const currentPage = Math.min(selectedSummaryPage, totalPages);
                   const pageStart = (currentPage - 1) * STATUS_DETAIL_REGIONS_PER_PAGE;
@@ -2120,44 +2232,93 @@ export default function Download() {
                           <p className="text-xs text-muted-foreground">Grouped by region with paginated results.</p>
                         </div>
                         <div className="flex flex-wrap items-center gap-2">
-                          <Badge variant="outline">Files: {summary.statusFiles[selectedSummaryCard.status].length}</Badge>
+                          <Badge variant="outline">
+                            Files: {filteredFileCount}/{statusFiles.length}
+                          </Badge>
                           <Badge variant="outline">Regions: {groupedFiles.length}</Badge>
                         </div>
+                      </div>
+                      <div className="relative mt-3">
+                        <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                        <Input
+                          value={statusDetailSearch}
+                          onChange={(event) => {
+                            setStatusDetailSearch(event.target.value);
+                            setSelectedSummaryPage(1);
+                          }}
+                          placeholder="Search region, file, or path"
+                          className="pl-9"
+                        />
                       </div>
                       <div className="mt-3 overflow-hidden rounded-xl border border-border/60 bg-background">
                         <ScrollArea className="h-[32rem]">
                           {visibleGroups.length > 0 ? (
-                            <div className="divide-y divide-border/50">
-                              {visibleGroups.map((group) => (
-                                <div key={`${selectedSummaryCard.status}-${group.region}`} className="p-4">
-                                  <div className="mb-3 flex items-center justify-between gap-3">
-                                    <div>
-                                      <p className="font-medium">{group.region}</p>
-                                      <p className="text-xs text-muted-foreground">{group.paths.length} files</p>
+                            <div className="space-y-3 p-3">
+                              {visibleGroups.map((group) => {
+                                const collapseKey = buildStatusRegionCollapseKey(workflow, selectedSummaryCard.status, group.region);
+                                const isRegionCollapsed = collapsedStatusRegions[collapseKey] ?? false;
+
+                                return (
+                                  <div key={`${selectedSummaryCard.status}-${group.region}`} className="rounded-lg border border-border/60 bg-card/70">
+                                    <div className="flex items-center justify-between gap-3 border-b border-border/50 px-4 py-3">
+                                      <div className="flex min-w-0 items-center gap-3">
+                                        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-primary/10 text-primary">
+                                          <Folder className="h-4 w-4" />
+                                        </span>
+                                        <div className="min-w-0">
+                                          <p className="truncate font-medium capitalize">{group.region}</p>
+                                          <p className="text-xs text-muted-foreground">Region folder</p>
+                                        </div>
+                                      </div>
+                                      <div className="flex shrink-0 items-center gap-2">
+                                        <Badge variant="secondary">{group.paths.length}</Badge>
+                                        <Button
+                                          type="button"
+                                          variant="ghost"
+                                          size="sm"
+                                          onClick={() =>
+                                            setCollapsedStatusRegions((current) => ({
+                                              ...current,
+                                              [collapseKey]: !isRegionCollapsed,
+                                            }))
+                                          }
+                                          aria-expanded={!isRegionCollapsed}
+                                          aria-label={`${isRegionCollapsed ? "Open" : "Close"} ${group.region} region`}
+                                          className="h-8 px-2"
+                                        >
+                                          {isRegionCollapsed ? <ChevronRight className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+                                          <span className="ml-1 text-xs">{isRegionCollapsed ? "Open" : "Close"}</span>
+                                        </Button>
+                                      </div>
                                     </div>
-                                    <Badge variant="secondary">{group.paths.length}</Badge>
+                                    {!isRegionCollapsed ? (
+                                      <div className="px-4 py-3">
+                                        <div className="relative ml-4 space-y-2 border-l border-border/70">
+                                          {group.paths.map((path) => (
+                                            <div key={`${group.region}-${path}`} className="relative pl-6">
+                                              <span className="absolute left-0 top-4 h-px w-4 -translate-x-px bg-border/70" />
+                                              <div className="rounded-md border border-border/50 bg-background px-3 py-2">
+                                                <div className="flex min-w-0 items-center gap-2">
+                                                  <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground" />
+                                                  <p className="min-w-0 truncate text-sm font-medium">{pathToFileKey(path)}</p>
+                                                </div>
+                                                <p className="mt-1 break-all pl-6 font-mono text-xs text-muted-foreground">{path}</p>
+                                              </div>
+                                            </div>
+                                          ))}
+                                        </div>
+                                      </div>
+                                    ) : (
+                                      <div className="px-4 py-3 text-xs text-muted-foreground">{group.paths.length} files hidden in this region.</div>
+                                    )}
                                   </div>
-                                  <table className="w-full text-left text-sm">
-                                    <thead>
-                                      <tr className="border-b border-border/60">
-                                        <th className="px-4 py-3 font-medium text-muted-foreground">File</th>
-                                        <th className="px-4 py-3 font-medium text-muted-foreground">Path</th>
-                                      </tr>
-                                    </thead>
-                                    <tbody>
-                                      {group.paths.map((path) => (
-                                        <tr key={`${group.region}-${path}`} className="border-b border-border/40 last:border-b-0">
-                                          <td className="px-4 py-3 align-top font-medium">{pathToFileKey(path)}</td>
-                                          <td className="px-4 py-3 align-top font-mono text-xs text-muted-foreground">{path}</td>
-                                        </tr>
-                                      ))}
-                                    </tbody>
-                                  </table>
-                                </div>
-                              ))}
+                                );
+                              })}
                             </div>
                           ) : (
-                            <div className="px-4 py-6 text-center text-sm text-muted-foreground">No files in this state.</div>
+                            <div className="px-4 py-6 text-center text-sm text-muted-foreground">
+                              {normalizedStatusSearch ? "No files match your search." : "No files in this state."}
+                            </div>
                           )}
                         </ScrollArea>
                       </div>
@@ -2287,12 +2448,16 @@ export default function Download() {
                 <h2 className="text-base font-semibold text-foreground">
                   {downloadSetup.step === "version"
                     ? "Select pipeline version"
-                    : "Select download server"}
+                    : downloadSetup.mode === "generation"
+                      ? "Select generation server"
+                      : "Select download server"}
                 </h2>
                 <p className="mt-1 text-xs text-muted-foreground">
                   {downloadSetup.step === "version"
-                    ? "Choose the config version for this download."
-                    : "Choose the target server. Both download forms will be configured from this server."}
+                    ? `Choose the config version for this ${downloadSetup.mode === "generation" ? "generation" : "download"}.`
+                    : downloadSetup.mode === "generation"
+                      ? "Choose the target server. Create Generation will load this server configuration automatically."
+                      : "Choose the target server. Both download forms will be configured from this server."}
                 </p>
               </div>
               <button
@@ -2407,7 +2572,9 @@ export default function Download() {
                 disabled={downloadSetup.loadingVersions || downloadSetup.creatingVersion || (downloadSetup.step === "version" && downloadSetup.addingVersion) || loadingServers}
               >
                 {downloadSetup.loadingVersions ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-                {downloadSetup.step === "server" ? "Open Download" : "Next"}
+                {downloadSetup.step === "server"
+                  ? downloadSetup.mode === "generation" ? "Open Generation" : "Open Download"
+                  : "Next"}
               </Button>
             </div>
           </div>
@@ -2432,13 +2599,23 @@ export default function Download() {
                     ? "Download validation failed"
                     : proceedNotice.type === "running"
                     ? "Still downloading the files"
+                    : proceedNotice.type === "current" || proceedNotice.action === "setupDownload"
+                    ? "Current download status"
                     : "There is no failed download"}
                 </h3>
                 <p className="mt-1 text-sm text-muted-foreground">
                   {proceedNotice.type === "failed"
-                    ? "Some files failed validation. Review the files before moving to Generation."
+                    ? proceedNotice.action === "setupDownload"
+                      ? "Some files failed validation. Click OK to select the version and server before preparing Generation."
+                      : "Some files failed validation. Review the files before moving to Generation."
                     : proceedNotice.type === "running"
-                    ? `The current run on ${proceedNotice.serviceName || "the download service"} is still running. Click OK to continue to Generation, or Cancel to stay on this page.`
+                    ? proceedNotice.action === "setupDownload"
+                      ? `The current run on ${proceedNotice.serviceName || "the download service"} is still running. Click OK to select the version and server, or Cancel to stay on this page.`
+                      : `The current run on ${proceedNotice.serviceName || "the download service"} is still running. Click OK to continue to Generation, or Cancel to stay on this page.`
+                    : proceedNotice.type === "current"
+                    ? `Current status is ${proceedNotice.statusLabel}. Click OK to select the version and server, or Cancel to stay on this page.`
+                    : proceedNotice.action === "setupDownload"
+                    ? "No download record found for this version. Click OK to select the version and server, or Cancel to stay on this page."
                     : "No download record found for this version. Click OK to proceed to Generation, or Cancel to stay on this page."
                   }
                 </p>
@@ -2473,6 +2650,10 @@ export default function Download() {
                   const version = getSelectedDownloadVersion(currentVersion);
                   storeSelectedPipelineVersion(version);
                   setProceedNotice(null);
+                  if (proceedNotice.action === "setupDownload") {
+                    await openDownloadSetup(version, "download");
+                    return;
+                  }
                   try {
                     const response = await api.get("/admin-dashboard/download-status", { params: { version } });
                     const entries = normalizeDownloadStatusEntries(response.data);

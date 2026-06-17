@@ -20,6 +20,7 @@ const SEARCH_TILE_SUCCESS_LOG_PATTERN = /Processing complete|All files processed
 const ROUTING_SUCCESS_LOG_PATTERN = /Routing tiles created at|All countries have been processed successfully/i;
 const ROUTING_SERVICE_NAMES = new Set(['routing', 'route']);
 const SEARCH_TILE_SERVICE_NAMES = new Set(['search', 'tile', 'tiles']);
+const MOVE_PACK_STEP_SERVICES = new Set(['move', 'clean', 'verify', 'pack']);
 
 function cleanString(value) {
     return typeof value === 'string' ? value.trim() : '';
@@ -29,6 +30,10 @@ function isValidServiceName(svc) {
     if (!svc || typeof svc !== 'string') return false;
     const validServices = ['search', 'tile', 'tiles', 'routing'];
     return validServices.includes(svc.toLowerCase());
+}
+
+function isMovePackStepService(svc) {
+    return MOVE_PACK_STEP_SERVICES.has(cleanString(svc).toLowerCase());
 }
 
 function extractRootStepFields(doc) {
@@ -526,7 +531,7 @@ async function persistGenerationServiceLog(payload, lines, offset, status, logSt
     if (!runId || !service) return null;
 
     const isBaseService = isValidServiceName(service);
-    const isMoveAndPack = ['move', 'clean', 'verify', 'pack'].includes(service.toLowerCase());
+    const isMoveAndPack = isMovePackStepService(service);
 
     if (!isBaseService && !isMoveAndPack) {
         logger.warn('persistGenerationServiceLog: skipping invalid service name.', { runId, service });
@@ -573,17 +578,6 @@ async function persistGenerationServiceLog(payload, lines, offset, status, logSt
         if (targetServer) updateObj[`${service}TargetServer`] = targetServer;
     }
 
-    let doc = null;
-    if (isMoveAndPack) {
-        doc = await DataPipelineRun.findByRunId(runId);
-        if (!doc) {
-            doc = await DataPipelineTransfers.findByRunId(runId);
-        }
-        if (doc) {
-            selfHealRunDocument(doc).catch(() => {});
-        }
-    }
-
     const updateOps = {
         $set: updateObj,
         $setOnInsert: {
@@ -595,6 +589,22 @@ async function persistGenerationServiceLog(payload, lines, offset, status, logSt
         updateOps.$addToSet = {
             servicesList: service,
         };
+    }
+
+    if (isMoveAndPack) {
+        const savedRaw = await DataPipelineTransfers.collection.findOneAndUpdate(
+            { runId },
+            {
+                ...updateOps,
+                $setOnInsert: {
+                    ...updateOps.$setOnInsert,
+                    transfers: {},
+                },
+            },
+            { upsert: true, returnDocument: 'after' }
+        );
+
+        return DataPipelineTransfers.toResponse(savedRaw && savedRaw.value ? savedRaw.value : savedRaw);
     }
 
     const savedRaw = await DataPipelineRun.collection.findOneAndUpdate(
@@ -844,7 +854,7 @@ function buildGenerationServiceMonitorPayloads(payload) {
 
     // Single payload mode: verify root service is valid before building
     const isBase = isValidServiceName(payload.service);
-    const isStep = payload.service && ['move', 'clean', 'verify', 'pack'].includes(payload.service.toLowerCase());
+                const isStep = isMovePackStepService(payload.service);
     if (payload.service && !isBase && !isStep) {
         return [];
     }
@@ -2049,9 +2059,6 @@ class DataPipelineController {
                 return ApiResponse.error(res, 404, `Pipeline run with runId "${runId}" not found in either collection.`);
             }
 
-            // Trigger self-healing in background if document contains corrupt keys
-            selfHealRunDocument(doc).catch(() => {});
-
             // Ensure services object exists and sanitize
             const { services: sanitizedServices, servicesList: sanitizedServicesList } = sanitizeRunServices(doc);
             doc.services = sanitizedServices;
@@ -2062,9 +2069,9 @@ class DataPipelineController {
             if (service && status) {
                 // Single service update
                 const isBase = isValidServiceName(service);
-                const isStep = ['move', 'clean', 'verify', 'pack'].includes(service.toLowerCase());
+                const isStep = isMovePackStepService(service);
                 if (isBase || isStep) {
-                    statusUpdates.push({ service, status, ...payload });
+                    statusUpdates.push({ ...payload, service: cleanString(service).toLowerCase(), status });
                 } else {
                     return ApiResponse.error(res, 400, `invalid service name "${service}".`);
                 }
@@ -2073,9 +2080,9 @@ class DataPipelineController {
                 for (const entry of statuses) {
                     const svc = entry?.service;
                     const isBase = isValidServiceName(svc);
-                    const isStep = svc && ['move', 'clean', 'verify', 'pack'].includes(svc.toLowerCase());
+                    const isStep = isMovePackStepService(svc);
                     if (isBase || isStep) {
-                        statusUpdates.push(entry);
+                        statusUpdates.push({ ...entry, service: cleanString(svc).toLowerCase() });
                     } else {
                         return ApiResponse.error(res, 400, `invalid service name "${svc || 'unknown'}".`);
                     }
@@ -2090,14 +2097,14 @@ class DataPipelineController {
 
             // Process each status update
             for (const statusUpdate of statusUpdates) {
-                const svc = statusUpdate.service;
+                const svc = cleanString(statusUpdate.service).toLowerCase();
 
                 if (!svc) {
                     return ApiResponse.error(res, 400, 'Each status update must have a service field.');
                 }
 
                 const isBase = isValidServiceName(svc);
-                const isStep = ['move', 'clean', 'verify', 'pack'].includes(svc.toLowerCase());
+                const isStep = isMovePackStepService(svc);
 
                 if (isBase) {
                     // Ensure service exists in services object
@@ -2155,6 +2162,50 @@ class DataPipelineController {
                 }
             };
             setNestedInUpdate(updateObj);
+
+            const stepFieldPattern = /^(move|clean|verify|pack)(Status|RestartedAt|CompletedAt|FailedAt|Duration)$/;
+            const hasStepStatusUpdates = statusUpdates.some((entry) => isMovePackStepService(entry.service));
+            const hasBaseStatusUpdates = statusUpdates.some((entry) => isValidServiceName(entry.service));
+            let savedStepResponse = null;
+
+            if (hasBaseStatusUpdates) {
+                // Keep run-document cleanup tied to services that are actually stored there.
+                selfHealRunDocument(doc).catch(() => {});
+            }
+
+            if (hasStepStatusUpdates) {
+                const transferFlatUpdate = {};
+                for (const [key, value] of Object.entries(flatUpdate)) {
+                    if (key === 'updatedAt' || stepFieldPattern.test(key)) {
+                        transferFlatUpdate[key] = value;
+                    }
+                }
+
+                const savedTransferRaw = await DataPipelineTransfers.collection.findOneAndUpdate(
+                    { runId },
+                    {
+                        $set: transferFlatUpdate,
+                        $setOnInsert: {
+                            runId,
+                            transfers: {},
+                            createdAt: new Date().toISOString(),
+                        },
+                    },
+                    { upsert: true, returnDocument: 'after' }
+                );
+                const savedTransferDoc = savedTransferRaw && savedTransferRaw.value !== undefined ? savedTransferRaw.value : savedTransferRaw;
+                savedStepResponse = DataPipelineTransfers.toResponse(savedTransferDoc);
+
+                for (const key of Object.keys(flatUpdate)) {
+                    if (stepFieldPattern.test(key)) {
+                        delete flatUpdate[key];
+                    }
+                }
+            }
+
+            if (!hasBaseStatusUpdates) {
+                return ApiResponse.success(res, 200, 'Service status updated.', savedStepResponse);
+            }
 
             // Update document in the collection where it was found
             const targetCollection = useTransfersCollection ? DataPipelineTransfers : DataPipelineRun;
@@ -2234,7 +2285,7 @@ class DataPipelineController {
                     for (const statusUpdate of statusUpdates) {
                         const svc = cleanString(statusUpdate.service);
                         const terminalStatus = normalizeGenerationTerminalStatus(statusUpdate.status);
-                        if (svc && terminalStatus) {
+                        if (svc && terminalStatus && !isMovePackStepService(svc)) {
                             await triggerGenerationStatusMailOnce(runDocForMail, terminalStatus, svc);
                         }
                     }

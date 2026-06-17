@@ -2950,12 +2950,11 @@ export default function DataPipeline() {
               onClick={() => {
                 const params = new URLSearchParams();
                 params.set("setupDownload", "true");
-                if (currentVersion) params.set("version", currentVersion);
                 navigate(`/pipeline/download?${params.toString()}`);
               }}
               className="flex items-center gap-2 bg-primary text-primary-foreground px-4 py-2 rounded-lg text-sm font-medium hover:bg-primary/90 transition-colors"
             >
-              <Plus className="w-4 h-4" />Create Generation
+              <ArrowRight className="w-4 h-4" />Proceed Download
             </button>
           </div>
         </div>
