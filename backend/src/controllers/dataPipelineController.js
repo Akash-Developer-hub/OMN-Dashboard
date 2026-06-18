@@ -278,17 +278,21 @@ function getGenerationStatusFromLines(service, lines, { errorConfirmed = true } 
         return lines.some((line) => String(line || '').includes("Packup completed")) ? 'success' : 'running';
     }
 
-    const hasError = errorConfirmed && hasGenerationFailureLogLine(lines);
-
-    if (hasError) return 'failed';
-
     if (isRoutingGenerationService(serviceName)) {
-        return lines.some((line) => ROUTING_SUCCESS_LOG_PATTERN.test(String(line || ''))) ? 'success' : 'running';
+        if (lines.some((line) => ROUTING_SUCCESS_LOG_PATTERN.test(String(line || '')))) {
+            return 'success';
+        }
     }
 
     if (isSearchTileGenerationService(serviceName)) {
-        return lines.some((line) => SEARCH_TILE_SUCCESS_LOG_PATTERN.test(String(line || ''))) ? 'success' : 'running';
+        if (lines.some((line) => SEARCH_TILE_SUCCESS_LOG_PATTERN.test(String(line || '')))) {
+            return 'success';
+        }
     }
+
+    const hasError = errorConfirmed && hasGenerationFailureLogLine(lines);
+
+    if (hasError) return 'failed';
 
     return 'running';
 }
@@ -733,7 +737,7 @@ async function fetchAndPersistGenerationRunLogs(payload) {
 function startGenerationLogMonitor(payload) {
     const runId = cleanString(payload.runId || payload.job?.runId);
     const service = cleanString(payload.service);
-    const monitorKey = [runId, service].join(':');
+    const monitorKey = [runId, service, payload.sId].filter(Boolean).join(':');
 
     if (!runId || !service) return { error: 'runId and service are required to monitor generation logs.' };
 

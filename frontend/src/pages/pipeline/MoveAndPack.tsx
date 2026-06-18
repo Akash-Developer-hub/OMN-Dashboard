@@ -14,6 +14,8 @@ import {
   Server,
   ArrowRight,
   Check,
+  FolderOpen,
+  Copy,
 } from "lucide-react";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
@@ -32,8 +34,10 @@ const MOVE_DATA_WEBHOOK = "https://sandbox.vmmaps.com/n8n/webhook/omn/move-data"
 const CLEAN_DATA_WEBHOOK = "https://sandbox.vmmaps.com/n8n/webhook/omn/clean-data";
 const VERIFY_DATA_WEBHOOK = "https://sandbox.vmmaps.com/n8n/webhook/omn/verify-data";
 const PACK_DATA_WEBHOOK = "https://sandbox.vmmaps.com/n8n/webhook/omn/packOffline";
+const CREATE_HIERARCHY_WEBHOOK = "https://sandbox.vmmaps.com/n8n/webhook/omn/create-heirachy";
+const COPY_DATA_WEBHOOK = "https://sandbox.vmmaps.com/n8n/webhook/omn/copy-data";
 
-type StepKey = "move" | "clean" | "verify" | "pack";
+type StepKey = "move" | "copy" | "clean" | "verify" | "pack";
 type StepStatus = "idle" | "running" | "completed" | "failed";
 
 type StepInfo = {
@@ -74,6 +78,15 @@ const stepsConfig: StepInfo[] = [
     webhookUrl: MOVE_DATA_WEBHOOK,
     successKeywords: ["All folders copied successfully"],
     failureKeywords: ["failed", "error", "Connection timed out", "permission denied"],
+  },
+  {
+    key: "copy",
+    label: "Copy Data",
+    description: "Copy generated files to backup server",
+    icon: Copy,
+    webhookUrl: COPY_DATA_WEBHOOK,
+    successKeywords: ["all data copied"],
+    failureKeywords: ["failed", "error", "permission denied"],
   },
   {
     key: "clean",
@@ -182,12 +195,14 @@ export default function MoveAndPack() {
   const [activeStep, setActiveStep] = useState<StepKey>("move");
   const [stepStatuses, setStepStatuses] = useState<Record<StepKey, StepStatus>>({
     move: "idle",
+    copy: "idle",
     clean: "idle",
     verify: "idle",
     pack: "idle",
   });
   const [terminalLogs, setTerminalLogs] = useState<Record<StepKey, string>>({
     move: "",
+    copy: "",
     clean: "",
     verify: "",
     pack: "",
@@ -202,6 +217,8 @@ export default function MoveAndPack() {
   const [selectedTargetServerId, setSelectedTargetServerId] = useState("");
   const [isTargetServerModalOpen, setIsTargetServerModalOpen] = useState(false);
   const [hasSelectedTargetServer, setHasSelectedTargetServer] = useState(false);
+  const [createHierarchy, setCreateHierarchy] = useState(false);
+  const [hierarchyPath, setHierarchyPath] = useState("");
   const [isMoveModalOpen, setIsMoveModalOpen] = useState(false);
   const [movePackConfigs, setMovePackConfigs] = useState<Record<string, any>>({});
 
@@ -281,6 +298,14 @@ export default function MoveAndPack() {
     const configList = getMovePackConfigListForServer(serverIdOrName);
     if (Array.isArray(configList) && configList.length > 0) {
       return configList[0].moveTargetPath || "";
+    }
+    return "";
+  }, [getMovePackConfigListForServer]);
+
+  const getCommonScriptPathForServer = useCallback((serverIdOrName: string) => {
+    const configList = getMovePackConfigListForServer(serverIdOrName);
+    if (Array.isArray(configList) && configList.length > 0) {
+      return configList[0].commonScriptPath || "";
     }
     return "";
   }, [getMovePackConfigListForServer]);
@@ -463,18 +488,24 @@ export default function MoveAndPack() {
 
     try {
       // Trigger Webhook for this single service
-      const bodyPayload = [{
-        sourceServer: param.sourceServer,
-        fromServer: param.fromServer,
-        targetServer: param.targetServer,
-        toServer: param.toServer,
-        moveSourcePath: param.moveSourcePath,
-        moveTargetPath: param.moveTargetPath,
-        logPath: stepLogPath,
-        sId: stepSId,
-        runId,
-        version: currentVersion,
-      }];
+      const bodyPayload = {
+        [serviceName]: [
+          {
+            sourceServer: param.sourceServer,
+            fromServer: param.fromServer,
+            targetServer: param.targetServer,
+            toServer: param.toServer,
+            moveSourcePath: param.moveSourcePath,
+            moveTargetPath: param.moveTargetPath,
+            logPath: stepLogPath,
+            sId: stepSId,
+            runId,
+            version: currentVersion,
+            createHierarchy,
+            hierarchyPath: createHierarchy ? hierarchyPath : undefined,
+          },
+        ],
+      };
 
       const stepInfo = stepsConfig.find((s) => s.key === "move")!;
       const response = await fetch(stepInfo.webhookUrl, {
@@ -598,12 +629,14 @@ export default function MoveAndPack() {
       if (recentRun) {
         const nextStatuses: Record<StepKey, StepStatus> = {
           move: "idle",
+          copy: "idle",
           clean: "idle",
           verify: "idle",
           pack: "idle",
         };
         const nextLogs: Record<StepKey, string> = {
           move: "",
+          copy: "",
           clean: "",
           verify: "",
           pack: "",
@@ -686,12 +719,14 @@ export default function MoveAndPack() {
       } else {
         setStepStatuses({
           move: "idle",
+          copy: "idle",
           clean: "idle",
           verify: "idle",
           pack: "idle",
         });
         setTerminalLogs({
           move: "",
+          copy: "",
           clean: "",
           verify: "",
           pack: "",
@@ -811,18 +846,29 @@ export default function MoveAndPack() {
       let bodyPayload: any;
 
       if (key === "move" && moveParamsArray) {
-        bodyPayload = moveParamsArray.map((param) => ({
-          sourceServer: param.sourceServer,
-          fromServer: param.fromServer,
-          targetServer: param.targetServer,
-          toServer: param.toServer,
-          moveSourcePath: param.moveSourcePath,
-          moveTargetPath: param.moveTargetPath,
-          logPath: stepLogPath,
-          sId: stepSId,
-          runId: getRunId(selectedRun),
-          version: currentVersion,
-        }));
+        const payloadObj: Record<string, any> = {};
+        moveParamsArray.forEach((param) => {
+          const serviceName = param.service;
+          const serviceStepSId = `${sId}_${key}_${serviceName}`;
+          const serviceStepLogPath = `${logBasePath}/${serviceStepSId}.log`;
+          payloadObj[serviceName] = [
+            {
+              sourceServer: param.sourceServer,
+              fromServer: param.fromServer,
+              targetServer: param.targetServer,
+              toServer: param.toServer,
+              moveSourcePath: param.moveSourcePath,
+              moveTargetPath: param.moveTargetPath,
+              logPath: serviceStepLogPath,
+              sId: serviceStepSId,
+              runId: getRunId(selectedRun),
+              version: currentVersion,
+              createHierarchy,
+              hierarchyPath: createHierarchy ? hierarchyPath : undefined,
+            },
+          ];
+        });
+        bodyPayload = payloadObj;
       } else {
         const moveTargetPath =
           getMoveTargetPathForServer(selectedTargetServerId) ||
@@ -840,6 +886,8 @@ export default function MoveAndPack() {
               version: currentVersion,
               sId: stepSId,
               runId: getRunId(selectedRun),
+              createHierarchy,
+              hierarchyPath: createHierarchy ? hierarchyPath : undefined,
             }
           : {
               targetServer: selectedTargetServerDetails,
@@ -847,6 +895,8 @@ export default function MoveAndPack() {
               logPath: stepLogPath,
               sId: stepSId,
               runId: getRunId(selectedRun),
+              createHierarchy,
+              hierarchyPath: createHierarchy ? hierarchyPath : undefined,
             };
       }
 
@@ -876,15 +926,36 @@ export default function MoveAndPack() {
       await updateDBServiceStatus(key, "running");
 
       // Call backend monitor-logs API
-      await api.post("/admin-dashboard/data-pipeline/monitor-logs", {
-        runId: getRunId(selectedRun),
-        service: key, // "move", "clean", "verify", "pack"
-        targetServer: streamTargetServer,
-        sId: stepSId,
-        offset: 0,
-        logPath: stepLogPath,
-        version: currentVersion,
-      });
+      if (key === "move" && moveParamsArray) {
+        await Promise.all(
+          moveParamsArray.map(async (param) => {
+            const serviceName = param.service;
+            const serviceStepSId = `${sId}_${key}_${serviceName}`;
+            const serviceStepLogPath = `${logBasePath}/${serviceStepSId}.log`;
+            const paramTargetServer = param.toServer || targetServer || (selectedTargetServerDetails ? selectedTargetServerDetails.name || selectedTargetServerDetails.ipAddress : "");
+
+            await api.post("/admin-dashboard/data-pipeline/monitor-logs", {
+              runId: getRunId(selectedRun),
+              service: key, // "move"
+              targetServer: paramTargetServer,
+              sId: serviceStepSId,
+              offset: 0,
+              logPath: serviceStepLogPath,
+              version: currentVersion,
+            });
+          })
+        );
+      } else {
+        await api.post("/admin-dashboard/data-pipeline/monitor-logs", {
+          runId: getRunId(selectedRun),
+          service: key, // "clean", "verify", "pack"
+          targetServer: streamTargetServer,
+          sId: stepSId,
+          offset: 0,
+          logPath: stepLogPath,
+          version: currentVersion,
+        });
+      }
 
       toast.success(`${stepInfo.label} started. Log monitoring is active in the backend.`);
 
@@ -1079,6 +1150,14 @@ export default function MoveAndPack() {
                       Change
                     </Button>
                   </div>
+
+                  {createHierarchy && hierarchyPath ? (
+                    <div className="ml-auto flex flex-wrap items-center gap-1.5 rounded-lg border border-border bg-background px-3 py-2 text-xs">
+                      <FolderOpen className="h-3.5 w-3.5 text-primary" />
+                      <span className="text-muted-foreground">Hierarchy:</span>
+                      <span className="font-mono text-foreground font-semibold">{hierarchyPath}</span>
+                    </div>
+                  ) : null}
                 </CardContent>
               </Card>
 
@@ -1227,6 +1306,32 @@ export default function MoveAndPack() {
                         </select>
                       </div>
 
+                      <div className="flex items-center gap-2 pt-2">
+                        <input
+                          type="checkbox"
+                          id="createHierarchy"
+                          checked={createHierarchy}
+                          onChange={(e) => setCreateHierarchy(e.target.checked)}
+                          className="w-4 h-4 rounded border-gray-300 text-primary focus:ring-primary cursor-pointer transition-all"
+                        />
+                        <label htmlFor="createHierarchy" className="text-xs font-semibold text-foreground cursor-pointer select-none">
+                          Create Hierarchy?
+                        </label>
+                      </div>
+
+                      {createHierarchy && (
+                        <div className="space-y-1.5 animate-in fade-in duration-200">
+                          <label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Hierarchy Path</label>
+                          <input
+                            type="text"
+                            value={hierarchyPath}
+                            onChange={(e) => setHierarchyPath(e.target.value)}
+                            placeholder="e.g. /home/mkandula/Projects/TileGen/Gen"
+                            className="w-full rounded-xl border border-input bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-primary font-mono text-xs"
+                          />
+                        </div>
+                      )}
+
                       {selectedTargetServerDetails ? (
                         <div className="grid grid-cols-2 gap-2 rounded-xl border border-border bg-background/60 p-3 text-xs">
                           <div>
@@ -1260,10 +1365,36 @@ export default function MoveAndPack() {
                     <div className="flex gap-3 border-t border-border bg-muted/10 px-6 py-4">
                       <Button
                         className="flex-1 rounded-xl font-bold"
-                        disabled={!selectedTargetServerDetails}
+                        disabled={!selectedTargetServerDetails || (createHierarchy && !hierarchyPath.trim())}
                         onClick={() => {
                           setHasSelectedTargetServer(true);
                           setIsTargetServerModalOpen(false);
+
+                          if (createHierarchy && hierarchyPath?.trim()) {
+                            const promise = fetch(CREATE_HIERARCHY_WEBHOOK, {
+                              method: "POST",
+                              headers: { "Content-Type": "application/json" },
+                              body: JSON.stringify({
+                                targetServer: selectedTargetServerDetails,
+                                hierarchyPath: hierarchyPath.trim(),
+                                runId: getRunId(selectedRun),
+                                version: currentVersion,
+                                commonScriptPath: getCommonScriptPathForServer(selectedTargetServerId) || (selectedTargetServerDetails ? getCommonScriptPathForServer(selectedTargetServerDetails.name) : ""),
+                              }),
+                            }).then(async (res) => {
+                              if (!res.ok) {
+                                const errText = await res.text();
+                                throw new Error(errText || `Server responded with ${res.status}`);
+                              }
+                              return res.text();
+                            });
+
+                            toast.promise(promise, {
+                              loading: "Triggering directory hierarchy creation...",
+                              success: "Directory hierarchy creation triggered successfully.",
+                              error: (err) => `Failed to create hierarchy: ${err.message}`,
+                            });
+                          }
                         }}
                       >
                         Confirm Server
@@ -1505,10 +1636,8 @@ export default function MoveAndPack() {
                           setIsMoveModalOpen(false);
                           
                           if (moveParams.length > 0) {
-                            moveQueueRef.current = moveParams;
-                            currentMoveIndexRef.current = 0;
-                            moveAccumulatedLogRef.current = "";
-                            void runSingleMoveService(moveParams[0], 0, moveParams);
+                            const stepInfo = stepsConfig.find((s) => s.key === "move")!;
+                            void handleRunStep(stepInfo, moveParams);
                           } else {
                             toast.error("No active services selected to move.");
                           }
