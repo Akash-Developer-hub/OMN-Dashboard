@@ -43,8 +43,8 @@ export const navSections: NavSection[] = [
     permission: "data-pipeline",
     children: [
       { label: "Download", path: "/pipeline/download?setupDownload=true" },
-      { label: "Generation", path: "/pipeline" },
-      { label: "Preview Generation", path: "/pipeline/preview" },
+      { label: "Generation Validation", path: "/pipeline/generation-validation" },
+      // { label: "Preview Generation", path: "/pipeline/preview" },
       { label: "Generation Logs", path: "/pipeline/log" },
       { label: "Move & Pack", path: "/pipeline/move-pack" },
       { label: "Configuration", path: "/pipeline/config" },

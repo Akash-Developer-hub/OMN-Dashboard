@@ -2962,7 +2962,11 @@ export default function DataPipeline() {
 
       {/* POI banner */}
       {!poiLoading && approvedPOICount > 0 && (
-        <ApprovedPOISection count={approvedPOICount} loading={poiLoading} onStart={() => setCreateOpenForContrib(true)} />
+        <ApprovedPOISection
+          count={approvedPOICount}
+          loading={poiLoading}
+          onStart={() => navigate("/pipeline/generation-validation")}
+        />
       )}
 
       {/* Download Servers Banner */}

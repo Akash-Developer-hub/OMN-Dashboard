@@ -1992,9 +1992,9 @@ export default function PipelineConfig() {
         ))}
       </div>
 
-      <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
+      <div className={`grid grid-cols-1 gap-6 ${activeTab === "admins" ? "xl:grid-cols-6" : "xl:grid-cols-3"}`}>
         {/* ── Left: Main Panel ────────────────────────────────────────────────── */}
-        <div className={`${activeTab === "rules" ? "xl:col-span-3" : "xl:col-span-2"} space-y-4`}>
+        <div className={`${activeTab === "rules" ? "xl:col-span-3" : activeTab === "admins" ? "xl:col-span-4" : "xl:col-span-2"} space-y-4`}>
 
           {/* Tabs */}
           <div className="flex gap-1 bg-muted/50 rounded-xl p-1 w-fit">
@@ -2022,12 +2022,12 @@ export default function PipelineConfig() {
             >
               Move & Pack Config
             </button>
-            <button
+            {/* <button
               onClick={() => setActiveTab("rules")}
               className={`px-5 py-2 rounded-lg text-sm font-semibold transition-all flex items-center gap-2 ${activeTab === "rules" ? "bg-background shadow-sm text-foreground" : "text-muted-foreground hover:text-foreground"}`}
             >
               Validation Rules
-            </button>
+            </button> */}
           </div>
 
 
@@ -2058,17 +2058,14 @@ export default function PipelineConfig() {
               {loadingUsers ? <Spinner /> : filtered.length === 0 ? (
                 <div className="text-center py-16 text-muted-foreground text-sm">No users found.</div>
               ) : (
-                <div className="overflow-x-auto">
-                  <Table>
+                <div>
+                  <Table className="table-fixed">
                     <TableHeader>
                       <TableRow className="bg-muted/50 hover:bg-muted/50">
-                        <TableHead className="w-[50px] px-6"></TableHead>
-                        <TableHead className="px-6">User</TableHead>
-                        <TableHead className="px-6">Email</TableHead>
-                        <TableHead className="px-6">Role</TableHead>
-                        <TableHead className="px-6">Status</TableHead>
-                        <TableHead className="px-6">Added</TableHead>
-                        <TableHead className="px-6">Method</TableHead>
+                        <TableHead className="w-[132px] px-6">Notify</TableHead>
+                        <TableHead className="px-6">Admin Details</TableHead>
+                        <TableHead className="w-[130px] px-6">Role</TableHead>
+                        <TableHead className="w-[120px] px-6">Method</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
@@ -2081,26 +2078,37 @@ export default function PipelineConfig() {
                         return (
                           <TableRow key={user.id} className="hover:bg-muted/30 transition-colors">
                             <TableCell className="px-6 py-4">
-                              <input
-                                type="checkbox"
-                                checked={isNotified}
-                                onChange={(e) => handleToggleLocal(user, e.target.checked, currentMethod)}
-                                className="w-4 h-4 rounded border-gray-300 text-primary focus:ring-primary cursor-pointer transition-all"
-                              />
+                              <button
+                                type="button"
+                                onClick={() => handleToggleLocal(user, !isNotified, currentMethod)}
+                                aria-pressed={isNotified}
+                                className={`inline-flex w-[104px] items-center justify-center gap-2 rounded-xl border px-3 py-2 text-xs font-bold transition-all active:scale-95 ${
+                                  isNotified
+                                    ? "border-primary/30 bg-primary text-primary-foreground shadow-sm shadow-primary/20"
+                                    : "border-border bg-background text-muted-foreground hover:border-primary/40 hover:bg-primary/5 hover:text-primary"
+                                }`}
+                              >
+                                <span className={`flex h-4 w-4 items-center justify-center rounded-full border ${isNotified ? "border-primary-foreground bg-primary-foreground/20" : "border-current"}`}>
+                                  {isNotified && (
+                                    <svg className="h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
+                                    </svg>
+                                  )}
+                                </span>
+                                {isNotified ? "Selected" : "Select"}
+                              </button>
                             </TableCell>
                             <TableCell className="px-6 py-4">
-                              <div className="flex items-center gap-3">
+                              <div className="flex min-w-0 items-start gap-3">
                                 <Avatar name={displayName} />
-                                <div className="min-w-0">
-                                  <p className="text-sm font-semibold text-foreground whitespace-normal">{displayName}</p>
-                                  <p className="text-xs text-muted-foreground">ID: {user.id.slice(-8)}</p>
+                                <div className="min-w-0 space-y-2">
+                                  <div>
+                                    <p className="text-sm font-semibold text-foreground break-words">{displayName}</p>
+                                  </div>
                                 </div>
                               </div>
                             </TableCell>
-                            <TableCell className="px-6 py-4 text-muted-foreground text-sm break-words">{user.email}</TableCell>
                             <TableCell className="px-6 py-4"><Badge label={user.role} variant="role" /></TableCell>
-                            <TableCell className="px-6 py-4"><Badge label={user.isActive ? "Active" : "Inactive"} variant={user.isActive ? "online" : "offline"} /></TableCell>
-                            <TableCell className="px-6 py-4 text-xs text-muted-foreground">{new Date(user.createdAt).toLocaleDateString()}</TableCell>
                             <TableCell className="px-6 py-4">
                               <select
                                 value={currentMethod}
@@ -2474,7 +2482,7 @@ export default function PipelineConfig() {
 
         {/* ── Right: Notified Users Panel ──────────────────────────────────────── */}
         {activeTab === "admins" && (
-          <div className="xl:col-span-1 xl:pt-[60px]">
+          <div className="xl:col-span-2 xl:pt-[60px]">
             <div className="bg-card rounded-2xl shadow-sm border border-border overflow-hidden sticky top-6">
               <button
                 type="button"
@@ -2526,12 +2534,12 @@ export default function PipelineConfig() {
                       <p className="text-xs text-muted-foreground mt-1">Add users from the table to include them.</p>
                     </div>
                   ) : (
-                    <div className="overflow-x-auto">
-                      <Table>
+                    <div>
+                      <Table className="table-fixed">
                         <TableHeader>
                           <TableRow className="bg-muted/50">
                             <TableHead className="px-4 py-3">User</TableHead>
-                            <TableHead className="px-4 py-3 text-right">Action</TableHead>
+                            <TableHead className="w-[112px] px-4 py-3 text-right">Action</TableHead>
                           </TableRow>
                         </TableHeader>
                         <TableBody>
@@ -2542,16 +2550,16 @@ export default function PipelineConfig() {
                                 <TableCell className="px-4 py-3">
                                   <div className="flex items-center gap-3">
                                     <Avatar name={admin.name} />
-                                    <div className="min-w-0">
-                                      <div className="flex items-center gap-2">
-                                        <p className="text-sm font-semibold text-foreground truncate">{admin.name}</p>
+                                    <div className="min-w-0 space-y-1">
+                                      <div className="flex flex-wrap items-center gap-2">
+                                        <p className="text-sm font-semibold text-foreground break-words">{admin.name}</p>
                                         {admin.method && (
                                           <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-md bg-primary/10 text-primary uppercase border border-primary/20">
                                             {admin.method}
                                           </span>
                                         )}
                                       </div>
-                                      <p className="text-xs text-muted-foreground truncate">{admin.email}</p>
+                                      <p className="text-xs text-muted-foreground break-all">{admin.email}</p>
                                     </div>
                                   </div>
                                 </TableCell>

@@ -215,6 +215,7 @@ export default function MoveAndPack() {
 
   const [availabilityServers, setAvailabilityServers] = useState<any[]>([]);
   const [selectedTargetServerId, setSelectedTargetServerId] = useState("");
+  const [draftTargetServerId, setDraftTargetServerId] = useState("");
   const [isTargetServerModalOpen, setIsTargetServerModalOpen] = useState(false);
   const [hasSelectedTargetServer, setHasSelectedTargetServer] = useState(false);
   const [createHierarchy, setCreateHierarchy] = useState(false);
@@ -251,6 +252,14 @@ export default function MoveAndPack() {
   const selectedTargetServerDetails = useMemo(() => {
     return toServerDetails(selectedTargetServer);
   }, [selectedTargetServer]);
+
+  const draftTargetServer = useMemo(() => {
+    return findAvailabilityServer(draftTargetServerId);
+  }, [draftTargetServerId, findAvailabilityServer]);
+
+  const draftTargetServerDetails = useMemo(() => {
+    return toServerDetails(draftTargetServer);
+  }, [draftTargetServer]);
 
   const getMovePackConfigListForServer = useCallback((serverIdOrName: string) => {
     if (!serverIdOrName) return "";
@@ -319,6 +328,44 @@ export default function MoveAndPack() {
     }
     return "";
   }, [movePackConfigs]);
+
+  const openTargetServerModal = useCallback(() => {
+    const nextServerId = selectedTargetServerId || getServerValue(availabilityServers[0]) || "";
+    setDraftTargetServerId(nextServerId);
+    setIsTargetServerModalOpen(true);
+  }, [availabilityServers, selectedTargetServerId]);
+
+  const applyTargetServerSelection = useCallback((serverId: string) => {
+    const serverDetails = toServerDetails(findAvailabilityServer(serverId));
+    if (!serverId || !serverDetails) {
+      toast.error("Select an available server before confirming.");
+      return false;
+    }
+
+    const configuredTargetPath = getMoveTargetPathForServer(serverId) || getMoveTargetPathForServer(serverDetails.name);
+    setSelectedTargetServerId(serverId);
+    setDraftTargetServerId(serverId);
+    setHasSelectedTargetServer(true);
+    setServiceConfigs((prev) => {
+      return Object.entries(prev).reduce<Record<string, ServiceMoveConfig>>((acc, [service, config]) => {
+        acc[service] = {
+          ...config,
+          toServer: serverId,
+          customTargetPath: configuredTargetPath,
+          overrideTarget: false,
+        };
+        return acc;
+      }, {});
+    });
+
+    if (configuredTargetPath) {
+      toast.success(`Move & Pack configuration changed to ${serverDetails.name}.`);
+    } else {
+      toast.warning(`Server changed to ${serverDetails.name}, but no Move & Pack target path is configured for this version.`);
+    }
+
+    return true;
+  }, [findAvailabilityServer, getMoveTargetPathForServer]);
 
   const handleUpdateServiceConfig = (service: string, key: string, value: any) => {
     setServiceConfigs((prev) => {
@@ -747,7 +794,9 @@ export default function MoveAndPack() {
 
   useEffect(() => {
     if (!selectedRun || availabilityServers.length === 0 || hasSelectedTargetServer) return;
-    setSelectedTargetServerId((current) => current || getServerValue(availabilityServers[0]));
+    const defaultServerId = getServerValue(availabilityServers[0]);
+    setSelectedTargetServerId((current) => current || defaultServerId);
+    setDraftTargetServerId((current) => current || defaultServerId);
     setIsTargetServerModalOpen(true);
   }, [availabilityServers, hasSelectedTargetServer, selectedRun]);
 
@@ -825,7 +874,7 @@ export default function MoveAndPack() {
     }
     if (!selectedTargetServerDetails) {
       toast.error("Select a target server before running Move & Pack.");
-      setIsTargetServerModalOpen(true);
+      openTargetServerModal();
       return;
     }
 
@@ -993,7 +1042,7 @@ export default function MoveAndPack() {
   const onRunStepClick = (step: StepInfo) => {
     if (!selectedTargetServerDetails) {
       toast.error("Select a target server before running this step.");
-      setIsTargetServerModalOpen(true);
+      openTargetServerModal();
       return;
     }
  
@@ -1075,6 +1124,7 @@ export default function MoveAndPack() {
               Version {currentVersion}
             </Badge>
           ) : null}
+
           <Button
             type="button"
             variant="outline"
@@ -1118,36 +1168,24 @@ export default function MoveAndPack() {
                     <span className="text-xs text-muted-foreground border-l border-border pl-2.5">{new Date(selectedRun?.createdAt || 0).toLocaleString()}</span>
                   </div>
 
-                  <div className="flex flex-wrap gap-2 text-xs text-muted-foreground">
+                  <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
                     <span className="inline-flex items-center gap-1">
                       <Server className="h-3.5 w-3.5" />
                       Server: <span className="font-mono text-foreground font-medium">{targetServer || "-"}</span>
                     </span>
-                    <span className="inline-flex items-center gap-1 ml-2">
-                      <Terminal className="h-3.5 w-3.5" />
-                      sId: <span className="font-mono text-foreground font-medium">{sId || "-"}</span>
-                    </span>
                   </div>
 
-                  <div className="ml-auto flex flex-wrap items-center gap-2 rounded-lg border border-border bg-background px-3 py-2 text-xs">
-                    <Server className="h-3.5 w-3.5 text-primary" />
-                    <span className="text-muted-foreground">Selected target:</span>
-                    <span className="font-semibold text-foreground">
-                      {selectedTargetServerDetails
-                        ? `${selectedTargetServerDetails.name} (${selectedTargetServerDetails.environment || "environment n/a"})`
-                        : "Not selected"}
-                    </span>
-                    {selectedTargetServerDetails?.ipAddress ? (
-                      <span className="font-mono text-muted-foreground">{selectedTargetServerDetails.ipAddress}:{selectedTargetServerDetails.port}</span>
-                    ) : null}
+                  <div className="ml-auto flex flex-wrap items-center justify-end gap-2">
                     <Button
                       type="button"
-                      variant="ghost"
+                      variant="outline"
                       size="sm"
                       className="h-7 px-2 text-xs"
-                      onClick={() => setIsTargetServerModalOpen(true)}
+                      onClick={openTargetServerModal}
+                      disabled={availabilityServers.length === 0 || executing}
                     >
-                      Change
+                      <Server className="mr-1.5 h-3.5 w-3.5" />
+                      Change Server
                     </Button>
                   </div>
 
@@ -1290,8 +1328,8 @@ export default function MoveAndPack() {
                       <div className="space-y-1.5">
                         <label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Server</label>
                         <select
-                          value={selectedTargetServerId}
-                          onChange={(event) => setSelectedTargetServerId(event.target.value)}
+                          value={draftTargetServerId}
+                          onChange={(event) => setDraftTargetServerId(event.target.value)}
                           className="w-full rounded-xl border border-input bg-background px-3 py-2 text-sm font-semibold outline-none focus:ring-2 focus:ring-primary"
                         >
                           {availabilityServers.map((server) => {
@@ -1332,27 +1370,27 @@ export default function MoveAndPack() {
                         </div>
                       )}
 
-                      {selectedTargetServerDetails ? (
+                      {draftTargetServerDetails ? (
                         <div className="grid grid-cols-2 gap-2 rounded-xl border border-border bg-background/60 p-3 text-xs">
                           <div>
                             <p className="text-[10px] uppercase text-muted-foreground">Name</p>
-                            <p className="font-semibold text-foreground">{selectedTargetServerDetails.name || "-"}</p>
+                            <p className="font-semibold text-foreground">{draftTargetServerDetails.name || "-"}</p>
                           </div>
                           <div>
                             <p className="text-[10px] uppercase text-muted-foreground">Environment</p>
-                            <p className="font-semibold text-foreground">{selectedTargetServerDetails.environment || "-"}</p>
+                            <p className="font-semibold text-foreground">{draftTargetServerDetails.environment || "-"}</p>
                           </div>
                           <div>
                             <p className="text-[10px] uppercase text-muted-foreground">Username</p>
-                            <p className="font-mono text-foreground">{selectedTargetServerDetails.username || "-"}</p>
+                            <p className="font-mono text-foreground">{draftTargetServerDetails.username || "-"}</p>
                           </div>
                           <div>
                             <p className="text-[10px] uppercase text-muted-foreground">Port</p>
-                            <p className="font-mono text-foreground">{selectedTargetServerDetails.port || "-"}</p>
+                            <p className="font-mono text-foreground">{draftTargetServerDetails.port || "-"}</p>
                           </div>
                           <div className="col-span-2">
                             <p className="text-[10px] uppercase text-muted-foreground">IP Address</p>
-                            <p className="font-mono text-foreground">{selectedTargetServerDetails.ipAddress || "-"}</p>
+                            <p className="font-mono text-foreground">{draftTargetServerDetails.ipAddress || "-"}</p>
                           </div>
                         </div>
                       ) : (
@@ -1365,21 +1403,23 @@ export default function MoveAndPack() {
                     <div className="flex gap-3 border-t border-border bg-muted/10 px-6 py-4">
                       <Button
                         className="flex-1 rounded-xl font-bold"
-                        disabled={!selectedTargetServerDetails || (createHierarchy && !hierarchyPath.trim())}
+                        disabled={!draftTargetServerDetails || (createHierarchy && !hierarchyPath.trim())}
                         onClick={() => {
-                          setHasSelectedTargetServer(true);
+                          const confirmedServerId = draftTargetServerId;
+                          const confirmedServerDetails = draftTargetServerDetails;
+                          if (!applyTargetServerSelection(confirmedServerId)) return;
                           setIsTargetServerModalOpen(false);
 
-                          if (createHierarchy && hierarchyPath?.trim()) {
+                          if (createHierarchy && hierarchyPath?.trim() && confirmedServerDetails) {
                             const promise = fetch(CREATE_HIERARCHY_WEBHOOK, {
                               method: "POST",
                               headers: { "Content-Type": "application/json" },
                               body: JSON.stringify({
-                                targetServer: selectedTargetServerDetails,
+                                targetServer: confirmedServerDetails,
                                 hierarchyPath: hierarchyPath.trim(),
                                 runId: getRunId(selectedRun),
                                 version: currentVersion,
-                                commonScriptPath: getCommonScriptPathForServer(selectedTargetServerId) || (selectedTargetServerDetails ? getCommonScriptPathForServer(selectedTargetServerDetails.name) : ""),
+                                commonScriptPath: getCommonScriptPathForServer(confirmedServerId) || getCommonScriptPathForServer(confirmedServerDetails.name),
                               }),
                             }).then(async (res) => {
                               if (!res.ok) {
@@ -1397,7 +1437,7 @@ export default function MoveAndPack() {
                           }
                         }}
                       >
-                        Confirm Server
+                        {hasSelectedTargetServer ? "Change Server" : "Confirm Server"}
                       </Button>
                       {hasSelectedTargetServer ? (
                         <button
@@ -1428,7 +1468,6 @@ export default function MoveAndPack() {
                         </div>
                         <div>
                           <h3 className="font-bold text-foreground text-sm">Configure Move Parameters</h3>
-                          <p className="text-[10px] text-muted-foreground font-mono">Run ID: {getRunId(selectedRun).slice(-8)}</p>
                         </div>
                       </div>
                       <button 

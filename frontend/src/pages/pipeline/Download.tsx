@@ -1986,7 +1986,6 @@ export default function Download() {
               {displayStatus}
             </span>
             {logState.source === "static" ? <Badge variant="secondary">Static</Badge> : null}
-            {logState.source === "remote" ? <Badge variant="secondary">Live</Badge> : null}
           </div>
           <div className="font-mono text-xs text-slate-400">
             {job.serverName} - {formatTime(job.requestedAt)}
@@ -2046,19 +2045,27 @@ export default function Download() {
   return (
     <div className="space-y-6 p-6">
       <section className="rounded-3xl p-6">
-        <div className="flex items-center justify-between gap-3">
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
           <div className="space-y-1">
             <h1 className="text-3xl font-semibold tracking-tight text-foreground">Search & Tiles and Routing downloads</h1>
             <p className="max-w-3xl text-sm leading-6 text-muted-foreground">
-              Select a server, browse the destination folder, start the download, and validate the output against the static log and static OSM configuration.
+              Select a server, download to the destination folder, and validate the output.
             </p>
           </div>
-          <div className="flex items-center gap-3">
+          <div className="flex flex-wrap items-center justify-start gap-3 lg:justify-end">
             {currentVersion ? (
               <Badge variant="outline" className="font-mono">
                 Version {currentVersion}
               </Badge>
             ) : null}
+            <Button
+              variant="outline"
+              onClick={() => void refreshLogs()}
+              disabled={refreshing || !(["searchTiles", "routing"] as WorkflowKey[]).some((workflow) => Boolean(jobs[workflow]?.runId))}
+            >
+              {refreshing ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RefreshCw className="mr-2 h-4 w-4" />}
+              Refresh logs
+            </Button>
             <Button
               onClick={() => void handleProceedButtonClick()}
               className="bg-primary hover:bg-primary/90 text-primary-foreground font-semibold flex items-center gap-2"
@@ -2239,7 +2246,6 @@ export default function Download() {
                   <CardDescription>{latestJob ? `Latest run ${latestJob.runId}` : "No run started yet."}</CardDescription>
                 </div>
                 {summary.source === "static" ? <Badge variant="secondary">Static log</Badge> : null}
-                {summary.source === "remote" ? <Badge variant="secondary">Live log</Badge> : null}
               </div>
             </CardHeader>
             <CardContent>
@@ -2309,6 +2315,11 @@ export default function Download() {
                           <p className="text-xs text-muted-foreground">Grouped by region with paginated results.</p>
                         </div>
                         <div className="flex flex-wrap items-center gap-2">
+                          {selectedSummaryCard.status === "failed" ? (
+                            <Button type="button" variant="outline" size="sm" className="h-8 border-emerald-600 bg-emerald-600 text-white hover:bg-emerald-700 hover:text-white">
+                              ReDownload
+                            </Button>
+                          ) : null}
                           <Badge variant="outline">
                             Files: {filteredFileCount}/{statusFiles.length}
                           </Badge>
@@ -2445,19 +2456,11 @@ export default function Download() {
         ))}
       </section>
 
-      <section className="flex items-center justify-between">
+      <section>
         <div>
           <h2 className="text-lg font-semibold">Run logs</h2>
           <p className="text-sm text-muted-foreground">Only the latest run per workflow is shown. Logs are polled from the runId log webhook.</p>
         </div>
-        <Button
-          variant="outline"
-          onClick={() => void refreshLogs()}
-          disabled={refreshing || !(["searchTiles", "routing"] as WorkflowKey[]).some((workflow) => Boolean(jobs[workflow]?.runId))}
-        >
-          {refreshing ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RefreshCw className="mr-2 h-4 w-4" />}
-          Refresh logs
-        </Button>
       </section>
 
       <section className="rounded-3xl border border-border/60 bg-card p-4 shadow-sm">
