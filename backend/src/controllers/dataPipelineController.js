@@ -762,6 +762,8 @@ function startGenerationLogMonitor(payload) {
     const tick = async () => {
         if (state.stopped) return;
 
+        let nextInterval = GENERATION_LOG_MONITOR_INTERVAL_MS;
+
         try {
             // Check database to see if a newer run doc exists or if the current run has a different sId/logPath
             const currentRun = await DataPipelineRun.collection.findOne({ runId });
@@ -865,14 +867,19 @@ function startGenerationLogMonitor(payload) {
                 return;
             }
         } catch (error) {
+            const isTimeout = error.code === 'ECONNABORTED' || String(error.message || '').toLowerCase().includes('timeout');
+            if (isTimeout) {
+                nextInterval = 30000;
+            }
             logger.error('Generation log monitor failed to fetch logs.', {
                 monitorKey,
                 error: error.message,
                 response: error.response?.data,
+                nextInterval,
             });
         }
 
-        if (!state.stopped) state.timer = setTimeout(tick, GENERATION_LOG_MONITOR_INTERVAL_MS);
+        if (!state.stopped) state.timer = setTimeout(tick, nextInterval);
     };
 
     activeGenerationLogMonitors.set(monitorKey, state);
