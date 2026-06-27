@@ -71,6 +71,8 @@ type ServiceFormState = {
   hasCustomOutputPath?: boolean;
   responseInputPath?: string;
   responseOutputPath?: string;
+  isCustomCommand?: boolean;
+  customCommand?: string;
 };
 
 type ServerPathEntry = {
@@ -170,6 +172,8 @@ const emptyServiceForm = (service: GenerationService): ServiceFormState => ({
   hasCustomOutputPath: false,
   responseInputPath: "",
   responseOutputPath: "",
+  isCustomCommand: false,
+  customCommand: "",
 });
 
 const resolveFilename = (f: ServiceFormState): string => {
@@ -208,24 +212,44 @@ const buildBrowserPath = (basePath: string, item: string) => {
 };
 
 const getRegionName = (f: ServiceFormState): string => {
-  const path = f.hasCustomInputPath && f.filePath ? f.filePath : (f.responseInputPath || "southIndia");
-  const base = path.split(/[/\\]/).pop() || "southIndia";
-  return base.replace(/(\.osm)?\.pbf$/i, "").replace(/(\.[^.]+)+$/, "") || "southIndia";
+  const path = f.hasCustomInputPath && f.filePath ? f.filePath : (f.responseInputPath || "planet");
+  const base = path.split(/[/\\]/).pop() || "planet";
+  return base.replace(/(\.osm)?\.pbf$/i, "").replace(/(\.[^.]+)+$/, "") || "planet";
+};
+
+const getInputDirectory = (p: string): string => {
+  const n = (p || "").trim();
+  if (!n) return "";
+  const lastSlash = Math.max(n.lastIndexOf("/"), n.lastIndexOf("\\"));
+  if (lastSlash >= 0) {
+    const lastSegment = n.slice(lastSlash + 1);
+    if (lastSegment.includes(".")) {
+      return n.slice(0, lastSlash) || "/home";
+    }
+  } else if (n.includes(".")) {
+    return "/home";
+  }
+  return n;
 };
 
 const buildCommand = (f: ServiceFormState, isPreview = false): string => {
+  if (f.isCustomCommand && f.customCommand?.trim()) {
+    return f.customCommand;
+  }
   const regionName = getRegionName(f);
   const script = f.script?.trim() || (f.service === "routing" ? "routingTiles.py" : "multithread.py");
   
   if (f.service === "routing") {
     const gtfsFlag = f.routingGtfsIncluded ? " --bTransit" : "";
-    const inputFlag = f.hasCustomInputPath && f.filePath?.trim() ? ` --osm_pbf_path ${f.filePath.trim()}` : "";
+    const inputPathDir = getInputDirectory(f.filePath);
+    const inputFlag = f.hasCustomInputPath && inputPathDir ? ` --osm_pbf_path ${inputPathDir}` : "";
     const outputFlag = f.hasCustomOutputPath && f.outputPath?.trim() ? ` --data_dir ${f.outputPath.trim()}` : "";
-    // return `python3 ${script} ${regionName}${inputFlag}${outputFlag}${gtfsFlag}`;
-    return `python3 routingTiles.py southIndia`;
+    return `python3 ${script} ${regionName}${inputFlag}${outputFlag}${gtfsFlag}`;
+    // return `python3 routingTiles.py southIndia `;
   }
   
-  const inputFlag = f.hasCustomInputPath && f.filePath?.trim() ? ` --osmdir ${f.filePath.trim()}` : "";
+  const inputPathDir = getInputDirectory(f.filePath);
+  const inputFlag = f.hasCustomInputPath && inputPathDir ? ` --osmdir ${inputPathDir}` : "";
   const outputFlag = f.hasCustomOutputPath && f.outputPath?.trim() ? ` --gendir ${f.outputPath.trim()}` : "";
   
   const genType = f.service === "search" ? "search" : "tiles";
@@ -564,6 +588,9 @@ interface PathInputWithBrowserProps {
   showViewFiles?: boolean;
   viewFilesLoading?: boolean;
   className?: string;
+  files?: string[];
+  onSelectFile?: (file: string) => void;
+  onCloseFiles?: () => void;
 }
 
 function PathInputWithBrowser({
@@ -579,6 +606,9 @@ function PathInputWithBrowser({
   viewFilesLoading = false,
   disabled,
   className = "",
+  files,
+  onSelectFile,
+  onCloseFiles,
 }: PathInputWithBrowserProps) {
   return (
     <>
@@ -627,6 +657,46 @@ function PathInputWithBrowser({
             </button>
           )}
         </div>
+
+        {files !== undefined && (
+          <div className="absolute left-0 right-0 z-[110] mt-1 max-h-60 overflow-y-auto rounded-lg border border-border bg-card p-1 shadow-lg">
+            <div className="flex items-center justify-between border-b border-border px-3 py-2 bg-muted/30">
+              <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Available Files</span>
+              <button
+                type="button"
+                onClick={onCloseFiles}
+                className="text-muted-foreground hover:text-foreground p-0.5 hover:bg-muted rounded transition-colors"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            </div>
+            {files.length === 0 ? (
+              <div className="px-3 py-3 text-xs text-muted-foreground text-center">No files found.</div>
+            ) : (
+              <div className="grid grid-cols-1 gap-0.5 max-h-48 overflow-y-auto mt-1">
+                {files.map((file) => {
+                  const name = file.split(/[/\\]/).pop() || file;
+                  const isDir = !file.includes(".") || file.endsWith("/");
+                  return (
+                    <button
+                      key={file}
+                      type="button"
+                      onClick={() => onSelectFile && onSelectFile(file)}
+                      className="w-full flex items-center gap-2 px-3 py-2 text-xs text-left rounded-md hover:bg-primary/10 text-foreground transition-colors font-mono"
+                    >
+                      {isDir ? (
+                        <Folder className="w-3.5 h-3.5 text-amber-500 fill-amber-500/20 shrink-0" />
+                      ) : (
+                        <FileText className="w-3.5 h-3.5 text-blue-500 shrink-0" />
+                      )}
+                      <span className="truncate flex-1">{name}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        )}
       </div>
       
       {/* Modal Folder Browser */}
@@ -687,10 +757,10 @@ export function CreateGeneration({ open, onClose, preSelectContribution, servers
     routing: 0,
     tile: 0,
   });
-  const [filesState, setFilesState]         = useState<Record<GenerationService, { list: string[]; loading: boolean; show: boolean; fetchedOnce?: boolean }>>({
-    search:  { list: [], loading: false, show: false, fetchedOnce: false },
-    routing: { list: [], loading: false, show: false, fetchedOnce: false },
-    tile:    { list: [], loading: false, show: false, fetchedOnce: false },
+  const [filesState, setFilesState]         = useState<Record<GenerationService, { list: string[]; loading: boolean; show: boolean; fetchedOnce?: boolean; activeField?: string; directory?: string }>>({
+    search:  { list: [], loading: false, show: false, fetchedOnce: false, activeField: "", directory: "" },
+    routing: { list: [], loading: false, show: false, fetchedOnce: false, activeField: "", directory: "" },
+    tile:    { list: [], loading: false, show: false, fetchedOnce: false, activeField: "", directory: "" },
   });
   const [approvedPOICount, setApprovedPOICount] = useState(0);
   const [poiCountLoading, setPoiCountLoading]   = useState(false);
@@ -828,15 +898,20 @@ export function CreateGeneration({ open, onClose, preSelectContribution, servers
     }
   }, [serverIdMatches]);
 
-  const handleViewFiles = async (svc: GenerationService) => {
-    const f    = forms[svc];
+  const handleViewFiles = async (
+    svc: GenerationService,
+    fieldKey: string,
+    currentPathValue: string,
+    onPathCleaned: (cleaned: string) => void
+  ) => {
+    const f = forms[svc];
     const mode = f.inputMode;
-    const copyServerId = mode === "copy"
+    const isSourceField = mode === "copy" && fieldKey === "sourceFilePath";
+    const serverId = isSourceField
       ? f.sourceServerId || f.targetServerId
       : f.targetServerId || f.sourceServerId;
-    const server = findServerById(copyServerId);
-    const hasSourcePath  = !!f.sourceFilePath?.trim();
-    const copyServerUser = (mode === "copy" && hasSourcePath)
+    const server = findServerById(serverId);
+    const copyServerUser = isSourceField
       ? ((server as any)?.name || "")
       : ((server as any)?.user || (server as any)?.name || "");
 
@@ -844,38 +919,34 @@ export function CreateGeneration({ open, onClose, preSelectContribution, servers
       const n = normalizePath((p || "").trim());
       if (!n) return "";
       if (n.endsWith("/")) return n;
-      const i    = n.lastIndexOf("/");
+      const i = n.lastIndexOf("/");
       if (i < 0) return n.includes(".") ? "" : `${n}/`;
       const last = n.slice(i + 1);
       if (last.includes(".")) return n.slice(0, i + 1);
       return `${n}/`;
     };
 
-    const isReapply = !!filesState[svc]?.show || !!filesState[svc]?.fetchedOnce;
+    const isReapply = !!filesState[svc]?.show && filesState[svc]?.activeField === fieldKey;
     let copyFilePath = "";
-    if (mode === "copy") {
-      const src = f.sourceFilePath?.trim() || "";
-      const alt = f.filePath?.trim()       || "";
-      if (!isReapply) {
-        copyFilePath = src || alt || "/home";
-      } else {
-        const srcDir = cleanDirFromPath(src);
-        const altDir = cleanDirFromPath(alt);
-        copyFilePath = srcDir || altDir || "/home";
-        updateForm(svc, { sourceFilePath: copyFilePath, inputFile: "" });
-      }
-    } else if (mode === "path") {
-      const p = f.filePath?.trim() || "";
-      if (!isReapply) {
-        copyFilePath = p || "/home";
-      } else {
-        const dir = cleanDirFromPath(p);
-        copyFilePath = dir || p || "/home";
-        updateForm(svc, { filePath: copyFilePath });
-      }
+    const p = currentPathValue?.trim() || "";
+    if (!isReapply) {
+      copyFilePath = p || "/home";
+    } else {
+      const dir = cleanDirFromPath(p);
+      copyFilePath = dir || p || "/home";
+      onPathCleaned(copyFilePath);
     }
 
-    setFilesState((prev) => ({ ...prev, [svc]: { ...(prev[svc] || { list: [], loading: false, show: false }), loading: true, show: true } }));
+    setFilesState((prev) => ({
+      ...prev,
+      [svc]: {
+        ...(prev[svc] || { list: [], loading: false, show: false }),
+        loading: true,
+        show: true,
+        activeField: fieldKey,
+      }
+    }));
+
     try {
       const res = await fetch(`${N8N_WEBHOOK_URL}/list-files`, {
         method:  "POST",
@@ -892,10 +963,31 @@ export function CreateGeneration({ open, onClose, preSelectContribution, servers
       else if (typeof data?.filenames === "string") list = data.filenames.split(",").map((s: string) => s.trim()).filter(Boolean);
       else if (Array.isArray(data?.data))   list = data.data;
       else if (typeof data === "string")    list = data.split(",").map((s: string) => s.trim()).filter(Boolean);
-      setFilesState((prev) => ({ ...prev, [svc]: { list, loading: false, show: true, fetchedOnce: true } }));
+      
+      setFilesState((prev) => ({
+        ...prev,
+        [svc]: {
+          list,
+          loading: false,
+          show: true,
+          fetchedOnce: true,
+          activeField: fieldKey,
+          directory: copyFilePath,
+        }
+      }));
       if (list.length === 0) toast.error("No files returned from server.");
     } catch {
-      setFilesState((prev) => ({ ...prev, [svc]: { ...(prev[svc] || { list: [], loading: false, show: true }), loading: false, list: [], fetchedOnce: false } }));
+      setFilesState((prev) => ({
+        ...prev,
+        [svc]: {
+          ...(prev[svc] || { list: [], loading: false, show: true }),
+          loading: false,
+          list: [],
+          fetchedOnce: false,
+          activeField: fieldKey,
+          directory: copyFilePath,
+        }
+      }));
       toast.error("Failed to load files list.");
     }
   };
@@ -1820,7 +1912,19 @@ export function CreateGeneration({ open, onClose, preSelectContribution, servers
                                     onCloseBrowser={closeBrowser}
                                     showViewFiles={true}
                                     viewFilesLoading={filesState[key]?.loading || false}
-                                    onViewFiles={() => handleViewFiles(key)}
+                                    onViewFiles={() => handleViewFiles(
+                                      key,
+                                      "contribPythonScriptPath",
+                                      f.contribPythonScriptPath,
+                                      (cleaned) => updateForm(key, { contribPythonScriptPath: cleaned })
+                                    )}
+                                    files={filesState[key]?.activeField === "contribPythonScriptPath" && filesState[key]?.show ? filesState[key]?.list : undefined}
+                                    onSelectFile={(file) => {
+                                      const fullPath = buildBrowserPath(filesState[key]?.directory || "", file);
+                                      updateForm(key, { contribPythonScriptPath: fullPath });
+                                      setFilesState(prev => ({ ...prev, [key]: { ...prev[key], show: false } }));
+                                    }}
+                                    onCloseFiles={() => setFilesState(prev => ({ ...prev, [key]: { ...prev[key], show: false } }))}
                                   />
                                 </div>
 
@@ -1848,7 +1952,19 @@ export function CreateGeneration({ open, onClose, preSelectContribution, servers
                                     onCloseBrowser={closeBrowser}
                                     showViewFiles={true}
                                     viewFilesLoading={filesState[key]?.loading || false}
-                                    onViewFiles={() => handleViewFiles(key)}
+                                    onViewFiles={() => handleViewFiles(
+                                      key,
+                                      "contribITCSearchDBPath",
+                                      f.contribITCSearchDBPath,
+                                      (cleaned) => updateForm(key, { contribITCSearchDBPath: cleaned })
+                                    )}
+                                    files={filesState[key]?.activeField === "contribITCSearchDBPath" && filesState[key]?.show ? filesState[key]?.list : undefined}
+                                    onSelectFile={(file) => {
+                                      const fullPath = buildBrowserPath(filesState[key]?.directory || "", file);
+                                      updateForm(key, { contribITCSearchDBPath: fullPath });
+                                      setFilesState(prev => ({ ...prev, [key]: { ...prev[key], show: false } }));
+                                    }}
+                                    onCloseFiles={() => setFilesState(prev => ({ ...prev, [key]: { ...prev[key], show: false } }))}
                                   />
                                 </div>
 
@@ -2033,7 +2149,19 @@ export function CreateGeneration({ open, onClose, preSelectContribution, servers
                                       onCloseBrowser={closeBrowser}
                                       showViewFiles={true}
                                       viewFilesLoading={filesState[key]?.loading || false}
-                                      onViewFiles={() => handleViewFiles(key)}
+                                      onViewFiles={() => handleViewFiles(
+                                        key,
+                                        "filePath",
+                                        f.filePath,
+                                        (cleaned) => updateForm(key, { filePath: cleaned })
+                                      )}
+                                      files={filesState[key]?.activeField === "filePath" && filesState[key]?.show ? filesState[key]?.list : undefined}
+                                      onSelectFile={(file) => {
+                                        const fullPath = buildBrowserPath(filesState[key]?.directory || "", file);
+                                        updateForm(key, { filePath: fullPath });
+                                        setFilesState(prev => ({ ...prev, [key]: { ...prev[key], show: false } }));
+                                      }}
+                                      onCloseFiles={() => setFilesState(prev => ({ ...prev, [key]: { ...prev[key], show: false } }))}
                                     />
                                   </div>
                                 ) : (
@@ -2429,16 +2557,46 @@ export function CreateGeneration({ open, onClose, preSelectContribution, servers
 
               {currentForm && (
                 <div className="mt-4 rounded-3xl border border-border bg-card p-5 shadow-sm">
-                  <div className="mb-3 flex items-center gap-2">
-                    <Terminal className="w-4 h-4 text-muted-foreground" />
-                    <div>
-                      <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">Review</p>
-                      <h4 className="text-sm font-semibold text-foreground">Generated Command</h4>
+                  <div className="mb-3 flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <Terminal className="w-4 h-4 text-muted-foreground" />
+                      <div>
+                        <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">Review</p>
+                        <h4 className="text-sm font-semibold text-foreground">Generated Command <span className="text-[10px] font-normal text-muted-foreground">(Editable)</span></h4>
+                      </div>
                     </div>
+                    {currentForm.isCustomCommand && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (currentServiceKey) {
+                            updateForm(currentServiceKey, {
+                              isCustomCommand: false,
+                              customCommand: "",
+                            });
+                          }
+                        }}
+                        className="px-2 py-1 text-[10px] font-medium bg-primary/10 text-primary border border-primary/20 rounded-md hover:bg-primary/20 transition-colors"
+                      >
+                        Reset to Auto
+                      </button>
+                    )}
                   </div>
-                  <pre className="w-full rounded-2xl border border-border bg-muted/30 px-4 py-3 text-xs text-foreground font-mono whitespace-pre-wrap break-all leading-relaxed">
-                    {buildCommand(currentForm, true)}
-                  </pre>
+                  <div className="relative mt-2">
+                    <textarea
+                      value={currentForm.isCustomCommand ? currentForm.customCommand : buildCommand(currentForm, true)}
+                      onChange={(e) => {
+                        if (currentServiceKey) {
+                          updateForm(currentServiceKey, {
+                            isCustomCommand: true,
+                            customCommand: e.target.value,
+                          });
+                        }
+                      }}
+                      rows={3}
+                      className="w-full rounded-2xl border border-border bg-muted/30 px-4 py-3 text-xs text-foreground font-mono whitespace-pre-wrap break-all leading-relaxed focus:outline-none focus:ring-2 focus:ring-primary/40 focus:bg-background transition-all resize-y"
+                    />
+                  </div>
                 </div>
               )}
             </div>
